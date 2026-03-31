@@ -1,0 +1,9 @@
+dist
+node_modules
+
+.transcripts
+.tasks
+.inbox
+.team
+.agent
+.worktrees
