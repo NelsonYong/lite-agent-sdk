@@ -389,10 +389,19 @@ const echo = defineTool({
   execute: (input) => input.msg,
 });
 
-test("defineTool returns the tool unchanged with typed execute", async () => {
+test("defineTool returns the tool unchanged with typed execute", () => {
   expect(echo.name).toBe("echo");
-  await expect(echo.execute({ msg: "hi" }, {} as never)).resolves?.toBeUndefined; // smoke
   expect(echo.execute({ msg: "hi" }, {} as never)).toBe("hi");
+});
+
+test("a tool with an async execute resolves to its string", async () => {
+  const asyncEcho = defineTool({
+    name: "aecho",
+    description: "async echo",
+    schema: z.object({ msg: z.string() }),
+    execute: async (input) => input.msg,
+  });
+  await expect(Promise.resolve(asyncEcho.execute({ msg: "yo" }, {} as never))).resolves.toBe("yo");
 });
 
 test("toToolSpec derives a JSON-schema parameters object from zod", () => {
