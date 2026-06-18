@@ -1,6 +1,6 @@
 import type { ModelProvider, ToolCallCodec, Tool } from "./strategies";
 import type { AssistantMessage, Message, ToolResultBlock, Usage } from "./types";
-import { toolResultBlock } from "./types";
+import { isTextBlock, toolResultBlock } from "./types";
 import type { AgentEvent, RunResult } from "./events";
 import { ProviderError } from "./events";
 import { composeModelCall, composeToolCall, runLifecycle } from "./middleware";
@@ -43,6 +43,7 @@ export async function* runKernel(
   let stopReason: RunResult["stopReason"] = "max_turns";
 
   for (let turn = 1; turn <= cfg.maxTurns; turn++) {
+    // Phase 1: abort is observed only at turn boundaries.
     if (signal.aborted) { stopReason = "aborted"; break; }
     const ctx = mkCtx(turn);
     yield { type: "turn_start", turn };
@@ -67,6 +68,7 @@ export async function* runKernel(
         };
       }
     }
+    yield* drain();
     if (!assistant) throw new ProviderError("provider produced no message_done chunk");
 
     ctx.messages.push(assistant);
@@ -115,7 +117,7 @@ function lastAssistantText(messages: Message[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m && m.role === "assistant" && Array.isArray(m.content)) {
-      return m.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
+      return m.content.filter(isTextBlock).map((b) => b.text).join("");
     }
   }
   return "";
