@@ -253,6 +253,8 @@ export const toolResultBlock = (id: string, content: string, isError = false): T
   isError ? { type: "tool_result", id, content, isError: true } : { type: "tool_result", id, content };
 
 export const isToolCallBlock = (b: ContentBlock): b is ToolCallBlock => b.type === "tool_call";
+
+export const isTextBlock = (b: ContentBlock): b is TextBlock => b.type === "text";
 ```
 
 - [ ] **Step 4: Run test to verify it passes**
@@ -950,6 +952,7 @@ export async function* runKernel(
   let stopReason: RunResult["stopReason"] = "max_turns";
 
   for (let turn = 1; turn <= cfg.maxTurns; turn++) {
+    // Phase 1: abort is observed only at turn boundaries.
     if (signal.aborted) { stopReason = "aborted"; break; }
     const ctx = mkCtx(turn);
     yield { type: "turn_start", turn };
@@ -974,6 +977,7 @@ export async function* runKernel(
         };
       }
     }
+    yield* drain();
     if (!assistant) throw new ProviderError("provider produced no message_done chunk");
 
     ctx.messages.push(assistant);
@@ -1022,7 +1026,7 @@ function lastAssistantText(messages: Message[]): string {
   for (let i = messages.length - 1; i >= 0; i--) {
     const m = messages[i];
     if (m && m.role === "assistant" && Array.isArray(m.content)) {
-      return m.content.filter((b) => b.type === "text").map((b) => (b as { text: string }).text).join("");
+      return m.content.filter(isTextBlock).map((b) => b.text).join("");
     }
   }
   return "";
@@ -1039,7 +1043,7 @@ Expected: PASS — 4 passed.
 - [ ] **Step 5: Fix the unused import if typecheck complains**
 
 Run: `pnpm --filter @lite-agent/core typecheck`
-Expected: no errors. If it reports `textBlock` is declared but never used, edit `kernel.ts` line 1's type import to `import { toolResultBlock } from "./types";` and re-run.
+Expected: no errors. If it reports `textBlock` is declared but never used, edit `kernel.ts` line 1's type import to `import { isTextBlock, toolResultBlock } from "./types";` and re-run.
 
 - [ ] **Step 6: Commit**
 
