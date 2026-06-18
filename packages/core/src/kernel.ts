@@ -24,7 +24,7 @@ export async function* runKernel(
   signal: AbortSignal,
   sessionId: string,
 ): AsyncGenerator<AgentEvent, RunResult> {
-  const messages: Message[] = typeof input === "string" ? [{ role: "user", content: input }] : [...input];
+  let messages: Message[] = typeof input === "string" ? [{ role: "user", content: input }] : [...input];
   const queue: AgentEvent[] = [];
   const emit = (ev: AgentEvent) => { queue.push(ev); };
   const toolMap = new Map(cfg.tools.map((t) => [t.name, t]));
@@ -50,6 +50,7 @@ export async function* runKernel(
 
     await runLifecycle(cfg.middleware, "beforeModel", ctx);
     yield* drain();
+    messages = ctx.messages;
 
     const req = cfg.codec.encode(
       { model: cfg.model, system: cfg.system, messages: ctx.messages, maxTokens: cfg.maxTokens },
