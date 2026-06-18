@@ -20,10 +20,15 @@ function render(ev: AgentEvent): void {
       process.stdout.write(ev.text);
       break;
     case "tool_use":
-      process.stdout.write(`\n\x1b[32m[tool] ${ev.call.name} ${JSON.stringify(ev.call.input)}\x1b[0m\n`);
+      process.stdout.write(
+        `\n\x1b[32m[tool] ${ev.call.name} ${JSON.stringify(ev.call.input)}\x1b[0m\n`,
+      );
       break;
     case "tool_result": {
-      const body = ev.result.content.length > 500 ? `${ev.result.content.slice(0, 500)}…` : ev.result.content;
+      const body =
+        ev.result.content.length > 500
+          ? `${ev.result.content.slice(0, 500)}…`
+          : ev.result.content;
       process.stdout.write(`\x1b[90m${body}\x1b[0m\n`);
       break;
     }
@@ -51,7 +56,10 @@ function readPrompt(rl: ReturnType<typeof createInterface>): Promise<string> {
     const onLine = (line: string) => {
       if (multiline) {
         if (line === "") submit();
-        else { lines.push(line); process.stdout.write("\x1b[90m...  \x1b[0m"); }
+        else {
+          lines.push(line);
+          process.stdout.write("\x1b[90m...  \x1b[0m");
+        }
         return;
       }
       if (timer) clearTimeout(timer);
@@ -59,7 +67,9 @@ function readPrompt(rl: ReturnType<typeof createInterface>): Promise<string> {
       timer = setTimeout(() => {
         if (lines.length > 1) {
           multiline = true;
-          process.stdout.write("\x1b[90m[multi-line: blank line submits]\x1b[0m\n\x1b[90m...  \x1b[0m");
+          process.stdout.write(
+            "\x1b[90m[multi-line: blank line submits]\x1b[0m\n\x1b[90m...  \x1b[0m",
+          );
         } else {
           submit();
         }
@@ -95,10 +105,15 @@ async function main(): Promise<void> {
     try {
       const gen = agent.run(history, { signal: ac.signal });
       let r = await gen.next();
-      while (!r.done) { render(r.value); r = await gen.next(); }
+      while (!r.done) {
+        render(r.value);
+        r = await gen.next();
+      }
       history = r.value.messages;
     } catch (e) {
-      process.stdout.write(`\n\x1b[31m[error] ${(e as Error).message}\x1b[0m\n`);
+      process.stdout.write(
+        `\n\x1b[31m[error] ${(e as Error).message}\x1b[0m\n`,
+      );
     } finally {
       process.stdin.removeListener("data", onKey);
       if (process.stdin.isTTY) process.stdin.setRawMode(false);
