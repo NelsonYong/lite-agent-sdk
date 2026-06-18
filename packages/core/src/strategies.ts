@@ -33,13 +33,17 @@ export interface Tool<I = unknown> {
 
 // --- Strategies implemented in later phases; declared here so types are stable. ---
 export type CompactResult = {
-  messages: Message[]; kind?: "micro" | "auto"; before?: number; after?: number;
+  messages: Message[];
+  kind?: "micro" | "auto";
+  before?: number;
+  after?: number;
 };
 export interface Compactor {
   maybeCompact(messages: Message[], usage: Usage): Promise<CompactResult>;
 }
 
 export type Decision = "allow" | "deny" | "ask";
+// Narrower than ToolContext on purpose: a permission policy gets identity only — no emit/signal.
 export interface PolicyContext { readonly sessionId: string; }
 export interface PermissionPolicy {
   check(call: ToolCall, ctx: PolicyContext): Decision | Promise<Decision>;
