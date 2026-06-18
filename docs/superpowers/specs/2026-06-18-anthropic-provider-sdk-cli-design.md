@@ -4,7 +4,19 @@
 > ([2026-06-18-agent-core-sdk-design.md](./2026-06-18-agent-core-sdk-design.md)).
 > Delivers the first end-to-end runnable CLI: real Anthropic API, default tools, skills.
 
-**Status:** Approved (design confirmed in chat: "老代码都去掉,provider 先做 Anthropic" / "设计合理").
+**Status:** Approved (design confirmed in chat: "老代码都去掉,provider 先做 Anthropic" / "设计合理";
+API 对标 `@anthropic-ai/claude-agent-sdk`).
+
+## Two distinct "Claude SDKs" — do not conflate
+
+| Package | What it is | Role here |
+| --- | --- | --- |
+| `@anthropic-ai/sdk` | Raw **model API** client (Messages API, token streaming) | The thing `provider-anthropic` wraps — the only way a `ModelProvider` emits tokens |
+| `@anthropic-ai/claude-agent-sdk` | Anthropic's high-level **Agent SDK** (`query()` loop, `tool()`, permissions, hooks, MCP) | A **peer** to `@lite-agent/core` + `@lite-agent/sdk`, used as an **API-design reference**, NOT a dependency |
+
+We do **not** build the provider on `claude-agent-sdk`: it only talks to Anthropic and bundles its
+own agent loop, which would break the "run local small models" and "lean pluggable kernel" goals.
+Instead `@lite-agent/sdk`'s public API is shaped after `claude-agent-sdk` so it feels familiar.
 
 ## Goal
 
@@ -77,15 +89,40 @@ Two responsibilities, split into pure functions for testability:
   (identity, work-in-workdir, todo-planning, skills list + `load_skill` hint). The old
   team/subagent sections are dropped.
 - **Factory:** `createLiteAgent(cfg)` wires `nativeCodec` + default tools + optional
-  `load_skill` + system prompt and returns a core `Agent`:
+  `load_skill` + system prompt and returns a core `Agent` (the reusable handle the CLI keeps
+  across turns):
 
   ```ts
   createLiteAgent({
     model: ModelProvider; modelName?: string; workdir: string;
     skillsDir?: string; tools?: Tool[]; system?: string;
+    allowedTools?: string[]; disallowedTools?: string[];
     maxTurns?: number; maxTokens?: number; use?: Middleware[];
   }): Agent
   ```
+
+#### API shaped after `claude-agent-sdk`
+
+To feel familiar to `claude-agent-sdk` users, `@lite-agent/sdk` also exports:
+
+- **`query(opts): AsyncGenerator<AgentEvent, RunResult>`** — a one-shot facade mirroring
+  `claude-agent-sdk`'s `query({ prompt, options })`. `opts = { prompt, model, modelName?, cwd?,
+  systemPrompt?, allowedTools?, disallowedTools?, tools?, skillsDir?, maxTurns?, maxTokens?,
+  use?, signal?, sessionId? }`. Internally: `createLiteAgent({...}).run(prompt, { signal, sessionId })`.
+  (`cwd` maps to `workdir`, `systemPrompt` to `system`.)
+- **`tool(name, description, schema, handler)`** — a positional helper matching
+  `claude-agent-sdk`'s `tool(...)`, returning a core `Tool` (thin wrapper over `defineTool`).
+- **`allowedTools` / `disallowedTools`** — in this slice implemented as a **registration filter**
+  (which tools are exposed by name), not a permission gate. Filter order: start from
+  `[...defaultTools, loadSkill?, ...extraTools]`; if `allowedTools` is set keep only those names;
+  then drop any in `disallowedTools`.
+
+**Deferred to Phase 3** (named here so the surface is forward-compatible): `canUseTool`,
+`permissionMode`, `hooks`, `systemPrompt` presets, `mcpServers`. The middleware pipeline already
+covers what `hooks` would do.
+
+`@lite-agent/sdk` re-exports `@lite-agent/core` (`export * from "@lite-agent/core"`) so apps depend
+on one package for both the batteries and the core types (`Message`, `AgentEvent`, `Agent`, ...).
 
 ### 3. Outer `src/` CLI app
 
@@ -118,7 +155,10 @@ Two responsibilities, split into pure functions for testability:
 - **sdk tools** (`tools.test.ts`): `safePath` confinement, bash dangerous-command block, todo render.
 - **sdk factory** (`createLiteAgent.test.ts`): with `fakeProvider`, assert the agent runs and that
   default tools + `load_skill` + skill descriptions are wired (a skill-listing in `system`, a
-  `load_skill` call resolves).
+  `load_skill` call resolves); assert `allowedTools`/`disallowedTools` filter the registered set.
+- **sdk facade** (`query.test.ts`): with `fakeProvider`, assert `query({ prompt, model, ... })`
+  streams the same events as `createLiteAgent().run()`; assert `tool(name, desc, schema, handler)`
+  produces a working `Tool`.
 - **app**: smoke only (constructs without throwing); real conversation verified manually via `.env`.
 
 ## Sequencing
