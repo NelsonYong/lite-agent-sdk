@@ -247,6 +247,10 @@ interface Store {
 //   memoryStore()(默认) | jsonlStore(dir)(复用现有 .transcripts 思路)
 ```
 
+> **Phase 3 追加第 9 个策略 `Sandbox`** —— 给 `bash` 等工具一个 OS 级运行时边界(文件系统 + 网络),
+> 默认 `noopSandbox()`,`@anthropic-ai/sandbox-runtime` 适配器 opt-in;与 `PermissionPolicy`(闸门)
+> 叠加成"边界层"。详见 [phase-3-sandbox-boundary-design.md](./2026-06-18-phase-3-sandbox-boundary-design.md)。
+
 ### 本地小模型闭环
 `ModelProvider` 只翻译协议、不碰工具语义;`ToolCallCodec` 负责「工具调用怎么编进请求、怎么从输出里解出来」。于是:
 - 强模型(Anthropic/GPT)→ `nativeCodec` + 对应 provider;
