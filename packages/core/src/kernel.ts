@@ -1,4 +1,4 @@
-import type { ModelProvider, ToolCallCodec, Tool } from "./strategies";
+import type { ModelProvider, ToolCallCodec, Tool, Sandbox } from "./strategies";
 import type { AssistantMessage, Message, ToolResultBlock, Usage } from "./types";
 import { isTextBlock, toolResultBlock } from "./types";
 import type { AgentEvent, RunResult } from "./events";
@@ -16,6 +16,7 @@ export interface KernelConfig {
   system?: string;
   maxTurns: number;
   maxTokens?: number;
+  sandbox: Sandbox;
 }
 
 export async function* runKernel(
@@ -91,7 +92,7 @@ export async function* runKernel(
         if (!tool) return { id: call.id, name: call.name, content: `Error: unknown tool '${call.name}'`, isError: true as const };
         try {
           const parsed = tool.schema.parse(call.input);
-          const out = await tool.execute(parsed, { sessionId, signal, emit });
+          const out = await tool.execute(parsed, { sessionId, signal, emit, sandbox: cfg.sandbox });
           return { id: call.id, name: call.name, content: String(out) };
         } catch (e) {
           return { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true as const };
