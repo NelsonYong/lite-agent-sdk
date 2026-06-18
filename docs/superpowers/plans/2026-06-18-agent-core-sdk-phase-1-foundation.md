@@ -115,7 +115,7 @@ packages:
     "typecheck": "tsc --noEmit"
   },
   "dependencies": { "zod": "^4.3.6" },
-  "devDependencies": { "tsup": "^8.3.0", "typescript": "^6.0.2", "vitest": "^2.1.0" }
+  "devDependencies": { "@types/node": "^25.5.0", "tsup": "^8.3.0", "typescript": "^6.0.2", "vitest": "^2.1.0" }
 }
 ```
 
@@ -125,10 +125,11 @@ packages:
 ```json
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist" },
+  "compilerOptions": { "outDir": "dist", "types": ["node"] },
   "include": ["src", "test"]
 }
 ```
+> `@types/node` + `"types": ["node"]` provide `AbortSignal`/`AbortController` (Node ≥20 web-standard globals) without pulling the browser `DOM` lib into this Node SDK.
 
 `packages/core/vitest.config.ts`:
 ```ts
