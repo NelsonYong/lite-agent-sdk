@@ -8,15 +8,15 @@ importers:
 
   .:
     dependencies:
-      '@anthropic-ai/sdk':
-        specifier: ^0.80.0
-        version: 0.80.0(zod@4.3.6)
+      '@lite-agent/provider-anthropic':
+        specifier: workspace:*
+        version: link:packages/provider-anthropic
+      '@lite-agent/sdk':
+        specifier: workspace:*
+        version: link:packages/sdk
       dotenv:
         specifier: ^17.3.1
         version: 17.3.1
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
     devDependencies:
       '@types/node':
         specifier: ^25.5.0
