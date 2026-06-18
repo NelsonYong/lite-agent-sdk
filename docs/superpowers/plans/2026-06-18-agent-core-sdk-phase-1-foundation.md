@@ -85,13 +85,14 @@ packages:
     "strict": true,
     "declaration": true,
     "skipLibCheck": true,
-    "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
     "verbatimModuleSyntax": true,
-    "noUncheckedIndexedAccess": true
+    "noUncheckedIndexedAccess": true,
+    "ignoreDeprecations": "6.0"
   }
 }
 ```
+> `ignoreDeprecations: "6.0"` is required: TypeScript 6 emits TS5101 for the `baseUrl` that tsup's DTS worker synthesizes, which otherwise breaks `pnpm build`. `esModuleInterop` is intentionally omitted — it is inert under (and can conflict with) `verbatimModuleSyntax`.
 
 - [ ] **Step 3: Create the package manifest**
 
@@ -107,6 +108,7 @@ packages:
     ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
   },
   "files": ["dist"],
+  "engines": { "node": ">=20" },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean",
     "test": "vitest run",
@@ -123,7 +125,7 @@ packages:
 ```json
 {
   "extends": "../../tsconfig.base.json",
-  "compilerOptions": { "outDir": "dist", "rootDir": "src" },
+  "compilerOptions": { "outDir": "dist" },
   "include": ["src", "test"]
 }
 ```
