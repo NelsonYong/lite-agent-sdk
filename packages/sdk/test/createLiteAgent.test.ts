@@ -37,3 +37,19 @@ test("allowedTools restricts the registered set", async () => {
   for await (const ev of agent.run("hi")) if (ev.type === "tool_result") results.push(ev.result.content);
   expect(results.join("")).toMatch(/unknown tool/);
 });
+
+test("a configured sandbox wraps bash commands end-to-end", async () => {
+  const fp = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "bash", input: { command: "echo original" } }] } },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  const agent = createLiteAgent({
+    model: fp,
+    workdir: process.cwd(),
+    sandbox: { id: "fake", wrap: () => "echo wrapped-by-sandbox" },
+  });
+  const results: string[] = [];
+  for await (const ev of agent.run("hi")) if (ev.type === "tool_result") results.push(ev.result.content);
+  expect(results.join("")).toContain("wrapped-by-sandbox");
+  expect(results.join("")).not.toContain("original");
+});
