@@ -1,5 +1,5 @@
 import { createAgent, nativeCodec } from "@lite-agent/core";
-import type { Agent, Middleware, ModelProvider, Tool } from "@lite-agent/core";
+import type { Agent, Middleware, ModelProvider, Sandbox, Tool } from "@lite-agent/core";
 import { defaultTools } from "./tools";
 import { SkillLoader } from "./skills/loader";
 import { loadSkillTool } from "./skills/loadSkillTool";
@@ -17,6 +17,7 @@ export interface CreateLiteAgentConfig {
   maxTurns?: number;
   maxTokens?: number;
   use?: Middleware[];
+  sandbox?: Sandbox;
 }
 
 export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
@@ -43,5 +44,6 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
     system,
     maxTurns: cfg.maxTurns,
     maxTokens: cfg.maxTokens,
+    sandbox: cfg.sandbox,
   });
 }

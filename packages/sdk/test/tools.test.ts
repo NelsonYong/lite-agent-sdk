@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import type { ToolContext } from "@lite-agent/core";
+import { noopSandbox } from "@lite-agent/core";
 import { bashTool } from "../src/tools/bash";
 import { todoTool } from "../src/tools/todo";
 import { defaultTools } from "../src/tools";
@@ -27,4 +28,20 @@ test("todo renders items and enforces a single in_progress", async () => {
 test("defaultTools exposes the five built-ins by name", () => {
   const names = defaultTools(process.cwd()).map((t) => t.name).sort();
   expect(names).toEqual(["bash", "edit_file", "read_file", "todo", "write_file"]);
+});
+
+test("bash wraps the command via ctx.sandbox before executing", async () => {
+  const sandboxCtx = {
+    sessionId: "s",
+    signal: new AbortController().signal,
+    emit: () => {},
+    sandbox: { id: "fake", wrap: (c: string) => `echo [${c}]` },
+  };
+  const out = await bashTool(process.cwd()).execute({ command: "hi" }, sandboxCtx);
+  expect(out).toBe("[hi]");
+});
+
+test("bash runs the command unchanged under noopSandbox", async () => {
+  const noopCtx = { sessionId: "s", signal: new AbortController().signal, emit: () => {}, sandbox: noopSandbox() };
+  expect(await bashTool(process.cwd()).execute({ command: "echo plain" }, noopCtx)).toBe("plain");
 });
