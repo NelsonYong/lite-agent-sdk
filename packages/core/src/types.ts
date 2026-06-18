@@ -38,3 +38,4 @@ export const toolResultBlock = (id: string, content: string, isError = false): T
   isError ? { type: "tool_result", id, content, isError: true } : { type: "tool_result", id, content };
 
 export const isToolCallBlock = (b: ContentBlock): b is ToolCallBlock => b.type === "tool_call";
+export const isTextBlock = (b: ContentBlock): b is TextBlock => b.type === "text";

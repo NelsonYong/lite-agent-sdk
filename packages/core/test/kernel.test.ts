@@ -7,6 +7,7 @@ import { fakeProvider } from "../src/testing/fakeProvider";
 import { defineTool } from "../src/tools/define";
 import { textBlock } from "../src/types";
 import type { AgentEvent, RunResult } from "../src/events";
+import type { Middleware } from "../src/middleware";
 
 function baseCfg(over: Partial<KernelConfig>): KernelConfig {
   return { provider: fakeProvider([]), codec: nativeCodec(), tools: [], middleware: [], model: "fake", maxTurns: 10, ...over };
@@ -70,4 +71,21 @@ test("an aborted signal ends the run with reason 'aborted'", async () => {
   const { events, result } = await drain(runKernel(baseCfg({ provider }), "hi", ac.signal, "s1"));
   expect(result.stopReason).toBe("aborted");
   expect(events.at(-1)).toMatchObject({ type: "done", reason: "aborted" });
+});
+
+test("events emitted by wrapModelCall middleware drain before the message event", async () => {
+  const provider = fakeProvider([{ text: "hi", message: { role: "assistant", content: [textBlock("hi")] } }]);
+  const emitter: Middleware = {
+    name: "emitter",
+    async *wrapModelCall(ctx, next) {
+      ctx.emit({ type: "compaction", kind: "micro", before: 1, after: 1 });
+      yield* next();
+    },
+  };
+  const { events } = await drain(
+    runKernel(baseCfg({ provider, middleware: [emitter] }), "hi", new AbortController().signal, "s1"),
+  );
+  const types = events.map((e) => e.type);
+  expect(types).toContain("compaction");
+  expect(types.indexOf("compaction")).toBeLessThan(types.indexOf("message"));
 });
