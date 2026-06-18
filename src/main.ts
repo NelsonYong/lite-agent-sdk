@@ -1,4 +1,5 @@
 import dotenv from "dotenv";
+import "./monitor";
 import { liteAgent } from "./agent";
 import { MessageParam } from "@anthropic-ai/sdk/resources";
 import { resolve, join } from "node:path";
