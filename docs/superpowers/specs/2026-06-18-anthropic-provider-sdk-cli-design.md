@@ -141,8 +141,12 @@ on one package for both the batteries and the core types (`Message`, `AgentEvent
 ## Error Handling
 
 - Tool errors are already caught by the kernel and returned as `isError` tool results.
-- Provider errors surface as thrown `ProviderError` from the stream; the CLI try/catches around the
-  run loop and prints, then returns to the prompt.
+- Provider errors surface as thrown `ProviderError` from the stream (the provider wraps raw
+  `@anthropic-ai/sdk` errors, preserving HTTP `status`); the CLI try/catches around the run loop and
+  prints, then returns to the prompt.
+- In Phase 2 fatal errors **throw** (propagate out of `agent.run()`) rather than being emitted as an
+  `error` AgentEvent. The CLI's `error`-event render branch is forward-compatible surface for a later
+  phase where the kernel may emit a non-fatal `error` event before throwing; it is unreachable today.
 - `safePath` throws on escape; the file tool's own try/catch turns it into an error string.
 
 ## Testing
