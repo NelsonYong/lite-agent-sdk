@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
 import type { ModelChunk } from "@lite-agent/core";
+import { ProviderError } from "@lite-agent/core";
 import { anthropic } from "../src/index";
 import type { AnthropicClientLike } from "../src/index";
 
@@ -38,4 +39,21 @@ test("provider streams ModelChunks via an injected client and forwards params", 
     message: { content: [{ type: "text", text: "hi" }] },
     usage: { inputTokens: 3, outputTokens: 1 },
   });
+});
+
+test("wraps client errors in ProviderError preserving status", async () => {
+  const failing: AnthropicClientLike = {
+    messages: {
+      create() {
+        const err = Object.assign(new Error("rate limited"), { status: 429 });
+        throw err;
+      },
+    },
+  };
+  const provider = anthropic({ client: failing });
+  await expect(async () => {
+    for await (const chunk of provider.stream({ model: "m", messages: [{ role: "user", content: "hi" }] })) {
+      void chunk;
+    }
+  }).rejects.toMatchObject({ name: "ProviderError", status: 429 });
 });

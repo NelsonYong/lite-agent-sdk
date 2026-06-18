@@ -1,5 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import type { ModelChunk, ModelProvider, ModelRequest } from "@lite-agent/core";
+import { ProviderError } from "@lite-agent/core";
 import { toAnthropicParams } from "./mapping";
 import { translateStream } from "./stream";
 
@@ -19,6 +20,13 @@ export interface AnthropicProviderOptions {
   client?: AnthropicClientLike;
 }
 
+function toProviderError(e: unknown): ProviderError {
+  if (e instanceof ProviderError) return e;
+  const status = typeof (e as { status?: unknown }).status === "number" ? (e as { status: number }).status : undefined;
+  const message = e instanceof Error ? e.message : String(e);
+  return new ProviderError(message, status);
+}
+
 export function anthropic(opts: AnthropicProviderOptions = {}): ModelProvider {
   const client: AnthropicClientLike =
     opts.client ??
@@ -31,8 +39,12 @@ export function anthropic(opts: AnthropicProviderOptions = {}): ModelProvider {
     id: "anthropic",
     async *stream(req: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelChunk> {
       const params = toAnthropicParams(req);
-      const raw = await client.messages.create(params, signal ? { signal } : undefined);
-      yield* translateStream(raw);
+      try {
+        const raw = await client.messages.create(params, signal ? { signal } : undefined);
+        yield* translateStream(raw);
+      } catch (e) {
+        throw toProviderError(e);
+      }
     },
   };
 }
