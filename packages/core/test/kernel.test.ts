@@ -8,6 +8,8 @@ import { defineTool } from "../src/tools/define";
 import { textBlock } from "../src/types";
 import type { AgentEvent, RunResult } from "../src/events";
 import type { Middleware } from "../src/middleware";
+import type { Message } from "../src/types";
+import type { ModelProvider } from "../src/strategies";
 
 function baseCfg(over: Partial<KernelConfig>): KernelConfig {
   return { provider: fakeProvider([]), codec: nativeCodec(), tools: [], middleware: [], model: "fake", maxTurns: 10, ...over };
@@ -88,4 +90,38 @@ test("events emitted by wrapModelCall middleware drain before the message event"
   const types = events.map((e) => e.type);
   expect(types).toContain("compaction");
   expect(types.indexOf("compaction")).toBeLessThan(types.indexOf("message"));
+});
+
+test("a beforeModel middleware reassigning ctx.messages persists across turns", async () => {
+  const echo = defineTool({ name: "echo", description: "e", schema: z.object({}), execute: () => "r" });
+  const seen: Message[][] = [];
+  const recorder: ModelProvider = {
+    id: "rec",
+    async *stream(req) {
+      seen.push(structuredClone(req.messages));
+      if (seen.length === 1) {
+        yield { type: "message_done", message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "echo", input: {} }] }, usage: { inputTokens: 0, outputTokens: 0 } };
+      } else {
+        yield { type: "message_done", message: { role: "assistant", content: [textBlock("done")] }, usage: { inputTokens: 0, outputTokens: 0 } };
+      }
+    },
+  };
+  const compactor: Middleware = {
+    name: "compactor",
+    beforeModel(ctx) { if (ctx.turn === 2) ctx.messages = [{ role: "user", content: "[COMPACTED]" }]; },
+  };
+  const events: AgentEvent[] = [];
+  const gen = runKernel(
+    { provider: recorder, codec: nativeCodec(), tools: [echo], middleware: [compactor], model: "rec", maxTurns: 10 },
+    "hi", new AbortController().signal, "s1",
+  );
+  let r = await gen.next();
+  while (!r.done) { events.push(r.value); r = await gen.next(); }
+  const result = r.value;
+
+  // turn 2's request used the compacted history
+  expect(seen[1]).toEqual([{ role: "user", content: "[COMPACTED]" }]);
+  // the compaction must persist into the final result (lost without the fix)
+  expect(result.messages).toContainEqual({ role: "user", content: "[COMPACTED]" });
+  expect(result.text).toBe("done");
 });
