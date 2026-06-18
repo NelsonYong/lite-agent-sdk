@@ -10,9 +10,10 @@ import type { AgentEvent, RunResult } from "../src/events";
 import type { Middleware } from "../src/middleware";
 import type { Message } from "../src/types";
 import type { ModelProvider } from "../src/strategies";
+import { noopSandbox } from "../src/sandbox";
 
 function baseCfg(over: Partial<KernelConfig>): KernelConfig {
-  return { provider: fakeProvider([]), codec: nativeCodec(), tools: [], middleware: [], model: "fake", maxTurns: 10, ...over };
+  return { provider: fakeProvider([]), codec: nativeCodec(), tools: [], middleware: [], model: "fake", maxTurns: 10, sandbox: noopSandbox(), ...over };
 }
 
 async function drain(gen: AsyncGenerator<AgentEvent, RunResult>) {
@@ -112,7 +113,7 @@ test("a beforeModel middleware reassigning ctx.messages persists across turns", 
   };
   const events: AgentEvent[] = [];
   const gen = runKernel(
-    { provider: recorder, codec: nativeCodec(), tools: [echo], middleware: [compactor], model: "rec", maxTurns: 10 },
+    { provider: recorder, codec: nativeCodec(), tools: [echo], middleware: [compactor], model: "rec", maxTurns: 10, sandbox: noopSandbox() },
     "hi", new AbortController().signal, "s1",
   );
   let r = await gen.next();

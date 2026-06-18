@@ -22,6 +22,7 @@ export interface ToolContext {
   emit(ev: AgentEvent): void;
   readonly approval?: ApprovalHandler;
   readonly input?: InputHandler;
+  readonly sandbox?: Sandbox;
 }
 
 export interface Tool<I = unknown> {
@@ -51,6 +52,17 @@ export interface PermissionPolicy {
 
 export interface ApprovalHandler { request(call: ToolCall): Promise<"allow" | "deny">; }
 export interface InputHandler { request(q: UserQuestion): Promise<UserAnswer>; }
+
+export interface SandboxWrapOptions {
+  readonly cwd: string;
+}
+
+// 9th strategy — wraps a shell command so it runs inside an OS-level boundary.
+export interface Sandbox {
+  readonly id: string;
+  wrap(command: string, opts: SandboxWrapOptions): Promise<string> | string;
+  dispose?(): Promise<void> | void;
+}
 
 export interface Store {
   load(id: string): Promise<Message[] | null>;

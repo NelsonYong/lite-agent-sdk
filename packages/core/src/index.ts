@@ -9,10 +9,12 @@ export type { FakeTurn } from "./testing/fakeProvider";
 export { composeModelCall, composeToolCall, runLifecycle } from "./middleware";
 export type { AgentContext, ToolCallContext, Middleware, ModelCall, ToolExec } from "./middleware";
 
+export { noopSandbox } from "./sandbox";
 export type {
   ModelProvider, ToolCallCodec, Tool, ToolContext,
   Compactor, CompactResult, PermissionPolicy, PolicyContext, Decision,
   ApprovalHandler, InputHandler, Store,
+  Sandbox, SandboxWrapOptions,
 } from "./strategies";
 
 export type { AgentEvent, RunResult } from "./events";
