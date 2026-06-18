@@ -28,3 +28,13 @@ test("toToolSpec derives a JSON-schema parameters object from zod", () => {
 test("tool schema rejects bad input", () => {
   expect(() => echo.schema.parse({ msg: 123 })).toThrow();
 });
+
+test("a tool with an async execute resolves to its string", async () => {
+  const asyncEcho = defineTool({
+    name: "aecho",
+    description: "async echo",
+    schema: z.object({ msg: z.string() }),
+    execute: async (input) => input.msg,
+  });
+  await expect(Promise.resolve(asyncEcho.execute({ msg: "yo" }, {} as never))).resolves.toBe("yo");
+});
