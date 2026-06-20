@@ -10,3 +10,4 @@ export function defaultTools(workdir: string): Tool[] {
 export { bashTool } from "./bash";
 export { fileTools, makeSafePath } from "./file";
 export { todoTool } from "./todo";
+export { askUserTool } from "./askUser";

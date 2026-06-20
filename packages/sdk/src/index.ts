@@ -7,6 +7,6 @@ export type { QueryOptions } from "./query";
 export { tool } from "./tool";
 export { buildSystemPrompt } from "./system";
 export type { SystemPromptOptions } from "./system";
-export { defaultTools, bashTool, fileTools, todoTool, makeSafePath } from "./tools";
+export { defaultTools, bashTool, fileTools, todoTool, makeSafePath, askUserTool } from "./tools";
 export { SkillLoader } from "./skills/loader";
 export { loadSkillTool } from "./skills/loadSkillTool";

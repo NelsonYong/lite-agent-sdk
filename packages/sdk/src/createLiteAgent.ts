@@ -1,6 +1,6 @@
 import { createAgent, nativeCodec, permission } from "@lite-agent/core";
-import type { Agent, ApprovalHandler, Middleware, ModelProvider, PermissionPolicy, Sandbox, Tool } from "@lite-agent/core";
-import { defaultTools } from "./tools";
+import type { Agent, ApprovalHandler, InputHandler, Middleware, ModelProvider, PermissionPolicy, Sandbox, Tool } from "@lite-agent/core";
+import { defaultTools, askUserTool } from "./tools";
 import { SkillLoader } from "./skills/loader";
 import { loadSkillTool } from "./skills/loadSkillTool";
 import { buildSystemPrompt } from "./system";
@@ -20,6 +20,7 @@ export interface CreateLiteAgentConfig {
   sandbox?: Sandbox;
   permission?: PermissionPolicy;
   onApproval?: ApprovalHandler;
+  onAskUser?: InputHandler;
 }
 
 export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
@@ -32,6 +33,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
     skills = loader.getDescriptions();
   }
   if (cfg.tools) tools.push(...cfg.tools);
+  if (cfg.onAskUser) tools.push(askUserTool());
   if (cfg.allowedTools) tools = tools.filter((t) => cfg.allowedTools!.includes(t.name));
   if (cfg.disallowedTools) tools = tools.filter((t) => !cfg.disallowedTools!.includes(t.name));
 
@@ -52,5 +54,6 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
     maxTurns: cfg.maxTurns,
     maxTokens: cfg.maxTokens,
     sandbox: cfg.sandbox,
+    input: cfg.onAskUser,
   });
 }
