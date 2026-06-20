@@ -7,6 +7,10 @@ export interface SandboxRuntimeOptions {
   allowWrite?: string[];
   denyRead?: string[];
   denyWrite?: string[];
+  /** If the OS sandbox can't initialize (no bubblewrap, native Windows, …): false (default) → degrade to noop; true → throw. */
+  requireSandbox?: boolean;
+  /** Called once when degrading to noop (requireSandbox=false and init failed). */
+  onUnavailable?: (err: Error) => void;
 }
 
 export function sandboxRuntime(opts: SandboxRuntimeOptions = {}): Sandbox {
@@ -19,13 +23,24 @@ export function sandboxRuntime(opts: SandboxRuntimeOptions = {}): Sandbox {
     },
   };
   let ready: Promise<void> | undefined;
+  let degraded = false;
   return {
     id: "sandbox-runtime",
     async wrap(command) {
-      ready ??= SandboxManager.initialize(config);
-      await ready;
+      if (degraded) return command;
+      try {
+        ready ??= SandboxManager.initialize(config);
+        await ready;
+      } catch (err) {
+        if (opts.requireSandbox) throw err;
+        degraded = true;
+        opts.onUnavailable?.(err as Error);
+        return command;
+      }
       return SandboxManager.wrapWithSandbox(command);
     },
-    dispose: () => SandboxManager.reset(),
+    dispose: async () => {
+      if (ready && !degraded) await SandboxManager.reset();
+    },
   };
 }
