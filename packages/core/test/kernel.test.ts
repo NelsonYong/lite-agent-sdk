@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { z } from "zod";
 import { runKernel } from "../src/kernel";
 import type { KernelConfig } from "../src/kernel";
@@ -125,4 +125,29 @@ test("a beforeModel middleware reassigning ctx.messages persists across turns", 
   // the compaction must persist into the final result (lost without the fix)
   expect(result.messages).toContainEqual({ role: "user", content: "[COMPACTED]" });
   expect(result.text).toBe("done");
+});
+
+test("kernel threads input + call into the tool execute context", async () => {
+  const asker = { request: vi.fn(async () => ({ text: "blue" })) };
+  const ask = defineTool({
+    name: "ask", description: "ask", schema: z.object({}),
+    execute: async (_i, ctx) => {
+      ctx.emit({ type: "input_request", call: ctx.call!, question: { question: "color?" } });
+      const ans = await ctx.input!.request({ question: "color?" });
+      ctx.emit({ type: "input_resolved", id: ctx.call!.id, answer: ans });
+      return ans.text ?? "";
+    },
+  });
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "ask", input: {} }] } },
+    { text: "ok", message: { role: "assistant", content: [textBlock("ok")] } },
+  ]);
+  const { events } = await drain(
+    runKernel(baseCfg({ provider, tools: [ask], input: asker }), "hi", new AbortController().signal, "s1"),
+  );
+  expect(asker.request).toHaveBeenCalledTimes(1);
+  const types = events.map((e) => e.type);
+  expect(types).toContain("input_request");
+  expect(types).toContain("input_resolved");
+  expect(events.find((e) => e.type === "tool_result")).toMatchObject({ result: { id: "t1", content: "blue" } });
 });
