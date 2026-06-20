@@ -10,6 +10,8 @@ export { composeModelCall, composeToolCall, runLifecycle } from "./middleware";
 export type { AgentContext, ToolCallContext, Middleware, ModelCall, ToolExec } from "./middleware";
 
 export { noopSandbox } from "./sandbox";
+export { policy, permission } from "./permission";
+export type { PolicyOptions } from "./permission";
 export type {
   ModelProvider, ToolCallCodec, Tool, ToolContext,
   Compactor, CompactResult, PermissionPolicy, PolicyContext, Decision,
