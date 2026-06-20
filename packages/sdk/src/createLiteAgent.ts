@@ -1,5 +1,5 @@
-import { createAgent, nativeCodec } from "@lite-agent/core";
-import type { Agent, Middleware, ModelProvider, Sandbox, Tool } from "@lite-agent/core";
+import { createAgent, nativeCodec, permission } from "@lite-agent/core";
+import type { Agent, ApprovalHandler, Middleware, ModelProvider, PermissionPolicy, Sandbox, Tool } from "@lite-agent/core";
 import { defaultTools } from "./tools";
 import { SkillLoader } from "./skills/loader";
 import { loadSkillTool } from "./skills/loadSkillTool";
@@ -18,6 +18,8 @@ export interface CreateLiteAgentConfig {
   maxTokens?: number;
   use?: Middleware[];
   sandbox?: Sandbox;
+  permission?: PermissionPolicy;
+  onApproval?: ApprovalHandler;
 }
 
 export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
@@ -35,12 +37,17 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
 
   const system = cfg.system ?? buildSystemPrompt({ workdir: cfg.workdir, modelName: cfg.modelName, skills });
 
+  const use: Middleware[] = [
+    ...(cfg.permission ? [permission(cfg.permission, cfg.onApproval)] : []),
+    ...(cfg.use ?? []),
+  ];
+
   return createAgent({
     model: cfg.model,
     modelName: cfg.modelName,
     codec: nativeCodec(),
     tools,
-    use: cfg.use,
+    use,
     system,
     maxTurns: cfg.maxTurns,
     maxTokens: cfg.maxTokens,

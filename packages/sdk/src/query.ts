@@ -1,4 +1,4 @@
-import type { AgentEvent, Message, Middleware, ModelProvider, RunResult, Sandbox, Tool } from "@lite-agent/core";
+import type { AgentEvent, ApprovalHandler, Message, Middleware, ModelProvider, PermissionPolicy, RunResult, Sandbox, Tool } from "@lite-agent/core";
 import { createLiteAgent } from "./createLiteAgent";
 
 export interface QueryOptions {
@@ -17,6 +17,8 @@ export interface QueryOptions {
   signal?: AbortSignal;
   sessionId?: string;
   sandbox?: Sandbox;
+  permission?: PermissionPolicy;
+  onApproval?: ApprovalHandler;
 }
 
 export function query(opts: QueryOptions): AsyncGenerator<AgentEvent, RunResult> {
@@ -33,6 +35,8 @@ export function query(opts: QueryOptions): AsyncGenerator<AgentEvent, RunResult>
     maxTokens: opts.maxTokens,
     use: opts.use,
     sandbox: opts.sandbox,
+    permission: opts.permission,
+    onApproval: opts.onApproval,
   });
   return agent.run(opts.prompt, { signal: opts.signal, sessionId: opts.sessionId });
 }
