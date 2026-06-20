@@ -2,6 +2,7 @@ import "dotenv/config";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { anthropic } from "@lite-agent/provider-anthropic";
+import { sandboxRuntime } from "@lite-agent/sandbox-anthropic";
 import { createLiteAgent, policy } from "@lite-agent/sdk";
 import type { AgentEvent, ApprovalHandler, Message } from "@lite-agent/sdk";
 
@@ -28,6 +29,22 @@ const agent = createLiteAgent({
   skillsDir: join(workdir, "skills"),
   permission: policy({ ask: ["bash", "write_file", "edit_file"] }),
   onApproval,
+  // OS-level boundary (defense-in-depth with the permission gate). macOS=Seatbelt, Linux=bubblewrap.
+  // Degrades to noop on unsupported envs so bash keeps working.
+  sandbox: sandboxRuntime({
+    allowedDomains: [
+      "registry.npmjs.org",
+      "api.github.com",
+      "github.com",
+      "codeload.github.com",
+      "objects.githubusercontent.com",
+    ],
+    denyRead: ["~/.ssh", "~/.aws"],
+    onUnavailable: (err) =>
+      process.stdout.write(
+        `\x1b[33m[sandbox] unavailable — running without OS boundary: ${err.message}\x1b[0m\n`,
+      ),
+  }),
 });
 
 function render(ev: AgentEvent): void {

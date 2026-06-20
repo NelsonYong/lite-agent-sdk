@@ -11,6 +11,9 @@ importers:
       '@lite-agent/provider-anthropic':
         specifier: workspace:*
         version: link:packages/provider-anthropic
+      '@lite-agent/sandbox-anthropic':
+        specifier: workspace:*
+        version: link:packages/sandbox-anthropic
       '@lite-agent/sdk':
         specifier: workspace:*
         version: link:packages/sdk

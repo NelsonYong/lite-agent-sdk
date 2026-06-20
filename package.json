@@ -22,6 +22,7 @@
   },
   "dependencies": {
     "@lite-agent/provider-anthropic": "workspace:*",
+    "@lite-agent/sandbox-anthropic": "workspace:*",
     "@lite-agent/sdk": "workspace:*",
     "dotenv": "^17.3.1"
   }
