@@ -38,3 +38,27 @@ test("defaults: empty network, cwd-only write, sensible denyRead", async () => {
     filesystem: { allowWrite: ["."], denyRead: ["~/.ssh", "~/.aws"] },
   });
 });
+
+test("requireSandbox=false: degrades to noop on init failure, calls onUnavailable once", async () => {
+  const err = new Error("no bubblewrap");
+  initialize.mockRejectedValueOnce(err);
+  const onUnavailable = vi.fn();
+  const sb = sandboxRuntime({ requireSandbox: false, onUnavailable });
+
+  expect(await sb.wrap("echo a", { cwd: "/w" })).toBe("echo a"); // unchanged = noop
+  expect(await sb.wrap("echo b", { cwd: "/w" })).toBe("echo b"); // stays degraded
+
+  expect(onUnavailable).toHaveBeenCalledTimes(1);
+  expect(onUnavailable).toHaveBeenCalledWith(err);
+  expect(wrapWithSandbox).not.toHaveBeenCalledWith("echo a");
+  expect(wrapWithSandbox).not.toHaveBeenCalledWith("echo b");
+});
+
+test("requireSandbox=true: rethrows init failure and never degrades", async () => {
+  initialize.mockRejectedValueOnce(new Error("no bubblewrap"));
+  const onUnavailable = vi.fn();
+  const sb = sandboxRuntime({ requireSandbox: true, onUnavailable });
+
+  await expect(sb.wrap("echo a", { cwd: "/w" })).rejects.toThrow("no bubblewrap");
+  expect(onUnavailable).not.toHaveBeenCalled();
+});
