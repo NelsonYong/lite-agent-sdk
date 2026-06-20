@@ -2,16 +2,32 @@ import "dotenv/config";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
 import { anthropic } from "@lite-agent/provider-anthropic";
-import { createLiteAgent } from "@lite-agent/sdk";
-import type { AgentEvent, Message } from "@lite-agent/sdk";
+import { createLiteAgent, policy } from "@lite-agent/sdk";
+import type { AgentEvent, ApprovalHandler, Message } from "@lite-agent/sdk";
 
 const workdir = process.cwd();
+
+// During a run, stdin is in raw mode with a single 'data' listener (onKey). While an
+// approval is pending, that listener routes the keypress here instead of ESC-aborting.
+let pendingApproval: ((decision: "allow" | "deny") => void) | null = null;
+
+const onApproval: ApprovalHandler = {
+  request: (call) =>
+    new Promise((resolve) => {
+      process.stdout.write(
+        `\n\x1b[33m[approve] ${call.name} ${JSON.stringify(call.input)}? [y/N] \x1b[0m`,
+      );
+      pendingApproval = resolve;
+    }),
+};
 
 const agent = createLiteAgent({
   model: anthropic(),
   modelName: process.env["MODEL_ID"],
   workdir,
   skillsDir: join(workdir, "skills"),
+  permission: policy({ ask: ["bash", "write_file", "edit_file"] }),
+  onApproval,
 });
 
 function render(ev: AgentEvent): void {
@@ -32,6 +48,13 @@ function render(ev: AgentEvent): void {
       process.stdout.write(`\x1b[90m${body}\x1b[0m\n`);
       break;
     }
+    case "approval_resolved":
+      process.stdout.write(
+        ev.decision === "allow"
+          ? "\x1b[32m[approved]\x1b[0m\n"
+          : "\x1b[31m[denied]\x1b[0m\n",
+      );
+      break;
     case "error":
       process.stdout.write(`\n\x1b[31m[error] ${ev.error.message}\x1b[0m\n`);
       break;
@@ -95,6 +118,15 @@ async function main(): Promise<void> {
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
     process.stdin.resume();
     const onKey = (key: Buffer) => {
+      if (pendingApproval) {
+        const resolve = pendingApproval;
+        pendingApproval = null;
+        const ch = key.toString();
+        const allow = ch === "y" || ch === "Y";
+        process.stdout.write("\n");
+        resolve(allow ? "allow" : "deny");
+        return;
+      }
       if (key[0] === 0x1b && key.length === 1) {
         ac.abort();
         process.stdout.write("\n\x1b[33m[ESC] interrupted\x1b[0m\n");
@@ -115,6 +147,7 @@ async function main(): Promise<void> {
         `\n\x1b[31m[error] ${(e as Error).message}\x1b[0m\n`,
       );
     } finally {
+      pendingApproval = null;
       process.stdin.removeListener("data", onKey);
       if (process.stdin.isTTY) process.stdin.setRawMode(false);
       rl.resume();
