@@ -23,6 +23,7 @@ export interface ToolContext {
   readonly approval?: ApprovalHandler;
   readonly input?: InputHandler;
   readonly sandbox?: Sandbox;
+  readonly call?: ToolCall;
 }
 
 export interface Tool<I = unknown> {
