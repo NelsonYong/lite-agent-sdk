@@ -1,4 +1,4 @@
-import type { AgentEvent, ApprovalHandler, InputHandler, Message, Middleware, ModelProvider, PermissionPolicy, RunResult, Sandbox, Tool } from "@lite-agent/core";
+import type { AgentEvent, ApprovalHandler, InputHandler, Message, Middleware, ModelProvider, PermissionPolicy, RunResult, Sandbox, Tool } from "@lite-agent-sdk/core";
 import { createLiteAgent } from "./createLiteAgent";
 
 export interface QueryOptions {

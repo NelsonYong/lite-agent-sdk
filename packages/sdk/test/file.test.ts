@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ToolContext } from "@lite-agent/core";
+import type { ToolContext } from "@lite-agent-sdk/core";
 import { fileTools, makeSafePath } from "../src/tools/file";
 
 const ctx: ToolContext = { sessionId: "s", signal: new AbortController().signal, emit: () => {} };

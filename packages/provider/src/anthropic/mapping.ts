@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ContentBlock, Message, ModelRequest, ToolSpec } from "@lite-agent/core";
+import type { ContentBlock, Message, ModelRequest, ToolSpec } from "@lite-agent-sdk/core";
 
 const DEFAULT_MAX_TOKENS = 4096;
 

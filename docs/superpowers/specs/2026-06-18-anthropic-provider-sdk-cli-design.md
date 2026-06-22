@@ -12,19 +12,19 @@ API 对标 `@anthropic-ai/claude-agent-sdk`).
 | Package | What it is | Role here |
 | --- | --- | --- |
 | `@anthropic-ai/sdk` | Raw **model API** client (Messages API, token streaming) | The thing `provider-anthropic` wraps — the only way a `ModelProvider` emits tokens |
-| `@anthropic-ai/claude-agent-sdk` | Anthropic's high-level **Agent SDK** (`query()` loop, `tool()`, permissions, hooks, MCP) | A **peer** to `@lite-agent/core` + `@lite-agent/sdk`, used as an **API-design reference**, NOT a dependency |
+| `@anthropic-ai/claude-agent-sdk` | Anthropic's high-level **Agent SDK** (`query()` loop, `tool()`, permissions, hooks, MCP) | A **peer** to `@lite-agent-sdk/core` + `lite-agent-sdk`, used as an **API-design reference**, NOT a dependency |
 
 We do **not** build the provider on `claude-agent-sdk`: it only talks to Anthropic and bundles its
 own agent loop, which would break the "run local small models" and "lean pluggable kernel" goals.
-Instead `@lite-agent/sdk`'s public API is shaped after `claude-agent-sdk` so it feels familiar.
+Instead `lite-agent-sdk`'s public API is shaped after `claude-agent-sdk` so it feels familiar.
 
 ## Goal
 
-Turn the completed `@lite-agent/core` (Phase 1) into something a user can actually run:
+Turn the completed `@lite-agent-sdk/core` (Phase 1) into something a user can actually run:
 
-1. `@lite-agent/provider-anthropic` — a real `ModelProvider` adapting `@anthropic-ai/sdk` streaming.
-2. `@lite-agent/sdk` — a batteries-included layer: default tools (bash/file/todo), skill loading, and a `createLiteAgent` factory.
-3. The outer `src/` rewritten as a CLI app consuming `@lite-agent/sdk`, with **all old demo code removed**.
+1. `@lite-agent-sdk/provider` — a real `ModelProvider` adapting `@anthropic-ai/sdk` streaming.
+2. `lite-agent-sdk` — a batteries-included layer: default tools (bash/file/todo), skill loading, and a `createLiteAgent` factory.
+3. The outer `src/` rewritten as a CLI app consuming `lite-agent-sdk`, with **all old demo code removed**.
 
 ## Non-Goals (deferred to later phases)
 
@@ -40,14 +40,14 @@ Turn the completed `@lite-agent/core` (Phase 1) into something a user can actual
 Three layers, dependencies point downward:
 
 ```
-outer src/ (CLI app)        ── consumes ──▶  @lite-agent/sdk
-@lite-agent/sdk             ── consumes ──▶  @lite-agent/core
-@lite-agent/provider-anthropic ── consumes ─▶ @lite-agent/core + @anthropic-ai/sdk
+outer src/ (CLI app)        ── consumes ──▶  lite-agent-sdk
+lite-agent-sdk             ── consumes ──▶  @lite-agent-sdk/core
+@lite-agent-sdk/provider ── consumes ─▶ @lite-agent-sdk/core + @anthropic-ai/sdk
 ```
 
 The CLI wires a provider + the SDK together; neither package knows about the other.
 
-### 1. `@lite-agent/provider-anthropic`
+### 1. `@lite-agent-sdk/provider`
 
 `anthropic(opts?): ModelProvider` where `opts = { apiKey?, baseURL?, client? }`.
 
@@ -73,7 +73,7 @@ Two responsibilities, split into pure functions for testability:
 
 `stream(req, signal)` = `translateStream(client.messages.create({ ...toAnthropicParams(req), stream: true }, { signal }))`.
 
-### 2. `@lite-agent/sdk`
+### 2. `lite-agent-sdk`
 
 - **Default tools** (`Tool` + zod schema, ported from the old demo, console logging removed —
   the app renders events instead):
@@ -103,7 +103,7 @@ Two responsibilities, split into pure functions for testability:
 
 #### API shaped after `claude-agent-sdk`
 
-To feel familiar to `claude-agent-sdk` users, `@lite-agent/sdk` also exports:
+To feel familiar to `claude-agent-sdk` users, `lite-agent-sdk` also exports:
 
 - **`query(opts): AsyncGenerator<AgentEvent, RunResult>`** — a one-shot facade mirroring
   `claude-agent-sdk`'s `query({ prompt, options })`. `opts = { prompt, model, modelName?, cwd?,
@@ -121,7 +121,7 @@ To feel familiar to `claude-agent-sdk` users, `@lite-agent/sdk` also exports:
 `permissionMode`, `hooks`, `systemPrompt` presets, `mcpServers`. The middleware pipeline already
 covers what `hooks` would do.
 
-`@lite-agent/sdk` re-exports `@lite-agent/core` (`export * from "@lite-agent/core"`) so apps depend
+`lite-agent-sdk` re-exports `@lite-agent-sdk/core` (`export * from "@lite-agent-sdk/core"`) so apps depend
 on one package for both the batteries and the core types (`Message`, `AgentEvent`, `Agent`, ...).
 
 ### 3. Outer `src/` CLI app
@@ -168,7 +168,7 @@ on one package for both the batteries and the core types (`Message`, `AgentEvent
 ## Sequencing
 
 1. Workspace scaffolding for the two new packages.
-2. `@lite-agent/provider-anthropic` (mapping → stream → provider) — TDD.
-3. `@lite-agent/sdk` (tools → skills → system → factory) — TDD.
+2. `@lite-agent-sdk/provider` (mapping → stream → provider) — TDD.
+3. `lite-agent-sdk` (tools → skills → system → factory) — TDD.
 4. Rewrite outer `src/` CLI; remove old code; update root `package.json`.
 5. End-to-end manual smoke (user runs `pnpm dev` with `.env`).

@@ -21,7 +21,7 @@
 
 **不再加固黑名单**:它是输的方向,本设计用它替代品。
 
-## 2. `Sandbox` —— 第 9 个可插拔策略(在 `@lite-agent/core`)
+## 2. `Sandbox` —— 第 9 个可插拔策略(在 `@lite-agent-sdk/core`)
 
 与现有 8 个策略同构(主设计 §5)。核心只定义**接口 + noop 默认**,不引入任何实现依赖,保持精瘦:
 
@@ -67,7 +67,7 @@ export interface ToolContext {
 }
 ```
 
-### 3.2 `bashTool` 消费它(`@lite-agent/sdk`)
+### 3.2 `bashTool` 消费它(`lite-agent-sdk`)
 
 唯一改动:`execSync` 前 `wrap`。default(noop)下 `wrapped === command`,**完全保持现有行为**:
 
@@ -91,14 +91,14 @@ createLiteAgent({
 });
 ```
 
-## 4. `sandboxRuntime()` 适配器 —— 独立包 `@lite-agent/sandbox-anthropic`
+## 4. `sandboxRuntime()` 适配器 —— 独立包 `@lite-agent-sdk/sandbox-anthropic`
 
-封装 Anthropic 官方 [`@anthropic-ai/sandbox-runtime`](https://github.com/anthropic-experimental/sandbox-runtime)(Claude Code `/sandbox` 同款,OS 级、无容器)。**单独成包**,把实验性依赖挡在 core/sdk 之外(与 `@lite-agent/provider-anthropic` 平行):
+封装 Anthropic 官方 [`@anthropic-ai/sandbox-runtime`](https://github.com/anthropic-experimental/sandbox-runtime)(Claude Code `/sandbox` 同款,OS 级、无容器)。**单独成包**,把实验性依赖挡在 core/sdk 之外(与 `@lite-agent-sdk/provider` 平行):
 
 ```ts
 // packages/sandbox-anthropic/src/index.ts
 import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-import type { Sandbox } from "@lite-agent/core";
+import type { Sandbox } from "@lite-agent-sdk/core";
 
 export interface SandboxRuntimeOptions {
   allowedDomains?: string[];     // 网络白名单(空 = 无外联)
@@ -135,9 +135,9 @@ export function sandboxRuntime(opts: SandboxRuntimeOptions = {}): Sandbox {
 ## 5. 端到端示例
 
 ```ts
-import { createLiteAgent } from "@lite-agent/sdk";
-import { anthropic } from "@lite-agent/provider-anthropic";
-import { sandboxRuntime } from "@lite-agent/sandbox-anthropic";
+import { createLiteAgent } from "lite-agent-sdk";
+import { anthropic } from "@lite-agent-sdk/provider";
+import { sandboxRuntime } from "@lite-agent-sdk/sandbox-anthropic";
 
 const agent = createLiteAgent({
   model: anthropic(), workdir: process.cwd(), skillsDir: "skills",

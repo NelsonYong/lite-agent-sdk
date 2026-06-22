@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fakeProvider, textBlock } from "@lite-agent/core";
+import { fakeProvider, textBlock } from "@lite-agent-sdk/core";
 import { createLiteAgent } from "../src/createLiteAgent";
 
 test("runs with default tools wired", async () => {

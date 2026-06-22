@@ -1,5 +1,5 @@
 import type OpenAI from "openai";
-import type { ContentBlock, Message, ModelRequest, ToolSpec } from "@lite-agent/core";
+import type { ContentBlock, Message, ModelRequest, ToolSpec } from "@lite-agent-sdk/core";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 

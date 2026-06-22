@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax.
 
-**Goal:** Add a pluggable `Sandbox` strategy that gives `bash` (and future process tools) an OS-level runtime boundary, defaulting to a no-op so the core stays lean and cross-platform; ship a `@lite-agent/sandbox-anthropic` adapter wrapping `@anthropic-ai/sandbox-runtime`.
+**Goal:** Add a pluggable `Sandbox` strategy that gives `bash` (and future process tools) an OS-level runtime boundary, defaulting to a no-op so the core stays lean and cross-platform; ship a `@lite-agent-sdk/sandbox-anthropic` adapter wrapping `@anthropic-ai/sandbox-runtime`.
 
 **Architecture:** `Sandbox` is the 9th pluggable strategy. Core defines the interface + `noopSandbox()` and threads it through `ToolContext`. The `bash` tool wraps its command via `ctx.sandbox.wrap()` before `execSync`. The Anthropic adapter lives in its own package so the experimental dependency stays out of core/sdk. Pairs with the (separately designed) `PermissionPolicy` gate as Phase 3's boundary layer.
 
@@ -79,7 +79,7 @@ test("ToolContext.sandbox defaults to noopSandbox when none configured", async (
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/core test sandbox`
+Run: `pnpm --filter @lite-agent-sdk/core test sandbox`
 Expected: FAIL — `noopSandbox` not found / `ctx.sandbox` absent.
 
 - [ ] **Step 3: Add interfaces to `packages/core/src/strategies.ts`**
@@ -190,14 +190,14 @@ and add `Sandbox, SandboxWrapOptions` to the existing `export type { ... } from 
 
 - [ ] **Step 8: Run tests + typecheck**
 
-Run: `pnpm --filter @lite-agent/core test`
+Run: `pnpm --filter @lite-agent-sdk/core test`
 Expected: PASS (all prior core tests + 3 new sandbox tests).
-Run: `pnpm --filter @lite-agent/core typecheck`
+Run: `pnpm --filter @lite-agent-sdk/core typecheck`
 Expected: clean.
 
 - [ ] **Step 9: Rebuild core (downstream depends on its dist) + commit**
 
-Run: `pnpm --filter @lite-agent/core build`
+Run: `pnpm --filter @lite-agent-sdk/core build`
 Expected: emits dist (so sdk/adapter resolve the new exports).
 
 ```bash
@@ -221,7 +221,7 @@ git commit -m "feat(core): Sandbox strategy + noopSandbox, threaded into ToolCon
 Append to `packages/sdk/test/tools.test.ts`:
 
 ```ts
-import { noopSandbox } from "@lite-agent/core";
+import { noopSandbox } from "@lite-agent-sdk/core";
 
 test("bash wraps the command via ctx.sandbox before executing", async () => {
   const sandboxCtx = {
@@ -262,7 +262,7 @@ test("a configured sandbox wraps bash commands end-to-end", async () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `pnpm --filter @lite-agent/sdk test tools createLiteAgent`
+Run: `pnpm --filter lite-agent-sdk test tools createLiteAgent`
 Expected: FAIL — `createLiteAgent` rejects `sandbox` / bash ignores `ctx.sandbox`.
 
 - [ ] **Step 3: Update `packages/sdk/src/tools/bash.ts`**
@@ -290,7 +290,7 @@ Make `execute` async and wrap the command via the context sandbox before running
 Add `Sandbox` to the type import and a `sandbox?` field, and pass it through to `createAgent`:
 
 ```ts
-import type { Agent, Middleware, ModelProvider, Sandbox, Tool } from "@lite-agent/core";
+import type { Agent, Middleware, ModelProvider, Sandbox, Tool } from "@lite-agent-sdk/core";
 ```
 Add to `CreateLiteAgentConfig`:
 ```ts
@@ -306,7 +306,7 @@ Add to the `createAgent({ ... })` call:
 Add `Sandbox` to the type import, a `sandbox?` option, and pass it through to `createLiteAgent`:
 
 ```ts
-import type { AgentEvent, Message, Middleware, ModelProvider, RunResult, Sandbox, Tool } from "@lite-agent/core";
+import type { AgentEvent, Message, Middleware, ModelProvider, RunResult, Sandbox, Tool } from "@lite-agent-sdk/core";
 ```
 Add to `QueryOptions`:
 ```ts
@@ -319,9 +319,9 @@ Add to the `createLiteAgent({ ... })` call:
 
 - [ ] **Step 6: Run tests + typecheck**
 
-Run: `pnpm --filter @lite-agent/sdk test`
+Run: `pnpm --filter lite-agent-sdk test`
 Expected: PASS (all prior sdk tests + the new sandbox tests).
-Run: `pnpm --filter @lite-agent/sdk typecheck`
+Run: `pnpm --filter lite-agent-sdk typecheck`
 Expected: clean.
 
 - [ ] **Step 7: Commit**
@@ -333,7 +333,7 @@ git commit -m "feat(sdk): bash wraps commands via configured Sandbox; createLite
 
 ---
 
-## Task 3: New package `@lite-agent/sandbox-anthropic` — `sandboxRuntime()` adapter
+## Task 3: New package `@lite-agent-sdk/sandbox-anthropic` — `sandboxRuntime()` adapter
 
 **Files:**
 - Create: `packages/sandbox-anthropic/package.json`
@@ -346,7 +346,7 @@ git commit -m "feat(sdk): bash wraps commands via configured Sandbox; createLite
 
 ```json
 {
-  "name": "@lite-agent/sandbox-anthropic",
+  "name": "@lite-agent-sdk/sandbox-anthropic",
   "version": "0.0.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -361,7 +361,7 @@ git commit -m "feat(sdk): bash wraps commands via configured Sandbox; createLite
   },
   "dependencies": {
     "@anthropic-ai/sandbox-runtime": "^0.0.55",
-    "@lite-agent/core": "workspace:*"
+    "@lite-agent-sdk/core": "workspace:*"
   },
   "devDependencies": { "@types/node": "^25.5.0", "tsup": "^8.3.0", "typescript": "^6.0.2", "vitest": "^2.1.0" }
 }
@@ -389,7 +389,7 @@ git commit -m "feat(sdk): bash wraps commands via configured Sandbox; createLite
 - [ ] **Step 4: Install**
 
 Run: `pnpm install`
-Expected: adds `@lite-agent/sandbox-anthropic`, installs `@anthropic-ai/sandbox-runtime` (no install scripts). Exit 0.
+Expected: adds `@lite-agent-sdk/sandbox-anthropic`, installs `@anthropic-ai/sandbox-runtime` (no install scripts). Exit 0.
 
 - [ ] **Step 5: Write the failing test** — `packages/sandbox-anthropic/test/sandboxRuntime.test.ts`
 
@@ -438,14 +438,14 @@ test("defaults: empty network, cwd-only write, sensible denyRead", async () => {
 
 - [ ] **Step 6: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/sandbox-anthropic test`
+Run: `pnpm --filter @lite-agent-sdk/sandbox-anthropic test`
 Expected: FAIL — `sandboxRuntime` not found.
 
 - [ ] **Step 7: Implement `packages/sandbox-anthropic/src/index.ts`**
 
 ```ts
 import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-import type { Sandbox } from "@lite-agent/core";
+import type { Sandbox } from "@lite-agent-sdk/core";
 
 export interface SandboxRuntimeOptions {
   allowedDomains?: string[];
@@ -481,11 +481,11 @@ export function sandboxRuntime(opts: SandboxRuntimeOptions = {}): Sandbox {
 
 - [ ] **Step 8: Run test + typecheck + build**
 
-Run: `pnpm --filter @lite-agent/sandbox-anthropic test`
+Run: `pnpm --filter @lite-agent-sdk/sandbox-anthropic test`
 Expected: PASS (2 tests).
-Run: `pnpm --filter @lite-agent/sandbox-anthropic typecheck`
+Run: `pnpm --filter @lite-agent-sdk/sandbox-anthropic typecheck`
 Expected: clean.
-Run: `pnpm --filter @lite-agent/sandbox-anthropic build`
+Run: `pnpm --filter @lite-agent-sdk/sandbox-anthropic build`
 Expected: emits `dist/index.js` + `dist/index.d.ts`. Exit 0.
 
 - [ ] **Step 9: Commit**
@@ -499,7 +499,7 @@ git commit -m "feat(sandbox-anthropic): sandboxRuntime() adapter over @anthropic
 
 ## Final verification (after all tasks)
 
-- [ ] `pnpm -r --filter "@lite-agent/core" --filter "@lite-agent/provider-anthropic" --filter "@lite-agent/sdk" --filter "@lite-agent/sandbox-anthropic" test` — all pass.
-- [ ] `pnpm -r --filter "@lite-agent/*" typecheck` and root `pnpm typecheck` — clean.
-- [ ] `pnpm -r --filter "@lite-agent/*" build` — all emit dist.
+- [ ] `pnpm -r --filter "@lite-agent-sdk/core" --filter "@lite-agent-sdk/provider" --filter "lite-agent-sdk" --filter "@lite-agent-sdk/sandbox-anthropic" test` — all pass.
+- [ ] `pnpm -r --filter "@lite-agent-sdk/*" typecheck` and root `pnpm typecheck` — clean.
+- [ ] `pnpm -r --filter "@lite-agent-sdk/*" build` — all emit dist.
 - [ ] Manual (optional, macOS/Linux with deps): wire `sandbox: sandboxRuntime({ allowedDomains: [...] })` into the CLI and confirm a denied-domain `curl` is blocked.

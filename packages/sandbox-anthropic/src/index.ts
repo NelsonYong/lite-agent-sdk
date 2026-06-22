@@ -1,5 +1,5 @@
 import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-import type { Sandbox } from "@lite-agent/core";
+import type { Sandbox } from "@lite-agent-sdk/core";
 
 export interface SandboxRuntimeOptions {
   allowedDomains?: string[];

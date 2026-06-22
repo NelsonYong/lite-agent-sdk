@@ -1,8 +1,8 @@
 import { expect, test, vi } from "vitest";
 import { z } from "zod";
 import { createLiteAgent } from "../src/createLiteAgent";
-import { policy, defineTool, fakeProvider, textBlock } from "@lite-agent/core";
-import type { AgentEvent, ApprovalHandler } from "@lite-agent/core";
+import { policy, defineTool, fakeProvider, textBlock } from "@lite-agent-sdk/core";
+import type { AgentEvent, ApprovalHandler } from "@lite-agent-sdk/core";
 
 function probeTool(ran: { value: boolean }) {
   return defineTool({

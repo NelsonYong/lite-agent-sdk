@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { defineTool } from "@lite-agent/core";
-import type { Tool, UserAnswer, UserQuestion } from "@lite-agent/core";
+import { defineTool } from "@lite-agent-sdk/core";
+import type { Tool, UserAnswer, UserQuestion } from "@lite-agent-sdk/core";
 
 function renderAnswer(a: UserAnswer): string {
   if (a.selected && a.selected.length) return a.selected.join(", ");

@@ -1,6 +1,6 @@
 import type { ZodType } from "zod";
-import { defineTool } from "@lite-agent/core";
-import type { Tool, ToolContext } from "@lite-agent/core";
+import { defineTool } from "@lite-agent-sdk/core";
+import type { Tool, ToolContext } from "@lite-agent-sdk/core";
 
 export function tool<I>(
   name: string,

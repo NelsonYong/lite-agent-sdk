@@ -1,7 +1,7 @@
 {
-  "name": "@lite-agent/provider-anthropic",
+  "name": "@lite-agent-sdk/provider",
   "version": "0.0.0",
-  "description": "Anthropic Messages API ModelProvider for @lite-agent/core.",
+  "description": "Model providers for lite-agent-sdk: Anthropic Messages API + OpenAI Chat Completions (also OpenAI-compatible / local endpoints).",
   "license": "ISC",
   "type": "module",
   "main": "./dist/index.js",
@@ -25,12 +25,13 @@
     "llm",
     "anthropic",
     "claude",
+    "openai",
     "provider"
   ],
   "repository": {
     "type": "git",
-    "url": "git+http://192.168.110.96:30080/yangjie/lite-agent.git",
-    "directory": "packages/provider-anthropic"
+    "url": "git+https://github.com/NelsonYong/lite-agent-sdk.git",
+    "directory": "packages/provider"
   },
   "publishConfig": {
     "access": "public"
@@ -42,7 +43,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
-    "@lite-agent/core": "workspace:*"
+    "@lite-agent-sdk/core": "workspace:*",
+    "openai": "^6.0.0"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",

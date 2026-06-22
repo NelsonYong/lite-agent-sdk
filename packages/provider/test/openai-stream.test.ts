@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { translateStream } from "../src/stream";
-import type { ModelChunk } from "@lite-agent/core";
+import { translateStream } from "../src/openai/stream";
+import type { ModelChunk } from "@lite-agent-sdk/core";
 
 async function* chunks(...cs: unknown[]) { for (const c of cs) yield c as never; }
 async function collect(it: AsyncIterable<ModelChunk>) { const out: ModelChunk[] = []; for await (const c of it) out.push(c); return out; }

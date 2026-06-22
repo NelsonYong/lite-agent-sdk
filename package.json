@@ -13,7 +13,7 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
-    "dev": "pnpm --filter @lite-agent/example-cli dev",
+    "dev": "pnpm --filter @lite-agent-sdk/example-cli dev",
     "changeset": "changeset",
     "version": "changeset version",
     "release": "pnpm build && changeset publish"

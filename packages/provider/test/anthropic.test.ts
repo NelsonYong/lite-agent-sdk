@@ -1,9 +1,9 @@
 import { expect, test } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ModelChunk } from "@lite-agent/core";
-import { ProviderError } from "@lite-agent/core";
-import { anthropic } from "../src/index";
-import type { AnthropicClientLike } from "../src/index";
+import type { ModelChunk } from "@lite-agent-sdk/core";
+import { ProviderError } from "@lite-agent-sdk/core";
+import { anthropic } from "../src/anthropic";
+import type { AnthropicClientLike } from "../src/anthropic";
 
 test("provider streams ModelChunks via an injected client and forwards params", async () => {
   let captured: Anthropic.MessageCreateParamsStreaming | undefined;

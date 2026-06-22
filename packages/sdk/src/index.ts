@@ -1,4 +1,4 @@
-export * from "@lite-agent/core";
+export * from "@lite-agent-sdk/core";
 
 export { createLiteAgent } from "./createLiteAgent";
 export type { CreateLiteAgentConfig } from "./createLiteAgent";

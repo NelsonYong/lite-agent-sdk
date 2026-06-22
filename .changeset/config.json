@@ -4,16 +4,15 @@
   "commit": false,
   "fixed": [
     [
-      "@lite-agent/core",
-      "@lite-agent/sdk",
-      "@lite-agent/provider-anthropic",
-      "@lite-agent/provider-openai",
-      "@lite-agent/sandbox-anthropic"
+      "@lite-agent-sdk/core",
+      "lite-agent-sdk",
+      "@lite-agent-sdk/provider",
+      "@lite-agent-sdk/sandbox-anthropic"
     ]
   ],
   "linked": [],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["@lite-agent/example-cli"]
+  "ignore": ["@lite-agent-sdk/example-cli"]
 }

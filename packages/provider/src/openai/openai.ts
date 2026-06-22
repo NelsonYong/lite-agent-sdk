@@ -1,6 +1,6 @@
 import OpenAI from "openai";
-import type { ModelChunk, ModelProvider, ModelRequest } from "@lite-agent/core";
-import { ProviderError } from "@lite-agent/core";
+import type { ModelChunk, ModelProvider, ModelRequest } from "@lite-agent-sdk/core";
+import { ProviderError } from "@lite-agent-sdk/core";
 import { toOpenAIParams } from "./mapping";
 import { translateStream } from "./stream";
 

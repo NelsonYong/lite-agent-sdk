@@ -2,9 +2,9 @@ import { config } from "dotenv";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
-import { sandboxRuntime } from "@lite-agent/sandbox-anthropic";
-import { createLiteAgent, policy } from "@lite-agent/sdk";
-import type { AgentEvent, ApprovalHandler, InputHandler, Message, UserAnswer, UserQuestion } from "@lite-agent/sdk";
+import { sandboxRuntime } from "@lite-agent-sdk/sandbox-anthropic";
+import { createLiteAgent, policy } from "lite-agent-sdk";
+import type { AgentEvent, ApprovalHandler, InputHandler, Message, UserAnswer, UserQuestion } from "lite-agent-sdk";
 import { resolveModel } from "./model.js";
 
 // Resolve this example's own root (examples/cli) so its .env + skills/ load

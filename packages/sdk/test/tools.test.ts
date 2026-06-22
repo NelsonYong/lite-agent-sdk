@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import type { ToolContext } from "@lite-agent/core";
-import { noopSandbox } from "@lite-agent/core";
+import type { ToolContext } from "@lite-agent-sdk/core";
+import { noopSandbox } from "@lite-agent-sdk/core";
 import { bashTool } from "../src/tools/bash";
 import { todoTool } from "../src/tools/todo";
 import { defaultTools } from "../src/tools";

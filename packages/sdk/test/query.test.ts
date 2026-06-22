@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { fakeProvider, textBlock } from "@lite-agent/core";
+import { fakeProvider, textBlock } from "@lite-agent-sdk/core";
 import { query } from "../src/query";
 import { tool } from "../src/tool";
 

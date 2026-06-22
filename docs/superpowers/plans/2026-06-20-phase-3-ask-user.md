@@ -70,7 +70,7 @@ Also add `vi` to the vitest import at the top of the file (`import { expect, tes
 
 - [ ] **Step 2: Run to confirm it fails**
 
-Run: `pnpm --filter @lite-agent/core test -- kernel`
+Run: `pnpm --filter @lite-agent-sdk/core test -- kernel`
 Expected: FAIL — `KernelConfig` has no `input`, and `ctx.call`/`ctx.input` are not provided (asker never called / `ctx.call` undefined).
 
 - [ ] **Step 3: Add `call` to `ToolContext`** in `packages/core/src/strategies.ts`. The `ToolContext` interface currently ends with `readonly sandbox?: Sandbox;`. Add one line after it:
@@ -123,7 +123,7 @@ Add to the `kernelCfg` object (after `sandbox: cfg.sandbox ?? noopSandbox(),`):
 
 - [ ] **Step 6: Run tests + typecheck**
 
-Run: `pnpm --filter @lite-agent/core test && pnpm --filter @lite-agent/core typecheck`
+Run: `pnpm --filter @lite-agent-sdk/core test && pnpm --filter @lite-agent-sdk/core typecheck`
 Expected: all PASS (39 tests), typecheck clean.
 
 - [ ] **Step 7: Commit**
@@ -145,8 +145,8 @@ git commit -m "feat(core): thread InputHandler + call into ToolContext (ask_user
 import { expect, test, vi } from "vitest";
 import { createLiteAgent } from "../src/createLiteAgent";
 import { askUserTool } from "../src/tools";
-import { fakeProvider, textBlock } from "@lite-agent/core";
-import type { AgentEvent, InputHandler, ToolContext, ToolCall } from "@lite-agent/core";
+import { fakeProvider, textBlock } from "@lite-agent-sdk/core";
+import type { AgentEvent, InputHandler, ToolContext, ToolCall } from "@lite-agent-sdk/core";
 
 function ctxWith(input: InputHandler | undefined, call: ToolCall, events: AgentEvent[]): ToolContext {
   return { sessionId: "s", signal: new AbortController().signal, emit: (e) => events.push(e), input, call };
@@ -218,15 +218,15 @@ test("createLiteAgent registers ask_user only when onAskUser is configured", asy
 
 - [ ] **Step 2: Run to confirm it fails**
 
-Run: `pnpm --filter @lite-agent/sdk test -- askUser`
+Run: `pnpm --filter lite-agent-sdk test -- askUser`
 Expected: FAIL — `askUserTool` does not exist / `onAskUser` not accepted.
 
 - [ ] **Step 3: Create the tool** `packages/sdk/src/tools/askUser.ts`:
 
 ```ts
 import { z } from "zod";
-import { defineTool } from "@lite-agent/core";
-import type { Tool, UserAnswer, UserQuestion } from "@lite-agent/core";
+import { defineTool } from "@lite-agent-sdk/core";
+import type { Tool, UserAnswer, UserQuestion } from "@lite-agent-sdk/core";
 
 function renderAnswer(a: UserAnswer): string {
   if (a.selected && a.selected.length) return a.selected.join(", ");
@@ -274,10 +274,10 @@ Add `askUserTool` to the tools import:
 import { defaultTools, askUserTool } from "./tools";
 ```
 
-Add `InputHandler` to the type import from `@lite-agent/core`:
+Add `InputHandler` to the type import from `@lite-agent-sdk/core`:
 
 ```ts
-import type { Agent, ApprovalHandler, InputHandler, Middleware, ModelProvider, PermissionPolicy, Sandbox, Tool } from "@lite-agent/core";
+import type { Agent, ApprovalHandler, InputHandler, Middleware, ModelProvider, PermissionPolicy, Sandbox, Tool } from "@lite-agent-sdk/core";
 ```
 
 Add to `CreateLiteAgentConfig` (after `onApproval?: ApprovalHandler;`):
@@ -316,7 +316,7 @@ Add to the `createLiteAgent({...})` call (after `onApproval: opts.onApproval,`):
 
 - [ ] **Step 8: Build core + run tests + typecheck**
 
-Run: `pnpm --filter @lite-agent/core build && pnpm --filter @lite-agent/sdk test && pnpm --filter @lite-agent/sdk typecheck`
+Run: `pnpm --filter @lite-agent-sdk/core build && pnpm --filter lite-agent-sdk test && pnpm --filter lite-agent-sdk typecheck`
 Expected: all PASS, typecheck clean.
 
 - [ ] **Step 9: Commit**
@@ -335,11 +335,11 @@ git commit -m "feat(sdk): ask_user tool + onAskUser wiring (registered only when
 - [ ] **Step 1: Extend the type import.** Change:
 
 ```ts
-import type { AgentEvent, ApprovalHandler, Message } from "@lite-agent/sdk";
+import type { AgentEvent, ApprovalHandler, Message } from "lite-agent-sdk";
 ```
 to:
 ```ts
-import type { AgentEvent, ApprovalHandler, InputHandler, Message, UserAnswer, UserQuestion } from "@lite-agent/sdk";
+import type { AgentEvent, ApprovalHandler, InputHandler, Message, UserAnswer, UserQuestion } from "lite-agent-sdk";
 ```
 
 - [ ] **Step 2: Add the line-input slot + `cliAsker`.** Below the existing `pendingApproval` / `onApproval` block, add:

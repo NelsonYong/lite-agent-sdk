@@ -17,21 +17,18 @@ importers:
 
   examples/cli:
     dependencies:
-      '@lite-agent/provider-anthropic':
+      '@lite-agent-sdk/provider':
         specifier: workspace:*
-        version: link:../../packages/provider-anthropic
-      '@lite-agent/provider-openai':
-        specifier: workspace:*
-        version: link:../../packages/provider-openai
-      '@lite-agent/sandbox-anthropic':
+        version: link:../../packages/provider
+      '@lite-agent-sdk/sandbox-anthropic':
         specifier: workspace:*
         version: link:../../packages/sandbox-anthropic
-      '@lite-agent/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
       dotenv:
         specifier: ^17.3.1
         version: 17.3.1
+      lite-agent-sdk:
+        specifier: workspace:*
+        version: link:../../packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^25.5.0
@@ -62,31 +59,12 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@25.5.0)
 
-  packages/provider-anthropic:
+  packages/provider:
     dependencies:
       '@anthropic-ai/sdk':
         specifier: ^0.80.0
         version: 0.80.0(zod@4.3.6)
-      '@lite-agent/core':
-        specifier: workspace:*
-        version: link:../core
-    devDependencies:
-      '@types/node':
-        specifier: ^25.5.0
-        version: 25.5.0
-      tsup:
-        specifier: ^8.3.0
-        version: 8.5.1(postcss@8.5.15)(tsx@4.21.0)(typescript@6.0.2)
-      typescript:
-        specifier: ^6.0.2
-        version: 6.0.2
-      vitest:
-        specifier: ^2.1.0
-        version: 2.1.9(@types/node@25.5.0)
-
-  packages/provider-openai:
-    dependencies:
-      '@lite-agent/core':
+      '@lite-agent-sdk/core':
         specifier: workspace:*
         version: link:../core
       openai:
@@ -111,7 +89,7 @@ importers:
       '@anthropic-ai/sandbox-runtime':
         specifier: ^0.0.55
         version: 0.0.55
-      '@lite-agent/core':
+      '@lite-agent-sdk/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -130,7 +108,7 @@ importers:
 
   packages/sdk:
     dependencies:
-      '@lite-agent/core':
+      '@lite-agent-sdk/core':
         specifier: workspace:*
         version: link:../core
       zod:

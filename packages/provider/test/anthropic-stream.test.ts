@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ModelChunk } from "@lite-agent/core";
-import { translateStream } from "../src/stream";
+import type { ModelChunk } from "@lite-agent-sdk/core";
+import { translateStream } from "../src/anthropic/stream";
 
 async function* gen(events: Anthropic.RawMessageStreamEvent[]) {
   for (const e of events) yield e;

@@ -1,6 +1,5 @@
-import { anthropic } from "@lite-agent/provider-anthropic";
-import { openai } from "@lite-agent/provider-openai";
-import type { ModelProvider } from "@lite-agent/sdk";
+import { anthropic, openai } from "@lite-agent-sdk/provider";
+import type { ModelProvider } from "lite-agent-sdk";
 
 export type Protocol = "anthropic" | "openai";
 
