@@ -1,0 +1,23 @@
+{
+  "name": "@lite-agent/example-cli",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Interactive CLI example built on @lite-agent/sdk — REPL, permission gate, OS sandbox, and ask_user.",
+  "scripts": {
+    "dev": "tsx src/main.ts",
+    "start": "tsx src/main.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lite-agent/provider-anthropic": "workspace:*",
+    "@lite-agent/sandbox-anthropic": "workspace:*",
+    "@lite-agent/sdk": "workspace:*",
+    "dotenv": "^17.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.2"
+  }
+}
