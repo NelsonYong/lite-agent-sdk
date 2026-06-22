@@ -1,6 +1,8 @@
 {
   "name": "@lite-agent/core",
   "version": "0.0.0",
+  "description": "Pluggable, event-driven agent core: kernel, strategy interfaces, middleware pipeline, and normalized types.",
+  "license": "ISC",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,12 +12,28 @@
       "import": "./dist/index.js"
     }
   },
-  "engines": {
-    "node": ">=20"
-  },
+  "sideEffects": false,
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "llm",
+    "agent-sdk",
+    "tool-use"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+http://192.168.110.96:30080/yangjie/lite-agent.git",
+    "directory": "packages/core"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean --tsconfig tsconfig.build.json",
     "test": "vitest run",

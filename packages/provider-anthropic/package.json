@@ -1,6 +1,8 @@
 {
   "name": "@lite-agent/provider-anthropic",
   "version": "0.0.0",
+  "description": "Anthropic Messages API ModelProvider for @lite-agent/core.",
+  "license": "ISC",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,12 +12,29 @@
       "import": "./dist/index.js"
     }
   },
-  "engines": {
-    "node": ">=20"
-  },
+  "sideEffects": false,
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "llm",
+    "anthropic",
+    "claude",
+    "provider"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+http://192.168.110.96:30080/yangjie/lite-agent.git",
+    "directory": "packages/provider-anthropic"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean --tsconfig tsconfig.build.json",
     "test": "vitest run",

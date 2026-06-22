@@ -1,6 +1,8 @@
 {
   "name": "@lite-agent/sdk",
   "version": "0.0.0",
+  "description": "Batteries-included agent SDK over @lite-agent/core: tools, skills, system prompt, and query()/createLiteAgent().",
+  "license": "ISC",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -10,12 +12,28 @@
       "import": "./dist/index.js"
     }
   },
-  "engines": {
-    "node": ">=20"
-  },
+  "sideEffects": false,
   "files": [
     "dist"
   ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "llm",
+    "agent-sdk",
+    "tool-use"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+http://192.168.110.96:30080/yangjie/lite-agent.git",
+    "directory": "packages/sdk"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean --tsconfig tsconfig.build.json",
     "test": "vitest run",
