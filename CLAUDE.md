@@ -4,115 +4,80 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-lite-agent is a TypeScript CLI-based agentic framework that uses the Anthropic Claude API to build conversational agents with tool-use capabilities. Beyond a single agent loop, it includes an autonomous **multi-agent team**, **git-worktree isolation**, **background task execution**, a **task board with dependencies**, message compression, skill loading, and a live **memory monitor**.
+lite-agent is a **pluggable, lightweight agent-core SDK**, structured as a pnpm monorepo. The kernel is provider-agnostic and built from swappable strategy interfaces + an onion middleware pipeline + a typed event stream. Its public API is shaped after `@anthropic-ai/claude-agent-sdk` (`query` / `tool` / `allowedTools`), but the kernel is self-built so it can also drive local small models via pluggable tool-call codecs. The API design references that SDK; the Anthropic **provider** wraps the raw `@anthropic-ai/sdk` Messages API.
+
+## Layout
+
+```
+packages/                     # published SDK packages (fixed-versioned together)
+  core/                       # @lite-agent/core  — kernel, strategies, middleware, types, codecs, permission, sandbox
+  provider-anthropic/         # @lite-agent/provider-anthropic — Anthropic Messages API ModelProvider
+  sdk/                        # @lite-agent/sdk — batteries: tools, skills, system prompt, createLiteAgent / query
+  sandbox-anthropic/          # @lite-agent/sandbox-anthropic — OS-level Sandbox adapter (sandbox-runtime)
+examples/
+  cli/                        # @lite-agent/example-cli (private) — interactive REPL demo; owns its .env + skills/
+docs/superpowers/             # specs/ (design docs) + plans/ (TDD implementation plans)
+.changeset/                   # changesets config + pending changelogs
+```
 
 ## Commands
 
-- **Dev:** `pnpm dev` — runs `tsx src/main.ts` (the interactive REPL)
-- **Build:** `pnpm build` — compiles TypeScript via `tsc`
-- **Start:** `pnpm start` — runs compiled `node dist/main.js`
-- **Typecheck:** `pnpm typecheck` — `tsc --noEmit`
-- **Package manager:** pnpm (pinned 10.12.4)
+Run from the repo root (it is a **private workspace root** — orchestration only):
 
-No test runner is configured (`pnpm test` is a placeholder that exits 1). A `pnpm lint` script references `eslint`, but eslint is **not** in `devDependencies`, so it will fail unless installed. Typecheck is the only working static check.
+- **Build all:** `pnpm build` → `pnpm -r build` (each package: `tsup` → `dist/` ESM + d.ts)
+- **Test all:** `pnpm test` → `pnpm -r test` (vitest)
+- **Typecheck all:** `pnpm typecheck` → `pnpm -r typecheck` (`tsc --noEmit`)
+- **Run the demo:** `pnpm dev` → `pnpm --filter @lite-agent/example-cli dev` (`tsx src/main.ts`)
+- **One package:** `pnpm --filter @lite-agent/<name> <test|build|typecheck>` · single test: `pnpm --filter @lite-agent/core test -- <namefilter>`
+- **Versioning:** `pnpm changeset` (describe a change) → `pnpm version` (bump + changelogs) → `pnpm release` (build + `changeset publish`; publish wired, not yet run)
+- **Package manager:** pnpm (pinned 10.12.4). Node >= 20.
 
-Requires a `.env` file (see `.env`): `ANTHROPIC_API_KEY`, `BASE_URL`, `MODEL_ID`. Optional `MONITOR_PORT` (default 8899).
+> **Build-before-test choreography (non-obvious):** packages import each other via their **built `dist/`** (package.json `exports` → `./dist/index.js`; `dist` is git-ignored, no src alias). So changing a package's source and then testing/typechecking a *dependent* package (or the example) reads **stale dist** unless you rebuild the changed package first. Safe full check: `pnpm -r build && pnpm -r test && pnpm -r typecheck`. `pnpm -r` builds in topological order.
+
+The example reads config from `examples/cli/.env` (see `.env.example`): `ANTHROPIC_API_KEY`, `BASE_URL`, `MODEL_ID`, optional `MONITOR_PORT`.
 
 ## Architecture
 
-Single-package CLI application using an agentic loop pattern.
+### Kernel (`core/src/kernel.ts`)
 
-```
-src/
-  main.ts              # CLI REPL entry: prompt loop, REPL commands, ESC interrupt, safePath
-  monitor.ts           # Memory-monitor HTTP/SSE dashboard — auto-starts on import (port 8899)
-  agent/
-    index.ts           # Core agent loop (liteAgent) — Claude API call, tool dispatch, loop until no tool_use
-    client.ts          # Anthropic SDK singleton (getClient)
-    subagent.ts        # runSubagent — isolated one-shot sub-agent (shared FS, isolated history, base tools only)
-    agentTeam.ts       # MessageBus + TeammateManager — autonomous multi-agent team (see docs/agentTeam.md)
-    worktree.ts        # WorktreeManager + EventBus — git worktree lifecycle (see docs/worktree.md)
-    background.ts      # BackgroundManager — async/daemon command execution with a notification queue
-    skill.ts           # SkillLoader — discovers/loads SKILL.md files with YAML frontmatter
-    compact.ts         # Message compression: microCompact (80K threshold) and autoCompact (150K threshold)
-  tools/
-    index.ts           # Tool registry: schemas (mainAgentTools / subagentTools) + toolHandlers dispatch map
-    bash.ts            # Shell execution via execSync (with dangerous command filter)
-    file.ts            # File read/write/edit (safePath enforced, 50KB limit)
-    todo.ts            # Todo list manager (singleton, file-based)
-    task.ts            # TaskManager — task board with owners + blockedBy/blocks dependencies (.tasks/)
-  prompt/
-    system.ts          # System prompt builders (main agent vs subagent)
-skills/                # Skill definitions — each has SKILL.md with YAML frontmatter + assets
-docs/                  # agentTeam.md, worktree.md — deep design docs for those subsystems
-```
+`runKernel(cfg, input, signal, sessionId)` is an `async function*` yielding `AgentEvent`s and returning a `RunResult`. Each turn: `codec.encode` the request → `provider.stream` (wrapped by `wrapModelCall` middleware) → accumulate text/usage → `codec.decode` the assistant message into tool calls → for each call run `composeToolCall` (the `wrapToolCall` middleware chain) around `tool.execute` → push tool results back as a user message → loop until the model stops calling tools or `maxTurns`. Abort is observed at turn boundaries. The kernel knows nothing about permissions, sandboxing, or compaction — those are middleware/strategies.
 
-Runtime-generated dirs (created on first use, git-ignored in spirit): `.inbox/` (team message bus), `.team/config.json` (team roster), `.tasks/` (task board), `.worktrees/` (worktree index + events), `.transcripts/` (autoCompact JSONL dumps).
+**Event queue:** middleware/tools `emit()` into an internal queue that is **drained between steps** (`yield* drain()`), so events are *observational* — e.g. an `approval_request` event is seen only after `approval.request()` has already resolved. Interactive handlers (`ApprovalHandler`, `InputHandler`) do their own blocking I/O; the events are for logging/UI.
 
-### Core agent loop (`liteAgent`)
+### Nine pluggable strategies (`core/src/strategies.ts`)
 
-1. User input → message history → `liteAgent()` called from `main.ts`
-2. Each iteration: `microCompact` old tool results → (if >150K tokens) `autoCompact` → drain background notifications and the lead inbox into the history → Claude API call with `mainAgentTools` → execute `tool_use` blocks via `toolHandlers` → append results → repeat until `stop_reason !== "tool_use"`.
-3. The `compact` tool triggers a manual `autoCompact`. A `<reminder>Update your todos.</reminder>` is injected after 3 rounds without a `todo` call.
-4. Interruptible: `main.ts` wires ESC (raw-mode key listener) to an `AbortController`; the loop checks `signal.aborted` between steps.
+`ModelProvider` · `ToolCallCodec` · `Tool` · `Compactor` · `PermissionPolicy` · `ApprovalHandler` · `InputHandler` · `Store` · `Sandbox`. Each is "one implementation per role, swappable." `ToolContext` (handed to `tool.execute`) carries `sessionId`, `signal`, `emit`, plus optional `approval` / `input` / `sandbox` / `call` — all provided by the kernel at execution time but typed optional (tools guard).
 
-### Compression (`compact.ts`)
+### Middleware pipeline (`core/src/middleware.ts`)
 
-- `microCompact()` — at ≥80K input tokens, replaces all but the last 3 tool_result bodies (>500 chars) with `[Compacted: used <tool> — "<200-char preview>..."]`. Runs every iteration.
-- `autoCompact()` — at >150K total tokens (or manual `compact` tool), dumps full history to `.transcripts/transcript_<ts>.jsonl`, asks the model for a summary, and replaces the entire history with two messages.
+Onion model. `Middleware` may implement `beforeAgent` / `afterAgent` / `beforeModel` (lifecycle), `wrapModelCall` (retry/cache around the stream), and `wrapToolCall` (gate/time/short-circuit a single tool). `composeModelCall` / `composeToolCall` fold the array outer→inner. The `permission()` gate is a `wrapToolCall` middleware (see below).
 
-### Delegation: two distinct mechanisms
+### Normalized types + events (`core/src/types.ts`, `events.ts`)
 
-The main agent has **two** ways to delegate — pick deliberately (the main system prompt enforces this):
+Provider-agnostic `Message` / `ContentBlock` / `ToolCall` / `ToolResult` / `UserQuestion` / `UserAnswer`. The `AgentEvent` union covers `turn_start`, `text_delta`, `message`, `tool_use`, `approval_request|resolved`, `input_request|resolved`, `tool_result`, `compaction`, `turn_end`, `error`, `done`. Error classes: `AgentError` + `ProviderError(status)` / `ToolError` / `CodecError` / `MaxTurnsError` / `AbortError`.
 
-- **`spawn_teammate` (Agent Team)** — autonomous, long-lived teammates for multi-role / parallel / ongoing work. They run their own `work → idle → poll → work` loop, auto-claim tasks from the board, and communicate async via the inbox. Use whenever the user asks for a "team", "协作", or multi-role work.
-- **`agent` (Subagent, `runSubagent`)** — a blocking, one-shot isolated task. Shares the filesystem but has fresh history and **only base tools** (bash, file, todo — see `subagentTools`). Returns its final text.
+### Permission gate (`core/src/permission.ts`)
 
-### Agent Team (`agentTeam.ts`) — see `docs/agentTeam.md`
+`policy({ allow, ask, deny, default })` → a `PermissionPolicy` matching **tool name** by glob (`*`), precedence **deny > ask > allow**, unmatched → `default` (`"allow"`). `permission(policy, approval?)` is the gate middleware: `allow` → run; `deny` → `isError` result, tool never runs; `ask` → emit `approval_request` → `await approval.request()` (fail-closed `deny` if no handler) → emit `approval_resolved` → run or deny.
 
-- **`MessageBus` (`BUS`)** — JSONL inboxes under `.inbox/{name}.jsonl`; `readInbox` is read-and-clear (one-shot consume, no ACK). The lead's inbox is drained into the main loop each iteration.
-- **`TeammateManager` (`TEAM`)** — spawns teammates that run an autonomous loop (max 50 turns/phase, 60s idle timeout, 5xx retry). Roster persisted to `.team/config.json` with status `working | idle | shutdown`.
-- **Governance protocols:** `plan_approval` (teammate must submit a plan and wait for lead approval before major work) and two-level shutdown — `shutdown_request` (graceful, teammate can refuse) vs `force_shutdown` (immediate, via in-memory `_forceShutdowns`).
-- **Identity re-injection:** after compression shortens history, an `<identity>` block is re-injected so the teammate keeps its name/role.
+### Sandbox (`core/src/sandbox.ts`, `@lite-agent/sandbox-anthropic`)
 
-### Task board (`task.ts`)
+`Sandbox.wrap(command, {cwd})` rewrites a shell command to run inside an OS boundary. Default `noopSandbox()` (no boundary). `sandboxRuntime(opts)` wraps `@anthropic-ai/sandbox-runtime` (macOS Seatbelt / Linux bubblewrap); on an unsupported env it **degrades to noop** (unless `requireSandbox: true`) and fires `onUnavailable` once. `bashTool` wraps its command via `ctx.sandbox` before `execSync`. Sandbox (runtime boundary) + permission gate (pre-exec decision) = defense-in-depth.
 
-File-per-task under `.tasks/task_<id>.json`. Tasks have `owner`, `status` (pending/in_progress/completed), `worktree`, and `blockedBy`/`blocks` dependency arrays. Completing a task clears it from dependents' `blockedBy`. Idle teammates auto-claim via `scanAssigned(name)` (owner pre-assigned) then `scanUnclaimed()` (no owner, not blocked). `claimTask` uses a simple in-process `claimLock`.
+### SDK batteries (`@lite-agent/sdk`)
 
-### Worktrees (`worktree.ts`) — see `docs/worktree.md`
+`createLiteAgent(cfg)` assembles `defaultTools` (bash/file/todo) + skills + a built system prompt + a `nativeCodec` agent, prepending the `permission()` middleware when `permission` is set, registering `ask_user` only when `onAskUser` is set, and threading `sandbox` / `onApproval` / `onAskUser`. `query(opts)` is the claude-agent-sdk-style facade over it. `tool(name, desc, schema, handler)` defines a tool; `ask_user` (`tools/askUser.ts`) emits `input_request` → `await ctx.input.request` → `input_resolved`. Skills load from a `skillsDir` of `SKILL.md` files (YAML frontmatter); `load_skill` injects a body on demand.
 
-`WorktreeManager` (`WORKTREES`) wraps `git worktree` for isolated parallel work; creates branch `wt/<name>` under `.worktrees/<name>`, tracked in `.worktrees/index.json`. An `EventBus` (`EVENTS`) logs lifecycle events to `.worktrees/events.jsonl`. Repo root is auto-detected; ops no-op gracefully outside a git repo. Use worktrees when multiple teammates would otherwise edit the same files.
+### Provider (`@lite-agent/provider-anthropic`)
 
-### Background tasks (`background.ts`)
+`anthropic(opts)` is a `ModelProvider` that maps normalized requests → Anthropic Messages API (`mapping.ts`), translates the SSE stream → `ModelChunk`s (`stream.ts`), and wraps SDK errors in `ProviderError` preserving `.status`. An injectable client seam keeps it testable.
 
-`BackgroundManager` (`BG`) runs commands via `exec` and returns a `task_id` immediately. `daemon=true` disables the 300s timeout (for servers/watchers). Completions land in a notification queue that the main loop drains and surfaces as `<background-results>`.
+## Design discipline (enforced in the specs)
 
-### Memory monitor (`monitor.ts`)
+**Strategy** = replace one part (provider, codec, compaction, approval/input UI, store, sandbox). **Middleware** = add a stackable cross-cutting layer (permission, retry, logging, rate-limit). **Event** = observe only (logging, UI, metrics). Mnemonic: swap a part → strategy; add a layer → middleware; only watch → event. Design specs and TDD plans live in `docs/superpowers/specs/` and `docs/superpowers/plans/`.
 
-Zero-dependency HTTP server (default port 8899) auto-started by `import "./monitor"` in `main.ts`. Serves an SSE dashboard charting `process.memoryUsage()` plus lifecycle events (`startup`, `agent_start`, `compact`, etc.). Call `mark(type, label)` to emit custom events. Serialization is skipped when no browser is connected; `server.unref()` so it never blocks process exit.
+## Tech / tooling
 
-### REPL commands (`main.ts`)
-
-- `/team` — print the team roster; `/inbox` — print the lead inbox.
-- `/todo …` — force a `todo` tool call (`tool_choice`) on this turn.
-- `q` / `exit` — quit. Multi-line paste is auto-detected (submit on blank line). ESC interrupts the running agent loop.
-
-### Key patterns
-
-- **Workspace safety:** main-agent file tools validate paths through `safePath()` (in `main.ts`) to prevent escaping WORKDIR. Note: the teammate `_exec` `read_file` reads directly and does **not** go through `safePath` (see ROADMAP.md P0).
-- **Tool dispatch:** tools are `{schema}` + handler; `toolHandlers` maps name → handler; errors are caught and returned as tool_result strings, not thrown. `mainAgentTools` = base + team + worktree + task + agent + background + compact; `subagentTools` = base only.
-- **Singletons:** Anthropic client, SkillLoader, plus the subsystem managers `BUS`, `TEAM`, `BG`, `WORKTREES`, `EVENTS`, `TASKS`, `TODO`.
-- **Skills:** loaded from `skills/` subdirectories, each a `SKILL.md` with YAML frontmatter (name, description, tags); `load_skill` injects the body on demand.
-- **Config:** `.env` with `ANTHROPIC_API_KEY`, `BASE_URL`, `MODEL_ID`, optional `MONITOR_PORT`.
-
-## Tech Stack
-
-- TypeScript 6.0 (strict mode, ES2022 target)
-- `@anthropic-ai/sdk` for Claude API
-- `dotenv` for env config
-- `zod` is a dependency but currently unused
-- Native `http`, `readline`, `fs`, `child_process` for the monitor/CLI/FS/exec
-
-## Notes
-
-- `ROADMAP.md` tracks known gaps, especially Agent Team hardening (path sandboxing for teammates, state-machine tool gating, durable message bus, error propagation). Treat the current team/worktree code as teaching-grade, not production-hardened.
+- TypeScript 6 (strict, ES2022, ESM). Shared `tsconfig.base.json` uses `moduleResolution: Bundler`, `verbatimModuleSyntax` (type-only imports need `import type`), `noUncheckedIndexedAccess`, **no** `esModuleInterop`. The example app uses its own `NodeNext` tsconfig.
+- **`tsconfig.build.json` per package** adds `ignoreDeprecations: "6.0"` (the tsup `--dts` worker injects deprecated `baseUrl`); it is kept out of the editor-facing base config and referenced via `tsup --tsconfig`.
+- Build: `tsup` (ESM + d.ts). Test: `vitest`; kernel tests use `fakeProvider` + golden event-stream assertions, and mock external modules with `vi.mock`. Validation: `zod` (tool schemas → JSON Schema). Versioning: `changesets` (the four `@lite-agent/*` packages are **fixed** — one shared version; the example is ignored).
