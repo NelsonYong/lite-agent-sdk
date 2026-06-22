@@ -17,7 +17,7 @@ pnpm install
 pnpm --filter @lite-agent/example-cli dev   # or: pnpm dev
 ```
 
-Configuration is read from the repo-root `.env` (see `.env.example`):
+Configuration is read from this directory's `.env` (copy `.env.example` → `.env`):
 
 ```
 ANTHROPIC_API_KEY=...
@@ -26,4 +26,4 @@ MODEL_ID=...
 MONITOR_PORT=8899   # optional
 ```
 
-The agent operates on the directory you launch it from (`process.cwd()`); skills are loaded from the repo-root `skills/`.
+The agent operates on the directory you launch it from (`process.cwd()`); skills are loaded from this example's own `skills/`.
