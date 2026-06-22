@@ -7,10 +7,10 @@ import { sandboxRuntime } from "@lite-agent/sandbox-anthropic";
 import { createLiteAgent, policy } from "@lite-agent/sdk";
 import type { AgentEvent, ApprovalHandler, InputHandler, Message, UserAnswer, UserQuestion } from "@lite-agent/sdk";
 
-// Resolve the repo root from this file so the example runs from anywhere
-// (reuses the monorepo's root .env + skills/), independent of process.cwd().
-const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-config({ path: join(repoRoot, ".env") });
+// Resolve this example's own root (examples/cli) so its .env + skills/ load
+// regardless of where you launch it from (independent of process.cwd()).
+const exampleRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+config({ path: join(exampleRoot, ".env") });
 
 // The agent operates on the directory you launch it from.
 const workdir = process.cwd();
@@ -66,7 +66,7 @@ const agent = createLiteAgent({
   model: anthropic(),
   modelName: process.env["MODEL_ID"],
   workdir,
-  skillsDir: join(repoRoot, "skills"),
+  skillsDir: join(exampleRoot, "skills"),
   permission: policy({ ask: ["bash", "write_file", "edit_file"] }),
   onApproval,
   onAskUser,
