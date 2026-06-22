@@ -20,6 +20,9 @@ importers:
       '@lite-agent/provider-anthropic':
         specifier: workspace:*
         version: link:../../packages/provider-anthropic
+      '@lite-agent/provider-openai':
+        specifier: workspace:*
+        version: link:../../packages/provider-openai
       '@lite-agent/sandbox-anthropic':
         specifier: workspace:*
         version: link:../../packages/sandbox-anthropic

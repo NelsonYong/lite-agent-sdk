@@ -2,10 +2,10 @@ import { config } from "dotenv";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
-import { anthropic } from "@lite-agent/provider-anthropic";
 import { sandboxRuntime } from "@lite-agent/sandbox-anthropic";
 import { createLiteAgent, policy } from "@lite-agent/sdk";
 import type { AgentEvent, ApprovalHandler, InputHandler, Message, UserAnswer, UserQuestion } from "@lite-agent/sdk";
+import { resolveModel } from "./model.js";
 
 // Resolve this example's own root (examples/cli) so its .env + skills/ load
 // regardless of where you launch it from (independent of process.cwd()).
@@ -62,9 +62,12 @@ const onAskUser: InputHandler = {
     }),
 };
 
+const { provider, modelName, protocol } = resolveModel();
+process.stdout.write(`\x1b[90m[model] ${modelName} via ${protocol}\x1b[0m\n`);
+
 const agent = createLiteAgent({
-  model: anthropic(),
-  modelName: process.env["MODEL_ID"],
+  model: provider,
+  modelName,
   workdir,
   skillsDir: join(exampleRoot, "skills"),
   permission: policy({ ask: ["bash", "write_file", "edit_file"] }),
