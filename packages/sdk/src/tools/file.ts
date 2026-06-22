@@ -1,8 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
-import { defineTool } from "@lite-agent/core";
-import type { Tool } from "@lite-agent/core";
+import { defineTool } from "@lite-agent-sdk/core";
+import type { Tool } from "@lite-agent-sdk/core";
 
 const MAX_BYTES = 50_000;
 

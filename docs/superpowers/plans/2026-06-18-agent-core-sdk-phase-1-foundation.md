@@ -2,7 +2,7 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Stand up a pnpm monorepo with `@lite-agent/core` containing a fully-tested, event-driven agent kernel that runs a tool-using loop against a fake provider with zero network.
+**Goal:** Stand up a pnpm monorepo with `@lite-agent-sdk/core` containing a fully-tested, event-driven agent kernel that runs a tool-using loop against a fake provider with zero network.
 
 **Architecture:** A tiny async-generator kernel drives turns (encode → model → decode → execute tools → loop) over normalized, provider-agnostic types. Pluggability comes from strategy interfaces (`ModelProvider`, `ToolCallCodec`, `Tool`) and an onion middleware pipeline. The public API is `createAgent({...})` returning `run()` (event stream) and `send()` (await final result).
 
@@ -15,7 +15,7 @@
 ## Phase roadmap (this plan = Phase 1)
 
 - **Phase 1 — Foundation & Kernel Walking Skeleton** (this doc): monorepo, normalized types, events/errors, tool definition, FakeProvider, nativeCodec, middleware pipeline, kernel loop, `createAgent`. Deliverable: a tested agent loop with tools over a fake provider.
-- **Phase 2 — Real providers:** `@lite-agent/provider-anthropic`, `@lite-agent/provider-openai` + a shared provider contract test suite.
+- **Phase 2 — Real providers:** `@lite-agent-sdk/provider`, `@lite-agent-sdk/provider` + a shared provider contract test suite.
 - **Phase 3 — Permission + approval + ask_user:** `PermissionPolicy`/`policy()`, `ApprovalHandler`/`cliApprover()`, `InputHandler`/`cliAsker()`, `askUserTool()`, the `permission()` middleware, and the `approval_*` / `input_*` events wired through the kernel.
 - **Phase 4 — Compaction + sessions + retry:** `Compactor`/`defaultCompactor()` (micro + auto), `compaction()` middleware, `Store`/`memoryStore()`/`jsonlStore()`, `retry()` middleware, usage aggregation.
 - **Phase 5 — Local-model codecs:** `jsonCodec()` + `reactCodec()` + `maxDecodeRetries` decode-failure recovery.
@@ -29,7 +29,7 @@
 pnpm-workspace.yaml                       # workspace: packages/*, examples/*
 tsconfig.base.json                        # shared strict TS config
 packages/core/
-  package.json                            # @lite-agent/core
+  package.json                            # @lite-agent-sdk/core
   tsconfig.json                           # extends ../../tsconfig.base.json
   vitest.config.ts
   src/
@@ -52,7 +52,7 @@ Each `src/*` file has one responsibility; tests mirror source files. The existin
 
 ---
 
-## Task 1: Monorepo scaffold + `@lite-agent/core` package
+## Task 1: Monorepo scaffold + `@lite-agent-sdk/core` package
 
 **Files:**
 - Create: `pnpm-workspace.yaml`
@@ -99,7 +99,7 @@ packages:
 `packages/core/package.json`:
 ```json
 {
-  "name": "@lite-agent/core",
+  "name": "@lite-agent-sdk/core",
   "version": "0.0.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -162,7 +162,7 @@ test("package loads", () => {
 Run:
 ```bash
 pnpm install
-pnpm --filter @lite-agent/core test
+pnpm --filter @lite-agent-sdk/core test
 ```
 Expected: vitest reports `1 passed` for `test/smoke.test.ts`.
 
@@ -170,7 +170,7 @@ Expected: vitest reports `1 passed` for `test/smoke.test.ts`.
 
 ```bash
 git add pnpm-workspace.yaml tsconfig.base.json packages/core pnpm-lock.yaml
-git commit -m "chore(core): scaffold @lite-agent/core monorepo package"
+git commit -m "chore(core): scaffold @lite-agent-sdk/core monorepo package"
 ```
 
 ---
@@ -207,7 +207,7 @@ test("isToolCallBlock narrows tool_call blocks", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/core test types`
+Run: `pnpm --filter @lite-agent-sdk/core test types`
 Expected: FAIL — cannot find module `../src/types`.
 
 - [ ] **Step 3: Write the implementation**
@@ -260,7 +260,7 @@ export const isTextBlock = (b: ContentBlock): b is TextBlock => b.type === "text
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @lite-agent/core test types`
+Run: `pnpm --filter @lite-agent-sdk/core test types`
 Expected: PASS — 3 passed.
 
 - [ ] **Step 5: Commit**
@@ -302,7 +302,7 @@ test("error subclasses keep their own name", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/core test events`
+Run: `pnpm --filter @lite-agent-sdk/core test events`
 Expected: FAIL — cannot find module `../src/events`.
 
 - [ ] **Step 3: Write the implementation**
@@ -358,7 +358,7 @@ export type AgentEvent =
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @lite-agent/core test events`
+Run: `pnpm --filter @lite-agent-sdk/core test events`
 Expected: PASS — 2 passed.
 
 - [ ] **Step 5: Commit**
@@ -425,7 +425,7 @@ test("tool schema rejects bad input", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/core test define`
+Run: `pnpm --filter @lite-agent-sdk/core test define`
 Expected: FAIL — cannot find module `../src/tools/define`.
 
 - [ ] **Step 3: Write the strategy interfaces**
@@ -511,8 +511,8 @@ export function toToolSpec(tool: Tool): ToolSpec {
 
 - [ ] **Step 5: Run test to verify it passes**
 
-Run: `pnpm --filter @lite-agent/core test define`
-Expected: PASS — 3 passed. (If `z.toJSONSchema` is missing, upgrade zod: `pnpm --filter @lite-agent/core add zod@^4.3.6`.)
+Run: `pnpm --filter @lite-agent-sdk/core test define`
+Expected: PASS — 3 passed. (If `z.toJSONSchema` is missing, upgrade zod: `pnpm --filter @lite-agent-sdk/core add zod@^4.3.6`.)
 
 - [ ] **Step 6: Commit**
 
@@ -598,7 +598,7 @@ async function collectDone(provider: ReturnType<typeof fakeProvider>): Promise<s
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `pnpm --filter @lite-agent/core test native fakeProvider`
+Run: `pnpm --filter @lite-agent-sdk/core test native fakeProvider`
 Expected: FAIL — cannot find modules `../src/codecs/native`, `../src/testing/fakeProvider`.
 
 - [ ] **Step 3: Implement nativeCodec**
@@ -657,7 +657,7 @@ export function fakeProvider(turns: FakeTurn[]): ModelProvider {
 
 - [ ] **Step 5: Run tests to verify they pass**
 
-Run: `pnpm --filter @lite-agent/core test native fakeProvider`
+Run: `pnpm --filter @lite-agent-sdk/core test native fakeProvider`
 Expected: PASS — 4 passed total.
 
 - [ ] **Step 6: Commit**
@@ -745,7 +745,7 @@ test("runLifecycle invokes a hook on every middleware in order", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/core test middleware`
+Run: `pnpm --filter @lite-agent-sdk/core test middleware`
 Expected: FAIL — cannot find module `../src/middleware`.
 
 - [ ] **Step 3: Write the implementation**
@@ -800,7 +800,7 @@ export async function runLifecycle(mws: Middleware[], hook: LifecycleHook, ctx: 
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @lite-agent/core test middleware`
+Run: `pnpm --filter @lite-agent-sdk/core test middleware`
 Expected: PASS — 4 passed.
 
 - [ ] **Step 5: Commit**
@@ -899,7 +899,7 @@ test("an aborted signal ends the run with reason 'aborted'", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/core test kernel`
+Run: `pnpm --filter @lite-agent-sdk/core test kernel`
 Expected: FAIL — cannot find module `../src/kernel`.
 
 - [ ] **Step 3: Write the implementation**
@@ -1039,12 +1039,12 @@ function lastAssistantText(messages: Message[]): string {
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @lite-agent/core test kernel`
+Run: `pnpm --filter @lite-agent-sdk/core test kernel`
 Expected: PASS — 4 passed.
 
 - [ ] **Step 5: Fix the unused import if typecheck complains**
 
-Run: `pnpm --filter @lite-agent/core typecheck`
+Run: `pnpm --filter @lite-agent-sdk/core typecheck`
 Expected: no errors. If it reports `textBlock` is declared but never used, edit `kernel.ts` line 1's type import to `import { isTextBlock, toolResultBlock } from "./types";` and re-run.
 
 - [ ] **Step 6: Commit**
@@ -1121,7 +1121,7 @@ test("a user middleware observes via beforeAgent", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/core test createAgent`
+Run: `pnpm --filter @lite-agent-sdk/core test createAgent`
 Expected: FAIL — cannot find module `../src/createAgent`.
 
 - [ ] **Step 3: Implement `createAgent`**
@@ -1234,9 +1234,9 @@ test("public API: createAgent + nativeCodec + fakeProvider run end to end", asyn
 
 Run:
 ```bash
-pnpm --filter @lite-agent/core test
-pnpm --filter @lite-agent/core typecheck
-pnpm --filter @lite-agent/core build
+pnpm --filter @lite-agent-sdk/core test
+pnpm --filter @lite-agent-sdk/core typecheck
+pnpm --filter @lite-agent-sdk/core build
 ```
 Expected: all tests pass (8 files), typecheck clean, `dist/index.js` + `dist/index.d.ts` produced.
 
@@ -1251,8 +1251,8 @@ git commit -m "feat(core): createAgent factory and public API surface"
 
 ## Definition of done (Phase 1)
 
-- `pnpm --filter @lite-agent/core test` is green across all 8 test files.
-- `pnpm --filter @lite-agent/core typecheck` and `build` succeed.
+- `pnpm --filter @lite-agent-sdk/core test` is green across all 8 test files.
+- `pnpm --filter @lite-agent-sdk/core typecheck` and `build` succeed.
 - A consumer can write `createAgent({ model, codec: nativeCodec(), tools })` and drive a tool-using loop over the event stream, entirely offline via `fakeProvider`.
 - No `ModelProvider` for a real LLM yet (Phase 2), no permission/approval (Phase 3), no compaction/sessions (Phase 4) — those are deliberately out of Phase 1 scope.
 

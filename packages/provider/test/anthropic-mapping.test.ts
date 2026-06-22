@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { toAnthropicParams } from "../src/mapping";
-import type { ModelRequest } from "@lite-agent/core";
+import { toAnthropicParams } from "../src/anthropic/mapping";
+import type { ModelRequest } from "@lite-agent-sdk/core";
 
 test("hoists system, maps blocks, builds tools, strips $schema, defaults max_tokens", () => {
   const req: ModelRequest = {

@@ -136,7 +136,7 @@ test("permission: ask with no approver fails closed (by auto)", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/core test -- permission`
+Run: `pnpm --filter @lite-agent-sdk/core test -- permission`
 Expected: FAIL — `Cannot find module '../src/permission'`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -211,7 +211,7 @@ export type { PolicyOptions } from "./permission";
 
 - [ ] **Step 5: Run tests + typecheck**
 
-Run: `pnpm --filter @lite-agent/core test -- permission && pnpm --filter @lite-agent/core typecheck`
+Run: `pnpm --filter @lite-agent-sdk/core test -- permission && pnpm --filter @lite-agent-sdk/core typecheck`
 Expected: all permission tests PASS, typecheck clean.
 
 - [ ] **Step 6: Commit**
@@ -238,8 +238,8 @@ Create `packages/sdk/test/permission.test.ts`:
 import { expect, test, vi } from "vitest";
 import { z } from "zod";
 import { createLiteAgent } from "../src/createLiteAgent";
-import { policy, defineTool, fakeProvider, textBlock } from "@lite-agent/core";
-import type { AgentEvent, ApprovalHandler } from "@lite-agent/core";
+import { policy, defineTool, fakeProvider, textBlock } from "@lite-agent-sdk/core";
+import type { AgentEvent, ApprovalHandler } from "@lite-agent-sdk/core";
 
 function probeTool(ran: { value: boolean }) {
   return defineTool({
@@ -294,7 +294,7 @@ test("onApproval allow lets the gated tool run", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/sdk test -- permission`
+Run: `pnpm --filter lite-agent-sdk test -- permission`
 Expected: FAIL — `createLiteAgent` does not accept `permission`/`onApproval` (TS error or tool runs anyway).
 
 - [ ] **Step 3: Wire `createLiteAgent`**
@@ -304,8 +304,8 @@ In `packages/sdk/src/createLiteAgent.ts`:
 Update the imports — add `permission` (value) and the strategy types:
 
 ```ts
-import { createAgent, nativeCodec, permission } from "@lite-agent/core";
-import type { Agent, ApprovalHandler, Middleware, ModelProvider, PermissionPolicy, Sandbox, Tool } from "@lite-agent/core";
+import { createAgent, nativeCodec, permission } from "@lite-agent-sdk/core";
+import type { Agent, ApprovalHandler, Middleware, ModelProvider, PermissionPolicy, Sandbox, Tool } from "@lite-agent-sdk/core";
 ```
 
 Add to `CreateLiteAgentConfig` (after `use?`):
@@ -343,7 +343,7 @@ In `packages/sdk/src/query.ts`:
 Add the types to the type import:
 
 ```ts
-import type { AgentEvent, ApprovalHandler, Message, Middleware, ModelProvider, PermissionPolicy, RunResult, Sandbox, Tool } from "@lite-agent/core";
+import type { AgentEvent, ApprovalHandler, Message, Middleware, ModelProvider, PermissionPolicy, RunResult, Sandbox, Tool } from "@lite-agent-sdk/core";
 ```
 
 Add to `QueryOptions` (after `sandbox?`):
@@ -362,7 +362,7 @@ Add to the `createLiteAgent({...})` call (after `sandbox: opts.sandbox,`):
 
 - [ ] **Step 5: Run tests + typecheck**
 
-Run: `pnpm --filter @lite-agent/sdk test -- permission && pnpm --filter @lite-agent/sdk typecheck`
+Run: `pnpm --filter lite-agent-sdk test -- permission && pnpm --filter lite-agent-sdk typecheck`
 Expected: both tests PASS, typecheck clean.
 
 - [ ] **Step 6: Commit**
@@ -386,8 +386,8 @@ No automated test (the CLI entry has none by convention); verified by typecheck 
 In `src/main.ts`, extend the SDK import and add the type:
 
 ```ts
-import { createLiteAgent, policy } from "@lite-agent/sdk";
-import type { AgentEvent, ApprovalHandler, Message } from "@lite-agent/sdk";
+import { createLiteAgent, policy } from "lite-agent-sdk";
+import type { AgentEvent, ApprovalHandler, Message } from "lite-agent-sdk";
 ```
 
 - [ ] **Step 2: Add a module-level pending-approval slot + the approver**

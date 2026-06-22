@@ -1,5 +1,5 @@
-import { createAgent, nativeCodec, permission } from "@lite-agent/core";
-import type { Agent, ApprovalHandler, InputHandler, Middleware, ModelProvider, PermissionPolicy, Sandbox, Tool } from "@lite-agent/core";
+import { createAgent, nativeCodec, permission } from "@lite-agent-sdk/core";
+import type { Agent, ApprovalHandler, InputHandler, Middleware, ModelProvider, PermissionPolicy, Sandbox, Tool } from "@lite-agent-sdk/core";
 import { defaultTools, askUserTool } from "./tools";
 import { SkillLoader } from "./skills/loader";
 import { loadSkillTool } from "./skills/loadSkillTool";

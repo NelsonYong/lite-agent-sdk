@@ -1,7 +1,7 @@
 import { execSync } from "node:child_process";
 import { z } from "zod";
-import { defineTool } from "@lite-agent/core";
-import type { Tool } from "@lite-agent/core";
+import { defineTool } from "@lite-agent-sdk/core";
+import type { Tool } from "@lite-agent-sdk/core";
 
 const DANGEROUS = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"];
 

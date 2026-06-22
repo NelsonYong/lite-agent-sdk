@@ -1,8 +1,8 @@
 import { expect, test, vi } from "vitest";
 import { createLiteAgent } from "../src/createLiteAgent";
 import { askUserTool } from "../src/tools";
-import { fakeProvider, textBlock } from "@lite-agent/core";
-import type { AgentEvent, InputHandler, ToolContext, ToolCall } from "@lite-agent/core";
+import { fakeProvider, textBlock } from "@lite-agent-sdk/core";
+import type { AgentEvent, InputHandler, ToolContext, ToolCall } from "@lite-agent-sdk/core";
 
 function ctxWith(input: InputHandler | undefined, call: ToolCall, events: AgentEvent[]): ToolContext {
   return { sessionId: "s", signal: new AbortController().signal, emit: (e) => events.push(e), input, call };

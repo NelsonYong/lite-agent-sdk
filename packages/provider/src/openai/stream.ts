@@ -1,6 +1,6 @@
 import type OpenAI from "openai";
-import type { AssistantMessage, ContentBlock, ModelChunk, Usage } from "@lite-agent/core";
-import { textBlock } from "@lite-agent/core";
+import type { AssistantMessage, ContentBlock, ModelChunk, Usage } from "@lite-agent-sdk/core";
+import { textBlock } from "@lite-agent-sdk/core";
 
 type Chunk = OpenAI.Chat.Completions.ChatCompletionChunk;
 

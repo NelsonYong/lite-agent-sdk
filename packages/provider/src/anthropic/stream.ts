@@ -1,5 +1,5 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { AssistantMessage, ContentBlock, ModelChunk, Usage } from "@lite-agent/core";
+import type { AssistantMessage, ContentBlock, ModelChunk, Usage } from "@lite-agent-sdk/core";
 
 export async function* translateStream(
   events: AsyncIterable<Anthropic.RawMessageStreamEvent>,

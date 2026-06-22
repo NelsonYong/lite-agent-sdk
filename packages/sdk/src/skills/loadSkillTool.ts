@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { defineTool } from "@lite-agent/core";
-import type { Tool } from "@lite-agent/core";
+import { defineTool } from "@lite-agent-sdk/core";
+import type { Tool } from "@lite-agent-sdk/core";
 import type { SkillLoader } from "./loader";
 
 export function loadSkillTool(loader: SkillLoader): Tool {

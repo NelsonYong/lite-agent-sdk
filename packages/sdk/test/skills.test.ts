@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ToolContext } from "@lite-agent/core";
+import type { ToolContext } from "@lite-agent-sdk/core";
 import { SkillLoader } from "../src/skills/loader";
 import { loadSkillTool } from "../src/skills/loadSkillTool";
 

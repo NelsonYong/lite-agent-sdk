@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { toOpenAIParams } from "../src/mapping";
+import { toOpenAIParams } from "../src/openai/mapping";
 
 test("prepends system, maps user/assistant text", () => {
   const p = toOpenAIParams({ model: "m", system: "sys", messages: [

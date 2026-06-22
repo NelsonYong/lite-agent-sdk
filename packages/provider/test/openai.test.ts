@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { openai } from "../src/openai";
-import type { OpenAIClientLike } from "../src/openai";
+import { openai } from "../src/openai/openai";
+import type { OpenAIClientLike } from "../src/openai/openai";
 
 async function* one() { yield { choices: [{ delta: { content: "hi" } }] } as never; yield { choices: [{ delta: {} }], usage: { prompt_tokens: 1, completion_tokens: 1 } } as never; }
 

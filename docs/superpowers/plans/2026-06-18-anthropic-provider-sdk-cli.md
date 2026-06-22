@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Deliver the first end-to-end runnable CLI on top of `@lite-agent/core`: a real Anthropic model provider, a batteries-included SDK (default tools + skills) whose API is shaped after `@anthropic-ai/claude-agent-sdk`, and a rewritten `src/` app — with all old demo code removed.
+**Goal:** Deliver the first end-to-end runnable CLI on top of `@lite-agent-sdk/core`: a real Anthropic model provider, a batteries-included SDK (default tools + skills) whose API is shaped after `@anthropic-ai/claude-agent-sdk`, and a rewritten `src/` app — with all old demo code removed.
 
-**Architecture:** Three layers. `@lite-agent/provider-anthropic` wraps the raw `@anthropic-ai/sdk` Messages API into a `ModelProvider`. `@lite-agent/sdk` adds default tools, skill loading, a `createLiteAgent` factory, and `query()`/`tool()` ergonomics. The outer `src/` CLI wires a provider + the SDK into an event-stream REPL.
+**Architecture:** Three layers. `@lite-agent-sdk/provider` wraps the raw `@anthropic-ai/sdk` Messages API into a `ModelProvider`. `lite-agent-sdk` adds default tools, skill loading, a `createLiteAgent` factory, and `query()`/`tool()` ergonomics. The outer `src/` CLI wires a provider + the SDK into an event-stream REPL.
 
 **Tech Stack:** TypeScript 6 (strict, ESM, moduleResolution Bundler, verbatimModuleSyntax, noUncheckedIndexedAccess), pnpm workspace, tsup (build), vitest (test), zod 4, `@anthropic-ai/sdk` ^0.80.0.
 
@@ -17,7 +17,7 @@ Spec: `docs/superpowers/specs/2026-06-18-anthropic-provider-sdk-cli-design.md`.
 ## Setup notes (read once before Task 1)
 
 - **Two distinct SDKs:** `@anthropic-ai/sdk` is the raw model client we wrap; `@anthropic-ai/claude-agent-sdk` is only an **API-design reference** (never a dependency).
-- **Core must be built** so downstream packages resolve its types/runtime via `dist`: run `pnpm --filter @lite-agent/core build` if `packages/core/dist/index.d.ts` is missing.
+- **Core must be built** so downstream packages resolve its types/runtime via `dist`: run `pnpm --filter @lite-agent-sdk/core build` if `packages/core/dist/index.d.ts` is missing.
 - **After creating each new `package.json`**, run `pnpm install` at the repo root to create the workspace symlinks.
 - Each package mirrors core's config: `package.json` (tsup build / vitest test / tsc typecheck) + `tsconfig.json` extending `../../tsconfig.base.json` with `{ "outDir": "dist", "types": ["node"] }` and `include: ["src","test"]`.
 - Tests live in `<pkg>/test/*.test.ts` (vitest default discovery; no config file needed).
@@ -25,7 +25,7 @@ Spec: `docs/superpowers/specs/2026-06-18-anthropic-provider-sdk-cli-design.md`.
 
 ---
 
-## Task 1: Scaffold `@lite-agent/provider-anthropic` + request mapping
+## Task 1: Scaffold `@lite-agent-sdk/provider` + request mapping
 
 **Files:**
 - Create: `packages/provider-anthropic/package.json`
@@ -37,7 +37,7 @@ Spec: `docs/superpowers/specs/2026-06-18-anthropic-provider-sdk-cli-design.md`.
 
 ```json
 {
-  "name": "@lite-agent/provider-anthropic",
+  "name": "@lite-agent-sdk/provider",
   "version": "0.0.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -52,7 +52,7 @@ Spec: `docs/superpowers/specs/2026-06-18-anthropic-provider-sdk-cli-design.md`.
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
-    "@lite-agent/core": "workspace:*"
+    "@lite-agent-sdk/core": "workspace:*"
   },
   "devDependencies": { "@types/node": "^25.5.0", "tsup": "^8.3.0", "typescript": "^6.0.2", "vitest": "^2.1.0" }
 }
@@ -71,14 +71,14 @@ Spec: `docs/superpowers/specs/2026-06-18-anthropic-provider-sdk-cli-design.md`.
 - [ ] **Step 3: Install workspace links**
 
 Run: `pnpm install`
-Expected: adds `@lite-agent/provider-anthropic`, links `@lite-agent/core`. Exit 0.
+Expected: adds `@lite-agent-sdk/provider`, links `@lite-agent-sdk/core`. Exit 0.
 
 - [ ] **Step 4: Write the failing test** — `packages/provider-anthropic/test/mapping.test.ts`
 
 ```ts
 import { expect, test } from "vitest";
 import { toAnthropicParams } from "../src/mapping";
-import type { ModelRequest } from "@lite-agent/core";
+import type { ModelRequest } from "@lite-agent-sdk/core";
 
 test("hoists system, maps blocks, builds tools, strips $schema, defaults max_tokens", () => {
   const req: ModelRequest = {
@@ -124,14 +124,14 @@ test("uses provided maxTokens and omits tools/system when absent", () => {
 
 - [ ] **Step 5: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/provider-anthropic test`
+Run: `pnpm --filter @lite-agent-sdk/provider test`
 Expected: FAIL — `toAnthropicParams` not found.
 
 - [ ] **Step 6: Implement `packages/provider-anthropic/src/mapping.ts`**
 
 ```ts
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ContentBlock, Message, ModelRequest, ToolSpec } from "@lite-agent/core";
+import type { ContentBlock, Message, ModelRequest, ToolSpec } from "@lite-agent-sdk/core";
 
 const DEFAULT_MAX_TOKENS = 4096;
 
@@ -176,13 +176,13 @@ export function toAnthropicParams(req: ModelRequest): Anthropic.MessageCreatePar
 
 - [ ] **Step 7: Run test to verify it passes**
 
-Run: `pnpm --filter @lite-agent/provider-anthropic test`
+Run: `pnpm --filter @lite-agent-sdk/provider test`
 Expected: PASS (2 tests).
 
 - [ ] **Step 8: Typecheck**
 
-Run: `pnpm --filter @lite-agent/provider-anthropic typecheck`
-Expected: clean (no errors). If `@lite-agent/core` types fail to resolve, run `pnpm --filter @lite-agent/core build` first.
+Run: `pnpm --filter @lite-agent-sdk/provider typecheck`
+Expected: clean (no errors). If `@lite-agent-sdk/core` types fail to resolve, run `pnpm --filter @lite-agent-sdk/core build` first.
 
 - [ ] **Step 9: Commit**
 
@@ -204,7 +204,7 @@ git commit -m "feat(provider-anthropic): scaffold package + request mapping"
 ```ts
 import { expect, test } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ModelChunk } from "@lite-agent/core";
+import type { ModelChunk } from "@lite-agent-sdk/core";
 import { translateStream } from "../src/stream";
 
 async function* gen(events: Anthropic.RawMessageStreamEvent[]) {
@@ -246,14 +246,14 @@ test("translates text + tool_use stream into ModelChunks", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/provider-anthropic test stream`
+Run: `pnpm --filter @lite-agent-sdk/provider test stream`
 Expected: FAIL — `translateStream` not found.
 
 - [ ] **Step 3: Implement `packages/provider-anthropic/src/stream.ts`**
 
 ```ts
 import type Anthropic from "@anthropic-ai/sdk";
-import type { AssistantMessage, ContentBlock, ModelChunk, Usage } from "@lite-agent/core";
+import type { AssistantMessage, ContentBlock, ModelChunk, Usage } from "@lite-agent-sdk/core";
 
 export async function* translateStream(
   events: AsyncIterable<Anthropic.RawMessageStreamEvent>,
@@ -316,12 +316,12 @@ export async function* translateStream(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @lite-agent/provider-anthropic test stream`
+Run: `pnpm --filter @lite-agent-sdk/provider test stream`
 Expected: PASS.
 
 - [ ] **Step 5: Typecheck + commit**
 
-Run: `pnpm --filter @lite-agent/provider-anthropic typecheck`
+Run: `pnpm --filter @lite-agent-sdk/provider typecheck`
 Expected: clean.
 
 ```bash
@@ -343,7 +343,7 @@ git commit -m "feat(provider-anthropic): translate Anthropic stream events to Mo
 ```ts
 import { expect, test } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ModelChunk } from "@lite-agent/core";
+import type { ModelChunk } from "@lite-agent-sdk/core";
 import { anthropic } from "../src/index";
 import type { AnthropicClientLike } from "../src/index";
 
@@ -386,14 +386,14 @@ test("provider streams ModelChunks via an injected client and forwards params", 
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/provider-anthropic test anthropic`
+Run: `pnpm --filter @lite-agent-sdk/provider test anthropic`
 Expected: FAIL — `anthropic` / `AnthropicClientLike` not found.
 
 - [ ] **Step 3: Implement `packages/provider-anthropic/src/anthropic.ts`**
 
 ```ts
 import Anthropic from "@anthropic-ai/sdk";
-import type { ModelChunk, ModelProvider, ModelRequest } from "@lite-agent/core";
+import type { ModelChunk, ModelProvider, ModelRequest } from "@lite-agent-sdk/core";
 import { toAnthropicParams } from "./mapping";
 import { translateStream } from "./stream";
 
@@ -443,14 +443,14 @@ export { translateStream } from "./stream";
 
 - [ ] **Step 5: Run test + typecheck**
 
-Run: `pnpm --filter @lite-agent/provider-anthropic test`
+Run: `pnpm --filter @lite-agent-sdk/provider test`
 Expected: PASS (all 3 test files).
-Run: `pnpm --filter @lite-agent/provider-anthropic typecheck`
+Run: `pnpm --filter @lite-agent-sdk/provider typecheck`
 Expected: clean.
 
 - [ ] **Step 6: Build (verify dts emits)**
 
-Run: `pnpm --filter @lite-agent/provider-anthropic build`
+Run: `pnpm --filter @lite-agent-sdk/provider build`
 Expected: emits `dist/index.js` + `dist/index.d.ts`. Exit 0.
 
 - [ ] **Step 7: Commit**
@@ -462,7 +462,7 @@ git commit -m "feat(provider-anthropic): assemble ModelProvider + public exports
 
 ---
 
-## Task 4: Scaffold `@lite-agent/sdk` + file tools
+## Task 4: Scaffold `lite-agent-sdk` + file tools
 
 **Files:**
 - Create: `packages/sdk/package.json`
@@ -474,7 +474,7 @@ git commit -m "feat(provider-anthropic): assemble ModelProvider + public exports
 
 ```json
 {
-  "name": "@lite-agent/sdk",
+  "name": "lite-agent-sdk",
   "version": "0.0.0",
   "type": "module",
   "main": "./dist/index.js",
@@ -487,7 +487,7 @@ git commit -m "feat(provider-anthropic): assemble ModelProvider + public exports
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "@lite-agent/core": "workspace:*", "zod": "^4.3.6" },
+  "dependencies": { "@lite-agent-sdk/core": "workspace:*", "zod": "^4.3.6" },
   "devDependencies": { "@types/node": "^25.5.0", "tsup": "^8.3.0", "typescript": "^6.0.2", "vitest": "^2.1.0" }
 }
 ```
@@ -505,7 +505,7 @@ git commit -m "feat(provider-anthropic): assemble ModelProvider + public exports
 - [ ] **Step 3: Install workspace links**
 
 Run: `pnpm install`
-Expected: adds `@lite-agent/sdk`. Exit 0.
+Expected: adds `lite-agent-sdk`. Exit 0.
 
 - [ ] **Step 4: Write the failing test** — `packages/sdk/test/file.test.ts`
 
@@ -514,7 +514,7 @@ import { expect, test } from "vitest";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ToolContext } from "@lite-agent/core";
+import type { ToolContext } from "@lite-agent-sdk/core";
 import { fileTools, makeSafePath } from "../src/tools/file";
 
 const ctx: ToolContext = { sessionId: "s", signal: new AbortController().signal, emit: () => {} };
@@ -538,7 +538,7 @@ test("safePath blocks escaping the workspace", () => {
 
 - [ ] **Step 5: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/sdk test file`
+Run: `pnpm --filter lite-agent-sdk test file`
 Expected: FAIL — `fileTools` not found.
 
 - [ ] **Step 6: Implement `packages/sdk/src/tools/file.ts`**
@@ -547,8 +547,8 @@ Expected: FAIL — `fileTools` not found.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
-import { defineTool } from "@lite-agent/core";
-import type { Tool } from "@lite-agent/core";
+import { defineTool } from "@lite-agent-sdk/core";
+import type { Tool } from "@lite-agent-sdk/core";
 
 const MAX_BYTES = 50_000;
 
@@ -610,10 +610,10 @@ export function fileTools(workdir: string): Tool[] {
 
 - [ ] **Step 7: Run test + typecheck**
 
-Run: `pnpm --filter @lite-agent/sdk test file`
+Run: `pnpm --filter lite-agent-sdk test file`
 Expected: PASS.
-Run: `pnpm --filter @lite-agent/sdk typecheck`
-Expected: clean (build `@lite-agent/core` first if its `dist` types are missing).
+Run: `pnpm --filter lite-agent-sdk typecheck`
+Expected: clean (build `@lite-agent-sdk/core` first if its `dist` types are missing).
 
 - [ ] **Step 8: Commit**
 
@@ -636,7 +636,7 @@ git commit -m "feat(sdk): scaffold package + workspace-confined file tools"
 
 ```ts
 import { expect, test } from "vitest";
-import type { ToolContext } from "@lite-agent/core";
+import type { ToolContext } from "@lite-agent-sdk/core";
 import { bashTool } from "../src/tools/bash";
 import { todoTool } from "../src/tools/todo";
 import { defaultTools } from "../src/tools";
@@ -669,7 +669,7 @@ test("defaultTools exposes the five built-ins by name", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/sdk test tools`
+Run: `pnpm --filter lite-agent-sdk test tools`
 Expected: FAIL — `bashTool` not found.
 
 - [ ] **Step 3: Implement `packages/sdk/src/tools/bash.ts`**
@@ -677,8 +677,8 @@ Expected: FAIL — `bashTool` not found.
 ```ts
 import { execSync } from "node:child_process";
 import { z } from "zod";
-import { defineTool } from "@lite-agent/core";
-import type { Tool } from "@lite-agent/core";
+import { defineTool } from "@lite-agent-sdk/core";
+import type { Tool } from "@lite-agent-sdk/core";
 
 const DANGEROUS = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"];
 
@@ -705,8 +705,8 @@ export function bashTool(workdir: string): Tool {
 
 ```ts
 import { z } from "zod";
-import { defineTool } from "@lite-agent/core";
-import type { Tool } from "@lite-agent/core";
+import { defineTool } from "@lite-agent-sdk/core";
+import type { Tool } from "@lite-agent-sdk/core";
 
 type TodoStatus = "pending" | "in_progress" | "completed";
 interface TodoItem { id: string; text: string; status: TodoStatus; }
@@ -752,7 +752,7 @@ export function todoTool(): Tool {
 - [ ] **Step 5: Implement `packages/sdk/src/tools/index.ts`**
 
 ```ts
-import type { Tool } from "@lite-agent/core";
+import type { Tool } from "@lite-agent-sdk/core";
 import { bashTool } from "./bash";
 import { fileTools } from "./file";
 import { todoTool } from "./todo";
@@ -768,9 +768,9 @@ export { todoTool } from "./todo";
 
 - [ ] **Step 6: Run test + typecheck**
 
-Run: `pnpm --filter @lite-agent/sdk test tools`
+Run: `pnpm --filter lite-agent-sdk test tools`
 Expected: PASS.
-Run: `pnpm --filter @lite-agent/sdk typecheck`
+Run: `pnpm --filter lite-agent-sdk typecheck`
 Expected: clean.
 
 - [ ] **Step 7: Commit**
@@ -796,7 +796,7 @@ import { expect, test } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ToolContext } from "@lite-agent/core";
+import type { ToolContext } from "@lite-agent-sdk/core";
 import { SkillLoader } from "../src/skills/loader";
 import { loadSkillTool } from "../src/skills/loadSkillTool";
 
@@ -823,7 +823,7 @@ test("empty/missing dir yields a placeholder description", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent/sdk test skills`
+Run: `pnpm --filter lite-agent-sdk test skills`
 Expected: FAIL — `SkillLoader` not found.
 
 - [ ] **Step 3: Implement `packages/sdk/src/skills/loader.ts`**
@@ -895,8 +895,8 @@ export class SkillLoader {
 
 ```ts
 import { z } from "zod";
-import { defineTool } from "@lite-agent/core";
-import type { Tool } from "@lite-agent/core";
+import { defineTool } from "@lite-agent-sdk/core";
+import type { Tool } from "@lite-agent-sdk/core";
 import type { SkillLoader } from "./loader";
 
 export function loadSkillTool(loader: SkillLoader): Tool {
@@ -911,9 +911,9 @@ export function loadSkillTool(loader: SkillLoader): Tool {
 
 - [ ] **Step 5: Run test + typecheck**
 
-Run: `pnpm --filter @lite-agent/sdk test skills`
+Run: `pnpm --filter lite-agent-sdk test skills`
 Expected: PASS.
-Run: `pnpm --filter @lite-agent/sdk typecheck`
+Run: `pnpm --filter lite-agent-sdk typecheck`
 Expected: clean.
 
 - [ ] **Step 6: Commit**
@@ -961,7 +961,7 @@ import { expect, test } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fakeProvider, textBlock } from "@lite-agent/core";
+import { fakeProvider, textBlock } from "@lite-agent-sdk/core";
 import { createLiteAgent } from "../src/createLiteAgent";
 
 test("runs with default tools wired", async () => {
@@ -1003,7 +1003,7 @@ test("allowedTools restricts the registered set", async () => {
 ```ts
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { fakeProvider, textBlock } from "@lite-agent/core";
+import { fakeProvider, textBlock } from "@lite-agent-sdk/core";
 import { query } from "../src/query";
 import { tool } from "../src/tool";
 
@@ -1027,7 +1027,7 @@ test("tool() builds a working Tool", async () => {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `pnpm --filter @lite-agent/sdk test system createLiteAgent query`
+Run: `pnpm --filter lite-agent-sdk test system createLiteAgent query`
 Expected: FAIL — modules not found.
 
 - [ ] **Step 3: Implement `packages/sdk/src/system.ts`**
@@ -1061,8 +1061,8 @@ ${opts.skills}`;
 - [ ] **Step 4: Implement `packages/sdk/src/createLiteAgent.ts`**
 
 ```ts
-import { createAgent, nativeCodec } from "@lite-agent/core";
-import type { Agent, Middleware, ModelProvider, Tool } from "@lite-agent/core";
+import { createAgent, nativeCodec } from "@lite-agent-sdk/core";
+import type { Agent, Middleware, ModelProvider, Tool } from "@lite-agent-sdk/core";
 import { defaultTools } from "./tools";
 import { SkillLoader } from "./skills/loader";
 import { loadSkillTool } from "./skills/loadSkillTool";
@@ -1113,7 +1113,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
 - [ ] **Step 5: Implement `packages/sdk/src/query.ts`**
 
 ```ts
-import type { AgentEvent, Message, Middleware, ModelProvider, RunResult, Tool } from "@lite-agent/core";
+import type { AgentEvent, Message, Middleware, ModelProvider, RunResult, Tool } from "@lite-agent-sdk/core";
 import { createLiteAgent } from "./createLiteAgent";
 
 export interface QueryOptions {
@@ -1155,8 +1155,8 @@ export function query(opts: QueryOptions): AsyncGenerator<AgentEvent, RunResult>
 
 ```ts
 import type { ZodType } from "zod";
-import { defineTool } from "@lite-agent/core";
-import type { Tool, ToolContext } from "@lite-agent/core";
+import { defineTool } from "@lite-agent-sdk/core";
+import type { Tool, ToolContext } from "@lite-agent-sdk/core";
 
 export function tool<I>(
   name: string,
@@ -1171,7 +1171,7 @@ export function tool<I>(
 - [ ] **Step 7: Implement `packages/sdk/src/index.ts`**
 
 ```ts
-export * from "@lite-agent/core";
+export * from "@lite-agent-sdk/core";
 
 export { createLiteAgent } from "./createLiteAgent";
 export type { CreateLiteAgentConfig } from "./createLiteAgent";
@@ -1187,11 +1187,11 @@ export { loadSkillTool } from "./skills/loadSkillTool";
 
 - [ ] **Step 8: Run tests + typecheck + build**
 
-Run: `pnpm --filter @lite-agent/sdk test`
+Run: `pnpm --filter lite-agent-sdk test`
 Expected: PASS (all sdk test files).
-Run: `pnpm --filter @lite-agent/sdk typecheck`
+Run: `pnpm --filter lite-agent-sdk typecheck`
 Expected: clean.
-Run: `pnpm --filter @lite-agent/sdk build`
+Run: `pnpm --filter lite-agent-sdk build`
 Expected: emits `dist/index.js` + `dist/index.d.ts`. Exit 0.
 
 - [ ] **Step 9: Commit**
@@ -1246,8 +1246,8 @@ Replace the file with (sets the app to ESM, swaps deps to the workspace packages
     "typescript": "^6.0.2"
   },
   "dependencies": {
-    "@lite-agent/provider-anthropic": "workspace:*",
-    "@lite-agent/sdk": "workspace:*",
+    "@lite-agent-sdk/provider": "workspace:*",
+    "lite-agent-sdk": "workspace:*",
     "dotenv": "^17.3.1"
   }
 }
@@ -1259,9 +1259,9 @@ Replace the file with (sets the app to ESM, swaps deps to the workspace packages
 import "dotenv/config";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { anthropic } from "@lite-agent/provider-anthropic";
-import { createLiteAgent } from "@lite-agent/sdk";
-import type { AgentEvent, Message } from "@lite-agent/sdk";
+import { anthropic } from "@lite-agent-sdk/provider";
+import { createLiteAgent } from "lite-agent-sdk";
+import type { AgentEvent, Message } from "lite-agent-sdk";
 
 const workdir = process.cwd();
 
@@ -1376,13 +1376,13 @@ main().catch((e) => {
 
 Run: `pnpm install`
 Expected: links the new root deps. Exit 0.
-Run: `pnpm -r --filter "@lite-agent/core" --filter "@lite-agent/provider-anthropic" --filter "@lite-agent/sdk" build`
+Run: `pnpm -r --filter "@lite-agent-sdk/core" --filter "@lite-agent-sdk/provider" --filter "lite-agent-sdk" build`
 Expected: builds the three libs in dependency order; each emits `dist/`. Exit 0.
 
 - [ ] **Step 5: Typecheck the app**
 
 Run: `pnpm typecheck`
-Expected: clean (the app resolves `@lite-agent/sdk` + `@lite-agent/provider-anthropic` types from their built `dist`).
+Expected: clean (the app resolves `lite-agent-sdk` + `@lite-agent-sdk/provider` types from their built `dist`).
 
 - [ ] **Step 6: Smoke-run the REPL (no network)**
 
@@ -1393,15 +1393,15 @@ Expected: prints `lite-agent >> ` then exits 0 (constructs the Anthropic client 
 
 ```bash
 git add -A
-git commit -m "feat(app): rewrite CLI on @lite-agent/sdk + provider-anthropic; remove old demo"
+git commit -m "feat(app): rewrite CLI on lite-agent-sdk + provider-anthropic; remove old demo"
 ```
 
 ---
 
 ## Final verification (after all tasks)
 
-- [ ] `pnpm -r --filter "@lite-agent/core" --filter "@lite-agent/provider-anthropic" --filter "@lite-agent/sdk" test` — all package tests pass.
-- [ ] `pnpm -r --filter "@lite-agent/core" --filter "@lite-agent/provider-anthropic" --filter "@lite-agent/sdk" typecheck` — clean.
+- [ ] `pnpm -r --filter "@lite-agent-sdk/core" --filter "@lite-agent-sdk/provider" --filter "lite-agent-sdk" test` — all package tests pass.
+- [ ] `pnpm -r --filter "@lite-agent-sdk/core" --filter "@lite-agent-sdk/provider" --filter "lite-agent-sdk" typecheck` — clean.
 - [ ] `pnpm typecheck` (root app) — clean.
 - [ ] `printf 'q\n' | ANTHROPIC_API_KEY=test MODEL_ID=test pnpm dev` — exits 0.
 - [ ] Manual end-to-end (user, with a real `.env`): `pnpm dev`, ask a question, confirm streaming text + a tool call (e.g. "list files with bash") + skill load works.

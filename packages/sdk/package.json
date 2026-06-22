@@ -1,7 +1,7 @@
 {
-  "name": "@lite-agent/sdk",
+  "name": "lite-agent-sdk",
   "version": "0.0.0",
-  "description": "Batteries-included agent SDK over @lite-agent/core: tools, skills, system prompt, and query()/createLiteAgent().",
+  "description": "Batteries-included agent SDK over @lite-agent-sdk/core: tools, skills, system prompt, and query()/createLiteAgent().",
   "license": "ISC",
   "type": "module",
   "main": "./dist/index.js",
@@ -28,7 +28,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+http://192.168.110.96:30080/yangjie/lite-agent.git",
+    "url": "git+https://github.com/NelsonYong/lite-agent-sdk.git",
     "directory": "packages/sdk"
   },
   "publishConfig": {
@@ -40,7 +40,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@lite-agent/core": "workspace:*",
+    "@lite-agent-sdk/core": "workspace:*",
     "zod": "^4.3.6"
   },
   "devDependencies": {

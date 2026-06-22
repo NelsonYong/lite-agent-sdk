@@ -1,4 +1,4 @@
-# @lite-agent/core
+# @lite-agent-sdk/core
 
 Pluggable, event-driven agent core SDK — a lean kernel plus strategy interfaces (model provider, tool-call codec, tools, compaction, permission, approval, input, store), an onion middleware pipeline, and a typed event stream.
 
@@ -7,7 +7,7 @@ Pluggable, event-driven agent core SDK — a lean kernel plus strategy interface
 ## Quick start
 
 ```ts
-import { createAgent, nativeCodec, fakeProvider, textBlock } from "@lite-agent/core";
+import { createAgent, nativeCodec, fakeProvider, textBlock } from "@lite-agent-sdk/core";
 
 const agent = createAgent({
   model: fakeProvider([{ text: "hi", message: { role: "assistant", content: [textBlock("hi")] } }]),
