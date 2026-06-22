@@ -1,12 +1,40 @@
 {
   "name": "@lite-agent/sandbox-anthropic",
   "version": "0.0.0",
+  "description": "OS-level Sandbox adapter for @lite-agent/core over @anthropic-ai/sandbox-runtime (Seatbelt / bubblewrap).",
+  "license": "ISC",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
-  "engines": { "node": ">=20" },
-  "files": ["dist"],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "llm",
+    "sandbox",
+    "seatbelt",
+    "bubblewrap"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+http://192.168.110.96:30080/yangjie/lite-agent.git",
+    "directory": "packages/sandbox-anthropic"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean --tsconfig tsconfig.build.json",
     "test": "vitest run",
@@ -16,5 +44,10 @@
     "@anthropic-ai/sandbox-runtime": "^0.0.55",
     "@lite-agent/core": "workspace:*"
   },
-  "devDependencies": { "@types/node": "^25.5.0", "tsup": "^8.3.0", "typescript": "^6.0.2", "vitest": "^2.1.0" }
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsup": "^8.3.0",
+    "typescript": "^6.0.2",
+    "vitest": "^2.1.0"
+  }
 }
