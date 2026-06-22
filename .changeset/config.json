@@ -7,6 +7,7 @@
       "@lite-agent/core",
       "@lite-agent/sdk",
       "@lite-agent/provider-anthropic",
+      "@lite-agent/provider-openai",
       "@lite-agent/sandbox-anthropic"
     ]
   ],
