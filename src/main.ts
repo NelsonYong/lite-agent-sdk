@@ -4,7 +4,7 @@ import { createInterface } from "node:readline";
 import { anthropic } from "@lite-agent/provider-anthropic";
 import { sandboxRuntime } from "@lite-agent/sandbox-anthropic";
 import { createLiteAgent, policy } from "@lite-agent/sdk";
-import type { AgentEvent, ApprovalHandler, Message } from "@lite-agent/sdk";
+import type { AgentEvent, ApprovalHandler, InputHandler, Message, UserAnswer, UserQuestion } from "@lite-agent/sdk";
 
 const workdir = process.cwd();
 
@@ -22,6 +22,39 @@ const onApproval: ApprovalHandler = {
     }),
 };
 
+// A line being typed in response to ask_user. onKey accumulates bytes into `buffer`
+// (raw mode, so we echo + handle backspace ourselves) and resolves on Enter.
+let pendingInput: { buffer: string; resolve: (text: string) => void } | null = null;
+
+function parseAnswer(q: UserQuestion, text: string): UserAnswer {
+  const t = text.trim();
+  if (q.options && q.options.length) {
+    const picked = t
+      .split(",")
+      .map((s) => Number.parseInt(s.trim(), 10) - 1)
+      .filter((n) => Number.isInteger(n) && q.options![n] !== undefined)
+      .map((n) => q.options![n]!);
+    if (picked.length) return q.multiSelect ? { selected: picked } : { selected: [picked[0]!] };
+  }
+  return { text: t };
+}
+
+const onAskUser: InputHandler = {
+  request: (q) =>
+    new Promise((resolve) => {
+      process.stdout.write(`\n\x1b[36m[ask] ${q.question}\x1b[0m\n`);
+      if (q.options && q.options.length) {
+        q.options.forEach((o, i) => process.stdout.write(`  ${i + 1}. ${o}\n`));
+        process.stdout.write(
+          `\x1b[90m(number${q.multiSelect ? "s, comma-separated," : ""} or free text)\x1b[0m > `,
+        );
+      } else {
+        process.stdout.write("> ");
+      }
+      pendingInput = { buffer: "", resolve: (text) => resolve(parseAnswer(q, text)) };
+    }),
+};
+
 const agent = createLiteAgent({
   model: anthropic(),
   modelName: process.env["MODEL_ID"],
@@ -29,6 +62,7 @@ const agent = createLiteAgent({
   skillsDir: join(workdir, "skills"),
   permission: policy({ ask: ["bash", "write_file", "edit_file"] }),
   onApproval,
+  onAskUser,
   // OS-level boundary (defense-in-depth with the permission gate). macOS=Seatbelt, Linux=bubblewrap.
   // Degrades to noop on unsupported envs so bash keeps working.
   sandbox: sandboxRuntime({
@@ -144,6 +178,25 @@ async function main(): Promise<void> {
         resolve(allow ? "allow" : "deny");
         return;
       }
+      if (pendingInput) {
+        const b = key[0];
+        if (b === 0x0d || b === 0x0a) {
+          const { resolve, buffer } = pendingInput;
+          pendingInput = null;
+          process.stdout.write("\n");
+          resolve(buffer);
+        } else if (b === 0x7f || b === 0x08) {
+          if (pendingInput.buffer.length) {
+            pendingInput.buffer = pendingInput.buffer.slice(0, -1);
+            process.stdout.write("\b \b");
+          }
+        } else if (b !== 0x1b) {
+          const ch = key.toString();
+          pendingInput.buffer += ch;
+          process.stdout.write(ch);
+        }
+        return;
+      }
       if (key[0] === 0x1b && key.length === 1) {
         ac.abort();
         process.stdout.write("\n\x1b[33m[ESC] interrupted\x1b[0m\n");
@@ -165,6 +218,7 @@ async function main(): Promise<void> {
       );
     } finally {
       pendingApproval = null;
+      pendingInput = null;
       process.stdin.removeListener("data", onKey);
       if (process.stdin.isTTY) process.stdin.setRawMode(false);
       rl.resume();
