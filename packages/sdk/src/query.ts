@@ -31,7 +31,11 @@ export interface QueryOptions {
   sessionId?: string;
   sandbox?: Sandbox;
   store?: Store;
-  compactor?: Compactor;
+  compactor?: Compactor | false;
+  home?: string;
+  sessions?: boolean;
+  spill?: boolean | { budgetBytes?: number };
+  cleanup?: boolean | { maxAgeDays?: number };
   permission?: PermissionPolicy;
   onApproval?: ApprovalHandler;
   onAskUser?: InputHandler;
@@ -55,6 +59,10 @@ export function query(
     sandbox: opts.sandbox,
     store: opts.store,
     compactor: opts.compactor,
+    home: opts.home,
+    sessions: opts.sessions,
+    spill: opts.spill,
+    cleanup: opts.cleanup,
     permission: opts.permission,
     onApproval: opts.onApproval,
     onAskUser: opts.onAskUser,
