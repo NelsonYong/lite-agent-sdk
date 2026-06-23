@@ -54,3 +54,15 @@ test("names() lists loaded skills; a missing dir in the list is skipped", () => 
   const loader = new SkillLoader([join(tmpdir(), "missing-xyz"), a]);
   expect(loader.names()).toEqual(["demo"]);
 });
+
+test("parses YAML list frontmatter via gray-matter (tags as array)", () => {
+  const root = mkdtempSync(join(tmpdir(), "sk-yaml-"));
+  mkdirSync(join(root, "demo"));
+  writeFileSync(
+    join(root, "demo", "SKILL.md"),
+    "---\nname: demo\ndescription: d\ntags:\n  - alpha\n  - beta\n---\nBODY",
+  );
+  const loader = new SkillLoader(root);
+  expect(loader.getDescriptions()).toContain("alpha");
+  expect(loader.getDescriptions()).toContain("beta");
+});

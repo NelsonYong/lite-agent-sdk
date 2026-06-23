@@ -1,7 +1,8 @@
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import matter from "gray-matter";
 
-interface SkillMeta { name?: string; description?: string; tags?: string; [k: string]: string | undefined; }
+interface SkillMeta { name?: string; description?: string; tags?: string | string[]; [k: string]: unknown; }
 interface Skill { meta: SkillMeta; body: string; path: string; }
 
 export class SkillLoader {
@@ -32,14 +33,8 @@ export class SkillLoader {
   }
 
   private parse(text: string): { meta: SkillMeta; body: string } {
-    const m = text.match(/^---\n(.*?)\n---\n(.*)/s);
-    if (!m) return { meta: {}, body: text };
-    const meta: SkillMeta = {};
-    for (const line of m[1]!.trim().split("\n")) {
-      const i = line.indexOf(":");
-      if (i > 0) meta[line.slice(0, i).trim()] = line.slice(i + 1).trim();
-    }
-    return { meta, body: m[2]!.trim() };
+    const { data, content } = matter(text);
+    return { meta: data as SkillMeta, body: content.trim() };
   }
 
   getDescriptions(): string {
