@@ -34,6 +34,7 @@ export class SkillLoader {
 
   private parse(text: string): { meta: SkillMeta; body: string } {
     const { data, content } = matter(text);
+    // gray-matter returns data: Record<string, any>; cast is safe for well-formed SKILL.md.
     return { meta: data as SkillMeta, body: content.trim() };
   }
 
@@ -43,7 +44,8 @@ export class SkillLoader {
     return names
       .map((n) => {
         const s = this.skills[n]!;
-        const tags = s.meta.tags ? ` [${s.meta.tags}]` : "";
+        const tagList = Array.isArray(s.meta.tags) ? s.meta.tags.join(", ") : s.meta.tags;
+        const tags = tagList ? ` [${tagList}]` : "";
         return `  - ${n}: ${s.meta.description ?? "No description"}${tags}`;
       })
       .join("\n");
