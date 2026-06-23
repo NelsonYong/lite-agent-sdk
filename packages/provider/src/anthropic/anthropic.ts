@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
-import type { ModelChunk, ModelProvider, ModelRequest } from "@lite-agent-sdk/core";
-import { ProviderError } from "@lite-agent-sdk/core";
+import type { ModelChunk, ModelProvider, ModelRequest } from "@lite-agent/core";
+import { ProviderError } from "@lite-agent/core";
 import { toAnthropicParams } from "./mapping";
 import { translateStream } from "./stream";
 
@@ -10,7 +10,9 @@ export interface AnthropicClientLike {
     create(
       params: Anthropic.MessageCreateParamsStreaming,
       options?: { signal?: AbortSignal },
-    ): Promise<AsyncIterable<Anthropic.RawMessageStreamEvent>> | AsyncIterable<Anthropic.RawMessageStreamEvent>;
+    ):
+      | Promise<AsyncIterable<Anthropic.RawMessageStreamEvent>>
+      | AsyncIterable<Anthropic.RawMessageStreamEvent>;
   };
 }
 
@@ -22,7 +24,10 @@ export interface AnthropicProviderOptions {
 
 function toProviderError(e: unknown): ProviderError {
   if (e instanceof ProviderError) return e;
-  const status = typeof (e as { status?: unknown }).status === "number" ? (e as { status: number }).status : undefined;
+  const status =
+    typeof (e as { status?: unknown }).status === "number"
+      ? (e as { status: number }).status
+      : undefined;
   const message = e instanceof Error ? e.message : String(e);
   return new ProviderError(message, status);
 }
@@ -37,10 +42,16 @@ export function anthropic(opts: AnthropicProviderOptions = {}): ModelProvider {
 
   return {
     id: "anthropic",
-    async *stream(req: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelChunk> {
+    async *stream(
+      req: ModelRequest,
+      signal?: AbortSignal,
+    ): AsyncIterable<ModelChunk> {
       const params = toAnthropicParams(req);
       try {
-        const raw = await client.messages.create(params, signal ? { signal } : undefined);
+        const raw = await client.messages.create(
+          params,
+          signal ? { signal } : undefined,
+        );
         yield* translateStream(raw);
       } catch (e) {
         throw toProviderError(e);

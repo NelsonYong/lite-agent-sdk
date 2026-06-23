@@ -1,5 +1,8 @@
-import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-import type { Sandbox } from "@lite-agent-sdk/core";
+import {
+  SandboxManager,
+  type SandboxRuntimeConfig,
+} from "@anthropic-ai/sandbox-runtime";
+import type { Sandbox } from "@lite-agent/core";
 
 export interface SandboxRuntimeOptions {
   allowedDomains?: string[];
@@ -15,7 +18,10 @@ export interface SandboxRuntimeOptions {
 
 export function sandboxRuntime(opts: SandboxRuntimeOptions = {}): Sandbox {
   const config: SandboxRuntimeConfig = {
-    network: { allowedDomains: opts.allowedDomains ?? [], deniedDomains: opts.deniedDomains ?? [] },
+    network: {
+      allowedDomains: opts.allowedDomains ?? [],
+      deniedDomains: opts.deniedDomains ?? [],
+    },
     filesystem: {
       allowWrite: opts.allowWrite ?? ["."],
       denyRead: opts.denyRead ?? ["~/.ssh", "~/.aws"],

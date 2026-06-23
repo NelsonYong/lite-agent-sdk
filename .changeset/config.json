@@ -4,15 +4,17 @@
   "commit": false,
   "fixed": [
     [
-      "@lite-agent-sdk/core",
-      "lite-agent-sdk",
-      "@lite-agent-sdk/provider",
-      "@lite-agent-sdk/sandbox-anthropic"
+      "@lite-agent/core",
+      "lite-agent",
+      "@lite-agent/provider",
+      "@lite-agent/sandbox-anthropic"
     ]
   ],
   "linked": [],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["@lite-agent-sdk/example-cli"]
+  "ignore": [
+    "@lite-agent/example-cli"
+  ]
 }

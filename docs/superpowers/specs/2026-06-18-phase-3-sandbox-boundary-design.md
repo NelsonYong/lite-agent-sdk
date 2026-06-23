@@ -10,32 +10,32 @@
 
 现状 `bashTool` 只有"危险命令子串黑名单"——它既不是闸门也不是边界,且可被 `SUDO`/多空格 `rm  -rf` 轻易绕过(Phase 2 评审已标注为临时护栏)。生产级 agent 把"边界"拆成两层、叠加(defense-in-depth):
 
-| | **权限闸门**(命令**该不该**跑) | **沙箱**(命令跑起来**能碰什么**) |
-|---|---|---|
-| 时机 | 执行**前**决策 | 执行**中**由 OS 强制 |
-| 形态 | allow/deny/ask 规则、人工审批 | 文件系统 + 网络边界 |
-| 我们的件 | `PermissionPolicy` + `ApprovalHandler`(主设计 §5/§6,Phase 3) | **`Sandbox` 策略(本文)** |
-| 绕过模型选择? | 否(基于命令串判断) | **是**(OS 对运行中进程强制,与模型选了什么无关) |
+|               | **权限闸门**(命令**该不该**跑)                               | **沙箱**(命令跑起来**能碰什么**)               |
+| ------------- | ------------------------------------------------------------ | ---------------------------------------------- |
+| 时机          | 执行**前**决策                                               | 执行**中**由 OS 强制                           |
+| 形态          | allow/deny/ask 规则、人工审批                                | 文件系统 + 网络边界                            |
+| 我们的件      | `PermissionPolicy` + `ApprovalHandler`(主设计 §5/§6,Phase 3) | **`Sandbox` 策略(本文)**                       |
+| 绕过模型选择? | 否(基于命令串判断)                                           | **是**(OS 对运行中进程强制,与模型选了什么无关) |
 
-一句话:*"The sandbox isn't the constraint. It's the permission slip."* 两者必须都有——只有闸门,被放行的命令仍能读 `~/.ssh`、外联;只有沙箱,危险但"在边界内"的操作不会被叫停审批。
+一句话:_"The sandbox isn't the constraint. It's the permission slip."_ 两者必须都有——只有闸门,被放行的命令仍能读 `~/.ssh`、外联;只有沙箱,危险但"在边界内"的操作不会被叫停审批。
 
 **不再加固黑名单**:它是输的方向,本设计用它替代品。
 
-## 2. `Sandbox` —— 第 9 个可插拔策略(在 `@lite-agent-sdk/core`)
+## 2. `Sandbox` —— 第 9 个可插拔策略(在 `@lite-agent/core`)
 
 与现有 8 个策略同构(主设计 §5)。核心只定义**接口 + noop 默认**,不引入任何实现依赖,保持精瘦:
 
 ```ts
 // packages/core/src/strategies.ts  (Phase 3 新增)
 export interface SandboxWrapOptions {
-  readonly cwd: string;            // 命令的工作目录(默认可写边界)
+  readonly cwd: string; // 命令的工作目录(默认可写边界)
 }
 
 // 9. 沙箱 —— 把一条 shell 命令包成"在 OS 边界内执行"的等价命令
 export interface Sandbox {
   readonly id: string;
   wrap(command: string, opts: SandboxWrapOptions): Promise<string> | string;
-  dispose?(): Promise<void> | void;   // 可选:释放代理/临时资源(进程退出时)
+  dispose?(): Promise<void> | void; // 可选:释放代理/临时资源(进程退出时)
 }
 
 // 默认:不设边界,命令原样返回 —— 保证精瘦/跨平台/本地小模型零负担,行为同今天
@@ -45,6 +45,7 @@ export function noopSandbox(): Sandbox {
 ```
 
 设计要点:
+
 - `wrap` 是**纯命令字符串变换**(`cmd → wrapped cmd`),`bash` 工具 `execSync(wrapped)` 即可,不改变工具的执行方式。
 - 允许 `Promise`(适配器需懒初始化代理/沙箱);noop 同步返回。
 - 进程网络过滤的代理、临时目录等生命周期由**适配器内部**管理,接口只暴露 `wrap`/`dispose`,核心不感知。
@@ -63,11 +64,11 @@ export interface ToolContext {
   emit(ev: AgentEvent): void;
   readonly approval?: ApprovalHandler;
   readonly input?: InputHandler;
-  readonly sandbox: Sandbox;        // ← Phase 3 新增,默认 noopSandbox()
+  readonly sandbox: Sandbox; // ← Phase 3 新增,默认 noopSandbox()
 }
 ```
 
-### 3.2 `bashTool` 消费它(`lite-agent-sdk`)
+### 3.2 `bashTool` 消费它(`lite-agent`)
 
 唯一改动:`execSync` 前 `wrap`。default(noop)下 `wrapped === command`,**完全保持现有行为**:
 
@@ -75,9 +76,14 @@ export interface ToolContext {
 execute: async ({ command }, ctx) => {
   // 危险子串黑名单可保留为"早失败"提示,但不再是安全边界
   const wrapped = await ctx.sandbox.wrap(command, { cwd: workdir });
-  const out = execSync(wrapped, { cwd: workdir, encoding: "utf8", timeout: 120000, maxBuffer: 50_000_000 });
+  const out = execSync(wrapped, {
+    cwd: workdir,
+    encoding: "utf8",
+    timeout: 120000,
+    maxBuffer: 50_000_000,
+  });
   return out.trim() || "(no output)";
-}
+};
 ```
 
 ### 3.3 配置入口(`createAgent` / `createLiteAgent`)
@@ -86,32 +92,41 @@ execute: async ({ command }, ctx) => {
 
 ```ts
 createLiteAgent({
-  model, workdir,
-  sandbox: sandboxRuntime({ /* 见 §4 */ }),   // opt-in;不传 = noop
+  model,
+  workdir,
+  sandbox: sandboxRuntime({
+    /* 见 §4 */
+  }), // opt-in;不传 = noop
 });
 ```
 
-## 4. `sandboxRuntime()` 适配器 —— 独立包 `@lite-agent-sdk/sandbox-anthropic`
+## 4. `sandboxRuntime()` 适配器 —— 独立包 `@lite-agent/sandbox-anthropic`
 
-封装 Anthropic 官方 [`@anthropic-ai/sandbox-runtime`](https://github.com/anthropic-experimental/sandbox-runtime)(Claude Code `/sandbox` 同款,OS 级、无容器)。**单独成包**,把实验性依赖挡在 core/sdk 之外(与 `@lite-agent-sdk/provider` 平行):
+封装 Anthropic 官方 [`@anthropic-ai/sandbox-runtime`](https://github.com/anthropic-experimental/sandbox-runtime)(Claude Code `/sandbox` 同款,OS 级、无容器)。**单独成包**,把实验性依赖挡在 core/sdk 之外(与 `@lite-agent/provider` 平行):
 
 ```ts
 // packages/sandbox-anthropic/src/index.ts
-import { SandboxManager, type SandboxRuntimeConfig } from "@anthropic-ai/sandbox-runtime";
-import type { Sandbox } from "@lite-agent-sdk/core";
+import {
+  SandboxManager,
+  type SandboxRuntimeConfig,
+} from "@anthropic-ai/sandbox-runtime";
+import type { Sandbox } from "@lite-agent/core";
 
 export interface SandboxRuntimeOptions {
-  allowedDomains?: string[];     // 网络白名单(空 = 无外联)
+  allowedDomains?: string[]; // 网络白名单(空 = 无外联)
   deniedDomains?: string[];
-  allowWrite?: string[];         // 写白名单(默认仅 cwd + 临时目录)
-  denyRead?: string[];           // 默认建议: ["~/.ssh", "~/.aws", "~/.config/gcloud"]
-  denyWrite?: string[];          // 例: [".env"]
+  allowWrite?: string[]; // 写白名单(默认仅 cwd + 临时目录)
+  denyRead?: string[]; // 默认建议: ["~/.ssh", "~/.aws", "~/.config/gcloud"]
+  denyWrite?: string[]; // 例: [".env"]
 }
 
 export function sandboxRuntime(opts: SandboxRuntimeOptions = {}): Sandbox {
   let ready: Promise<void> | undefined;
   const config: SandboxRuntimeConfig = {
-    network: { allowedDomains: opts.allowedDomains ?? [], deniedDomains: opts.deniedDomains ?? [] },
+    network: {
+      allowedDomains: opts.allowedDomains ?? [],
+      deniedDomains: opts.deniedDomains ?? [],
+    },
     filesystem: {
       allowWrite: opts.allowWrite ?? ["."],
       denyRead: opts.denyRead ?? ["~/.ssh", "~/.aws"],
@@ -121,7 +136,7 @@ export function sandboxRuntime(opts: SandboxRuntimeOptions = {}): Sandbox {
   return {
     id: "sandbox-runtime",
     async wrap(command) {
-      ready ??= SandboxManager.initialize(config);   // 懒初始化一次(含网络代理)
+      ready ??= SandboxManager.initialize(config); // 懒初始化一次(含网络代理)
       await ready;
       return SandboxManager.wrapWithSandbox(command);
     },
@@ -135,12 +150,14 @@ export function sandboxRuntime(opts: SandboxRuntimeOptions = {}): Sandbox {
 ## 5. 端到端示例
 
 ```ts
-import { createLiteAgent } from "lite-agent-sdk";
-import { anthropic } from "@lite-agent-sdk/provider";
-import { sandboxRuntime } from "@lite-agent-sdk/sandbox-anthropic";
+import { createLiteAgent } from "lite-agent";
+import { anthropic } from "@lite-agent/provider";
+import { sandboxRuntime } from "@lite-agent/sandbox-anthropic";
 
 const agent = createLiteAgent({
-  model: anthropic(), workdir: process.cwd(), skillsDir: "skills",
+  model: anthropic(),
+  workdir: process.cwd(),
+  skillsDir: "skills",
   // 闸门(Phase 3)
   // permission: policy({ allow: ["read_file"], ask: ["bash", "write_file"], deny: ["rm *"] }),
   // 边界(本文)

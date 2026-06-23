@@ -1,5 +1,14 @@
-import { createAgent, nativeCodec, permission } from "@lite-agent-sdk/core";
-import type { Agent, ApprovalHandler, InputHandler, Middleware, ModelProvider, PermissionPolicy, Sandbox, Tool } from "@lite-agent-sdk/core";
+import { createAgent, nativeCodec, permission } from "@lite-agent/core";
+import type {
+  Agent,
+  ApprovalHandler,
+  InputHandler,
+  Middleware,
+  ModelProvider,
+  PermissionPolicy,
+  Sandbox,
+  Tool,
+} from "@lite-agent/core";
 import { defaultTools, askUserTool } from "./tools";
 import { SkillLoader } from "./skills/loader";
 import { loadSkillTool } from "./skills/loadSkillTool";
@@ -34,10 +43,18 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
   }
   if (cfg.tools) tools.push(...cfg.tools);
   if (cfg.onAskUser) tools.push(askUserTool());
-  if (cfg.allowedTools) tools = tools.filter((t) => cfg.allowedTools!.includes(t.name));
-  if (cfg.disallowedTools) tools = tools.filter((t) => !cfg.disallowedTools!.includes(t.name));
+  if (cfg.allowedTools)
+    tools = tools.filter((t) => cfg.allowedTools!.includes(t.name));
+  if (cfg.disallowedTools)
+    tools = tools.filter((t) => !cfg.disallowedTools!.includes(t.name));
 
-  const system = cfg.system ?? buildSystemPrompt({ workdir: cfg.workdir, modelName: cfg.modelName, skills });
+  const system =
+    cfg.system ??
+    buildSystemPrompt({
+      workdir: cfg.workdir,
+      modelName: cfg.modelName,
+      skills,
+    });
 
   const use: Middleware[] = [
     ...(cfg.permission ? [permission(cfg.permission, cfg.onApproval)] : []),

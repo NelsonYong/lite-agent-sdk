@@ -10,12 +10,12 @@ lite-agent is a **pluggable, lightweight agent-core SDK**, structured as a pnpm 
 
 ```
 packages/                     # published SDK packages (fixed-versioned together)
-  core/                       # @lite-agent-sdk/core  — kernel, strategies, middleware, types, codecs, permission, sandbox
-  provider/                   # @lite-agent-sdk/provider — Anthropic + OpenAI ModelProviders (src/anthropic, src/openai)
-  sdk/                        # lite-agent-sdk — batteries: tools, skills, system prompt, createLiteAgent / query
-  sandbox-anthropic/          # @lite-agent-sdk/sandbox-anthropic — OS-level Sandbox adapter (sandbox-runtime)
+  core/                       # @lite-agent/core  — kernel, strategies, middleware, types, codecs, permission, sandbox
+  provider/                   # @lite-agent/provider — Anthropic + OpenAI ModelProviders (src/anthropic, src/openai)
+  sdk/                        # lite-agent — batteries: tools, skills, system prompt, createLiteAgent / query
+  sandbox-anthropic/          # @lite-agent/sandbox-anthropic — OS-level Sandbox adapter (sandbox-runtime)
 examples/
-  cli/                        # @lite-agent-sdk/example-cli (private) — interactive REPL demo; owns its .env + skills/
+  cli/                        # @lite-agent/example-cli (private) — interactive REPL demo; owns its .env + skills/
 docs/superpowers/             # specs/ (design docs) + plans/ (TDD implementation plans)
 .changeset/                   # changesets config + pending changelogs
 ```
@@ -27,12 +27,12 @@ Run from the repo root (it is a **private workspace root** — orchestration onl
 - **Build all:** `pnpm build` → `pnpm -r build` (each package: `tsup` → `dist/` ESM + d.ts)
 - **Test all:** `pnpm test` → `pnpm -r test` (vitest)
 - **Typecheck all:** `pnpm typecheck` → `pnpm -r typecheck` (`tsc --noEmit`)
-- **Run the demo:** `pnpm dev` → `pnpm --filter @lite-agent-sdk/example-cli dev` (`tsx src/main.ts`)
-- **One package:** `pnpm --filter @lite-agent-sdk/<name> <test|build|typecheck>` (the SDK package is unscoped: `pnpm --filter lite-agent-sdk …`) · single test: `pnpm --filter @lite-agent-sdk/core test -- <namefilter>`
+- **Run the demo:** `pnpm dev` → `pnpm --filter @lite-agent/example-cli dev` (`tsx src/main.ts`)
+- **One package:** `pnpm --filter @lite-agent/<name> <test|build|typecheck>` (the SDK package is unscoped: `pnpm --filter lite-agent …`) · single test: `pnpm --filter @lite-agent/core test -- <namefilter>`
 - **Versioning:** `pnpm changeset` (describe a change) → `pnpm version` (bump + changelogs) → `pnpm release` (build + `changeset publish`; publish wired, not yet run)
 - **Package manager:** pnpm (pinned 10.12.4). Node >= 20.
 
-> **Build-before-test choreography (non-obvious):** packages import each other via their **built `dist/`** (package.json `exports` → `./dist/index.js`; `dist` is git-ignored, no src alias). So changing a package's source and then testing/typechecking a *dependent* package (or the example) reads **stale dist** unless you rebuild the changed package first. Safe full check: `pnpm -r build && pnpm -r test && pnpm -r typecheck`. `pnpm -r` builds in topological order.
+> **Build-before-test choreography (non-obvious):** packages import each other via their **built `dist/`** (package.json `exports` → `./dist/index.js`; `dist` is git-ignored, no src alias). So changing a package's source and then testing/typechecking a _dependent_ package (or the example) reads **stale dist** unless you rebuild the changed package first. Safe full check: `pnpm -r build && pnpm -r test && pnpm -r typecheck`. `pnpm -r` builds in topological order.
 
 The example reads config from `examples/cli/.env` (see `.env.example`): `ANTHROPIC_API_KEY`, `BASE_URL`, `MODEL_ID`, optional `MONITOR_PORT`.
 
@@ -42,7 +42,7 @@ The example reads config from `examples/cli/.env` (see `.env.example`): `ANTHROP
 
 `runKernel(cfg, input, signal, sessionId)` is an `async function*` yielding `AgentEvent`s and returning a `RunResult`. Each turn: `codec.encode` the request → `provider.stream` (wrapped by `wrapModelCall` middleware) → accumulate text/usage → `codec.decode` the assistant message into tool calls → for each call run `composeToolCall` (the `wrapToolCall` middleware chain) around `tool.execute` → push tool results back as a user message → loop until the model stops calling tools or `maxTurns`. Abort is observed at turn boundaries. The kernel knows nothing about permissions, sandboxing, or compaction — those are middleware/strategies.
 
-**Event queue:** middleware/tools `emit()` into an internal queue that is **drained between steps** (`yield* drain()`), so events are *observational* — e.g. an `approval_request` event is seen only after `approval.request()` has already resolved. Interactive handlers (`ApprovalHandler`, `InputHandler`) do their own blocking I/O; the events are for logging/UI.
+**Event queue:** middleware/tools `emit()` into an internal queue that is **drained between steps** (`yield* drain()`), so events are _observational_ — e.g. an `approval_request` event is seen only after `approval.request()` has already resolved. Interactive handlers (`ApprovalHandler`, `InputHandler`) do their own blocking I/O; the events are for logging/UI.
 
 ### Nine pluggable strategies (`core/src/strategies.ts`)
 
@@ -60,15 +60,15 @@ Provider-agnostic `Message` / `ContentBlock` / `ToolCall` / `ToolResult` / `User
 
 `policy({ allow, ask, deny, default })` → a `PermissionPolicy` matching **tool name** by glob (`*`), precedence **deny > ask > allow**, unmatched → `default` (`"allow"`). `permission(policy, approval?)` is the gate middleware: `allow` → run; `deny` → `isError` result, tool never runs; `ask` → emit `approval_request` → `await approval.request()` (fail-closed `deny` if no handler) → emit `approval_resolved` → run or deny.
 
-### Sandbox (`core/src/sandbox.ts`, `@lite-agent-sdk/sandbox-anthropic`)
+### Sandbox (`core/src/sandbox.ts`, `@lite-agent/sandbox-anthropic`)
 
 `Sandbox.wrap(command, {cwd})` rewrites a shell command to run inside an OS boundary. Default `noopSandbox()` (no boundary). `sandboxRuntime(opts)` wraps `@anthropic-ai/sandbox-runtime` (macOS Seatbelt / Linux bubblewrap); on an unsupported env it **degrades to noop** (unless `requireSandbox: true`) and fires `onUnavailable` once. `bashTool` wraps its command via `ctx.sandbox` before `execSync`. Sandbox (runtime boundary) + permission gate (pre-exec decision) = defense-in-depth.
 
-### SDK batteries (`lite-agent-sdk`)
+### SDK batteries (`lite-agent`)
 
 `createLiteAgent(cfg)` assembles `defaultTools` (bash/file/todo) + skills + a built system prompt + a `nativeCodec` agent, prepending the `permission()` middleware when `permission` is set, registering `ask_user` only when `onAskUser` is set, and threading `sandbox` / `onApproval` / `onAskUser`. `query(opts)` is the claude-agent-sdk-style facade over it. `tool(name, desc, schema, handler)` defines a tool; `ask_user` (`tools/askUser.ts`) emits `input_request` → `await ctx.input.request` → `input_resolved`. Skills load from a `skillsDir` of `SKILL.md` files (YAML frontmatter); `load_skill` injects a body on demand.
 
-### Providers (`@lite-agent-sdk/provider`)
+### Providers (`@lite-agent/provider`)
 
 One package ships two `ModelProvider`s. `anthropic(opts)` (`src/anthropic/`) maps normalized requests → Anthropic Messages API; `openai(opts)` (`src/openai/`) maps them → OpenAI Chat Completions (also works against OpenAI-compatible / local endpoints). Each subfolder pairs a `mapping.ts` (request → provider params) with a `stream.ts` (provider SSE → `ModelChunk`s), wraps SDK errors in `ProviderError` preserving `.status`, and exposes an injectable client seam for offline tests. The package root re-exports both `anthropic` and `openai`.
 
@@ -80,4 +80,4 @@ One package ships two `ModelProvider`s. `anthropic(opts)` (`src/anthropic/`) map
 
 - TypeScript 6 (strict, ES2022, ESM). Shared `tsconfig.base.json` uses `moduleResolution: Bundler`, `verbatimModuleSyntax` (type-only imports need `import type`), `noUncheckedIndexedAccess`, **no** `esModuleInterop`. The example app uses its own `NodeNext` tsconfig.
 - **`tsconfig.build.json` per package** adds `ignoreDeprecations: "6.0"` (the tsup `--dts` worker injects deprecated `baseUrl`); it is kept out of the editor-facing base config and referenced via `tsup --tsconfig`.
-- Build: `tsup` (ESM + d.ts). Test: `vitest`; kernel tests use `fakeProvider` + golden event-stream assertions, and mock external modules with `vi.mock`. Validation: `zod` (tool schemas → JSON Schema). Versioning: `changesets` (the four published packages — `lite-agent-sdk` + `@lite-agent-sdk/{core,provider,sandbox-anthropic}` — are **fixed**: one shared version; the example is ignored).
+- Build: `tsup` (ESM + d.ts). Test: `vitest`; kernel tests use `fakeProvider` + golden event-stream assertions, and mock external modules with `vi.mock`. Validation: `zod` (tool schemas → JSON Schema). Versioning: `changesets` (the four published packages — `lite-agent` + `@lite-agent/{core,provider,sandbox-anthropic}` — are **fixed**: one shared version; the example is ignored).

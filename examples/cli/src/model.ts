@@ -1,5 +1,5 @@
-import { anthropic, openai } from "@lite-agent-sdk/provider";
-import type { ModelProvider } from "lite-agent-sdk";
+import { anthropic, openai } from "@lite-agent/provider";
+import type { ModelProvider } from "@lite-agent/sdk";
 
 export type Protocol = "anthropic" | "openai";
 
@@ -7,7 +7,9 @@ export type Protocol = "anthropic" | "openai";
 export function detectProtocol(modelId: string, override?: string): Protocol {
   if (override === "anthropic" || override === "openai") return override;
   const id = modelId.toLowerCase();
-  return id.startsWith("claude") || id.startsWith("anthropic") ? "anthropic" : "openai";
+  return id.startsWith("claude") || id.startsWith("anthropic")
+    ? "anthropic"
+    : "openai";
 }
 
 export interface ResolvedModel {
@@ -20,11 +22,19 @@ export interface ResolvedModel {
 export function resolveModel(): ResolvedModel {
   const modelName = process.env["LITE_AGENT_MODEL_ID"];
   if (!modelName) {
-    throw new Error("LITE_AGENT_MODEL_ID is required (set it in examples/cli/.env)");
+    throw new Error(
+      "LITE_AGENT_MODEL_ID is required (set it in examples/cli/.env)",
+    );
   }
   const apiKey = process.env["LITE_AGENT_MODEL_API_KEY"];
   const baseURL = process.env["LITE_AGENT_BASE_URL"];
-  const protocol = detectProtocol(modelName, process.env["LITE_AGENT_MODEL_PROTOCOL"]);
-  const provider = protocol === "anthropic" ? anthropic({ apiKey, baseURL }) : openai({ apiKey, baseURL });
+  const protocol = detectProtocol(
+    modelName,
+    process.env["LITE_AGENT_MODEL_PROTOCOL"],
+  );
+  const provider =
+    protocol === "anthropic"
+      ? anthropic({ apiKey, baseURL })
+      : openai({ apiKey, baseURL });
   return { provider, modelName, protocol };
 }

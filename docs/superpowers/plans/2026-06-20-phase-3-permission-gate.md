@@ -9,6 +9,7 @@
 **Tech Stack:** TypeScript (ESM, strict), vitest, zod (already deps). No new dependencies.
 
 **Design decisions (locked):**
+
 - `policy()` matches **tool name** only (glob `*` wildcard, full-match). Precedence **deny > ask > allow**; unmatched → `default` (defaults to `"allow"`). Input-content matching is deferred (spec open question §435).
 - `permission()` closes over `(policy, approval?)`; **no `AgentContext` surgery**. On `ask` with no approver → **fail-closed deny** (`by:"auto"`).
 - Events are **observational** (kernel drains queue after the tool call resolves); the `ApprovalHandler` does the blocking I/O.
@@ -31,6 +32,7 @@
 ## Task 1: Core permission engine — `policy()` + `permission()` middleware
 
 **Files:**
+
 - Create: `packages/core/src/permission.ts`
 - Test: `packages/core/test/permission.test.ts`
 - Modify: `packages/core/src/index.ts`
@@ -50,41 +52,69 @@ import type { ApprovalHandler } from "../src/strategies";
 
 function ctxFor(name: string, emit: (e: AgentEvent) => void): ToolCallContext {
   const base: AgentContext = {
-    sessionId: "s1", messages: [], turn: 1,
-    signal: new AbortController().signal, emit, state: new Map(),
+    sessionId: "s1",
+    messages: [],
+    turn: 1,
+    signal: new AbortController().signal,
+    emit,
+    state: new Map(),
   };
   return { ...base, call: { id: "t1", name, input: {} } };
 }
 
-const okExec = async (): Promise<ToolResult> => ({ id: "t1", name: "x", content: "ran" });
+const okExec = async (): Promise<ToolResult> => ({
+  id: "t1",
+  name: "x",
+  content: "ran",
+});
 
 // --- policy() ---
 test("policy: exact allow / ask / deny and unmatched default", () => {
   const p = policy({ allow: ["read_file"], ask: ["bash"], deny: ["rm"] });
-  expect(p.check({ id: "1", name: "read_file", input: {} }, { sessionId: "s" })).toBe("allow");
-  expect(p.check({ id: "1", name: "bash", input: {} }, { sessionId: "s" })).toBe("ask");
-  expect(p.check({ id: "1", name: "rm", input: {} }, { sessionId: "s" })).toBe("deny");
-  expect(p.check({ id: "1", name: "todo", input: {} }, { sessionId: "s" })).toBe("allow"); // default
+  expect(
+    p.check({ id: "1", name: "read_file", input: {} }, { sessionId: "s" }),
+  ).toBe("allow");
+  expect(
+    p.check({ id: "1", name: "bash", input: {} }, { sessionId: "s" }),
+  ).toBe("ask");
+  expect(p.check({ id: "1", name: "rm", input: {} }, { sessionId: "s" })).toBe(
+    "deny",
+  );
+  expect(
+    p.check({ id: "1", name: "todo", input: {} }, { sessionId: "s" }),
+  ).toBe("allow"); // default
 });
 
 test("policy: '*' wildcard matches and default can be deny", () => {
   const p = policy({ ask: ["write_*"], default: "deny" });
-  expect(p.check({ id: "1", name: "write_file", input: {} }, { sessionId: "s" })).toBe("ask");
-  expect(p.check({ id: "1", name: "read_file", input: {} }, { sessionId: "s" })).toBe("deny");
+  expect(
+    p.check({ id: "1", name: "write_file", input: {} }, { sessionId: "s" }),
+  ).toBe("ask");
+  expect(
+    p.check({ id: "1", name: "read_file", input: {} }, { sessionId: "s" }),
+  ).toBe("deny");
 });
 
 test("policy: precedence deny > ask > allow when a name matches several", () => {
   const p = policy({ allow: ["bash"], ask: ["bash"], deny: ["bash"] });
-  expect(p.check({ id: "1", name: "bash", input: {} }, { sessionId: "s" })).toBe("deny");
+  expect(
+    p.check({ id: "1", name: "bash", input: {} }, { sessionId: "s" }),
+  ).toBe("deny");
   const p2 = policy({ allow: ["bash"], ask: ["bash"] });
-  expect(p2.check({ id: "1", name: "bash", input: {} }, { sessionId: "s" })).toBe("ask");
+  expect(
+    p2.check({ id: "1", name: "bash", input: {} }, { sessionId: "s" }),
+  ).toBe("ask");
 });
 
 // --- permission() middleware ---
 test("permission: allow runs the tool", async () => {
   const events: AgentEvent[] = [];
   const ctx = ctxFor("read_file", (e) => events.push(e));
-  const r = await composeToolCall([permission(policy({ allow: ["read_file"] }))], ctx, okExec)();
+  const r = await composeToolCall(
+    [permission(policy({ allow: ["read_file"] }))],
+    ctx,
+    okExec,
+  )();
   expect(r.content).toBe("ran");
   expect(events).toEqual([]);
 });
@@ -93,18 +123,31 @@ test("permission: deny short-circuits with isError, tool never runs", async () =
   const ctx = ctxFor("rm", () => {});
   let ran = false;
   const r = await composeToolCall(
-    [permission(policy({ deny: ["rm"] }))], ctx,
-    async () => { ran = true; return { id: "t1", name: "rm", content: "x" }; },
+    [permission(policy({ deny: ["rm"] }))],
+    ctx,
+    async () => {
+      ran = true;
+      return { id: "t1", name: "rm", content: "x" };
+    },
   )();
   expect(ran).toBe(false);
-  expect(r).toEqual({ id: "t1", name: "rm", content: "Error: blocked by policy", isError: true });
+  expect(r).toEqual({
+    id: "t1",
+    name: "rm",
+    content: "Error: blocked by policy",
+    isError: true,
+  });
 });
 
 test("permission: ask + approver allow emits request/resolved then runs", async () => {
   const events: AgentEvent[] = [];
   const ctx = ctxFor("bash", (e) => events.push(e));
   const approval: ApprovalHandler = { request: vi.fn(async () => "allow") };
-  const r = await composeToolCall([permission(policy({ ask: ["bash"] }), approval)], ctx, okExec)();
+  const r = await composeToolCall(
+    [permission(policy({ ask: ["bash"] }), approval)],
+    ctx,
+    okExec,
+  )();
   expect(r.content).toBe("ran");
   expect(approval.request).toHaveBeenCalledTimes(1);
   expect(events).toEqual([
@@ -118,8 +161,12 @@ test("permission: ask + approver deny short-circuits", async () => {
   const approval: ApprovalHandler = { request: async () => "deny" };
   let ran = false;
   const r = await composeToolCall(
-    [permission(policy({ ask: ["bash"] }), approval)], ctx,
-    async () => { ran = true; return { id: "t1", name: "bash", content: "x" }; },
+    [permission(policy({ ask: ["bash"] }), approval)],
+    ctx,
+    async () => {
+      ran = true;
+      return { id: "t1", name: "bash", content: "x" };
+    },
   )();
   expect(ran).toBe(false);
   expect(r).toMatchObject({ content: "Error: denied by user", isError: true });
@@ -128,15 +175,24 @@ test("permission: ask + approver deny short-circuits", async () => {
 test("permission: ask with no approver fails closed (by auto)", async () => {
   const events: AgentEvent[] = [];
   const ctx = ctxFor("bash", (e) => events.push(e));
-  const r = await composeToolCall([permission(policy({ ask: ["bash"] }))], ctx, okExec)();
+  const r = await composeToolCall(
+    [permission(policy({ ask: ["bash"] }))],
+    ctx,
+    okExec,
+  )();
   expect(r).toMatchObject({ content: "Error: denied by user", isError: true });
-  expect(events.at(-1)).toEqual({ type: "approval_resolved", id: "t1", decision: "deny", by: "auto" });
+  expect(events.at(-1)).toEqual({
+    type: "approval_resolved",
+    id: "t1",
+    decision: "deny",
+    by: "auto",
+  });
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent-sdk/core test -- permission`
+Run: `pnpm --filter @lite-agent/core test -- permission`
 Expected: FAIL — `Cannot find module '../src/permission'`.
 
 - [ ] **Step 3: Write minimal implementation**
@@ -158,7 +214,9 @@ export interface PolicyOptions {
 
 // Glob → RegExp: escape every regex metachar EXCEPT '*', then '*' → '.*'. Full-match.
 function globToRegExp(pattern: string): RegExp {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
+  const escaped = pattern
+    .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\*/g, ".*");
   return new RegExp(`^${escaped}$`);
 }
 
@@ -180,11 +238,19 @@ export function policy(opts: PolicyOptions = {}): PermissionPolicy {
 }
 
 function denied(ctx: ToolCallContext, reason: string): ToolResult {
-  return { id: ctx.call.id, name: ctx.call.name, content: `Error: ${reason}`, isError: true };
+  return {
+    id: ctx.call.id,
+    name: ctx.call.name,
+    content: `Error: ${reason}`,
+    isError: true,
+  };
 }
 
 // Gate middleware (spec §6): allow → run; deny → blocked; ask → emit request, await approver, emit resolved.
-export function permission(pol: PermissionPolicy, approval?: ApprovalHandler): Middleware {
+export function permission(
+  pol: PermissionPolicy,
+  approval?: ApprovalHandler,
+): Middleware {
   return {
     name: "permission",
     async wrapToolCall(ctx, next) {
@@ -193,7 +259,12 @@ export function permission(pol: PermissionPolicy, approval?: ApprovalHandler): M
       if (decision === "deny") return denied(ctx, "blocked by policy");
       ctx.emit({ type: "approval_request", call: ctx.call });
       const resolved = approval ? await approval.request(ctx.call) : "deny";
-      ctx.emit({ type: "approval_resolved", id: ctx.call.id, decision: resolved, by: approval ? "user" : "auto" });
+      ctx.emit({
+        type: "approval_resolved",
+        id: ctx.call.id,
+        decision: resolved,
+        by: approval ? "user" : "auto",
+      });
       return resolved === "allow" ? next() : denied(ctx, "denied by user");
     },
   };
@@ -211,7 +282,7 @@ export type { PolicyOptions } from "./permission";
 
 - [ ] **Step 5: Run tests + typecheck**
 
-Run: `pnpm --filter @lite-agent-sdk/core test -- permission && pnpm --filter @lite-agent-sdk/core typecheck`
+Run: `pnpm --filter @lite-agent/core test -- permission && pnpm --filter @lite-agent/core typecheck`
 Expected: all permission tests PASS, typecheck clean.
 
 - [ ] **Step 6: Commit**
@@ -226,6 +297,7 @@ git commit -m "feat(core): policy() factory + permission() gate middleware"
 ## Task 2: SDK wiring — `permission` / `onApproval` options
 
 **Files:**
+
 - Modify: `packages/sdk/src/createLiteAgent.ts`
 - Modify: `packages/sdk/src/query.ts`
 - Test: `packages/sdk/test/permission.test.ts`
@@ -238,34 +310,51 @@ Create `packages/sdk/test/permission.test.ts`:
 import { expect, test, vi } from "vitest";
 import { z } from "zod";
 import { createLiteAgent } from "../src/createLiteAgent";
-import { policy, defineTool, fakeProvider, textBlock } from "@lite-agent-sdk/core";
-import type { AgentEvent, ApprovalHandler } from "@lite-agent-sdk/core";
+import { policy, defineTool, fakeProvider, textBlock } from "@lite-agent/core";
+import type { AgentEvent, ApprovalHandler } from "@lite-agent/core";
 
 function probeTool(ran: { value: boolean }) {
   return defineTool({
-    name: "probe", description: "probe", schema: z.object({}),
-    execute: () => { ran.value = true; return "executed"; },
+    name: "probe",
+    description: "probe",
+    schema: z.object({}),
+    execute: () => {
+      ran.value = true;
+      return "executed";
+    },
   });
 }
 
 function scriptedProvider() {
   return fakeProvider([
-    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "probe", input: {} }] } },
-    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+    {
+      message: {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "t1", name: "probe", input: {} }],
+      },
+    },
+    {
+      text: "done",
+      message: { role: "assistant", content: [textBlock("done")] },
+    },
   ]);
 }
 
 async function drain(gen: AsyncGenerator<AgentEvent, unknown>) {
   const events: AgentEvent[] = [];
   let r = await gen.next();
-  while (!r.done) { events.push(r.value); r = await gen.next(); }
+  while (!r.done) {
+    events.push(r.value);
+    r = await gen.next();
+  }
   return events;
 }
 
 test("onApproval deny short-circuits the gated tool", async () => {
   const ran = { value: false };
   const agent = createLiteAgent({
-    model: scriptedProvider(), workdir: process.cwd(),
+    model: scriptedProvider(),
+    workdir: process.cwd(),
     tools: [probeTool(ran)],
     permission: policy({ ask: ["probe"] }),
     onApproval: { request: vi.fn(async () => "deny") } as ApprovalHandler,
@@ -276,13 +365,16 @@ test("onApproval deny short-circuits the gated tool", async () => {
     expect.objectContaining({ type: "approval_request" }),
   );
   const tr = events.find((e) => e.type === "tool_result");
-  expect(tr).toMatchObject({ result: { isError: true, content: "Error: denied by user" } });
+  expect(tr).toMatchObject({
+    result: { isError: true, content: "Error: denied by user" },
+  });
 });
 
 test("onApproval allow lets the gated tool run", async () => {
   const ran = { value: false };
   const agent = createLiteAgent({
-    model: scriptedProvider(), workdir: process.cwd(),
+    model: scriptedProvider(),
+    workdir: process.cwd(),
     tools: [probeTool(ran)],
     permission: policy({ ask: ["probe"] }),
     onApproval: { request: async () => "allow" },
@@ -294,7 +386,7 @@ test("onApproval allow lets the gated tool run", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter lite-agent-sdk test -- permission`
+Run: `pnpm --filter lite-agent test -- permission`
 Expected: FAIL — `createLiteAgent` does not accept `permission`/`onApproval` (TS error or tool runs anyway).
 
 - [ ] **Step 3: Wire `createLiteAgent`**
@@ -304,8 +396,16 @@ In `packages/sdk/src/createLiteAgent.ts`:
 Update the imports — add `permission` (value) and the strategy types:
 
 ```ts
-import { createAgent, nativeCodec, permission } from "@lite-agent-sdk/core";
-import type { Agent, ApprovalHandler, Middleware, ModelProvider, PermissionPolicy, Sandbox, Tool } from "@lite-agent-sdk/core";
+import { createAgent, nativeCodec, permission } from "@lite-agent/core";
+import type {
+  Agent,
+  ApprovalHandler,
+  Middleware,
+  ModelProvider,
+  PermissionPolicy,
+  Sandbox,
+  Tool,
+} from "@lite-agent/core";
 ```
 
 Add to `CreateLiteAgentConfig` (after `use?`):
@@ -318,22 +418,22 @@ Add to `CreateLiteAgentConfig` (after `use?`):
 Build the middleware array so the gate is outermost, then pass it. Replace `use: cfg.use,` in the `createAgent({...})` call with `use,` and compute it just above the `return`:
 
 ```ts
-  const use: Middleware[] = [
-    ...(cfg.permission ? [permission(cfg.permission, cfg.onApproval)] : []),
-    ...(cfg.use ?? []),
-  ];
+const use: Middleware[] = [
+  ...(cfg.permission ? [permission(cfg.permission, cfg.onApproval)] : []),
+  ...(cfg.use ?? []),
+];
 
-  return createAgent({
-    model: cfg.model,
-    modelName: cfg.modelName,
-    codec: nativeCodec(),
-    tools,
-    use,
-    system,
-    maxTurns: cfg.maxTurns,
-    maxTokens: cfg.maxTokens,
-    sandbox: cfg.sandbox,
-  });
+return createAgent({
+  model: cfg.model,
+  modelName: cfg.modelName,
+  codec: nativeCodec(),
+  tools,
+  use,
+  system,
+  maxTurns: cfg.maxTurns,
+  maxTokens: cfg.maxTokens,
+  sandbox: cfg.sandbox,
+});
 ```
 
 - [ ] **Step 4: Wire `query`**
@@ -343,7 +443,17 @@ In `packages/sdk/src/query.ts`:
 Add the types to the type import:
 
 ```ts
-import type { AgentEvent, ApprovalHandler, Message, Middleware, ModelProvider, PermissionPolicy, RunResult, Sandbox, Tool } from "@lite-agent-sdk/core";
+import type {
+  AgentEvent,
+  ApprovalHandler,
+  Message,
+  Middleware,
+  ModelProvider,
+  PermissionPolicy,
+  RunResult,
+  Sandbox,
+  Tool,
+} from "@lite-agent/core";
 ```
 
 Add to `QueryOptions` (after `sandbox?`):
@@ -362,7 +472,7 @@ Add to the `createLiteAgent({...})` call (after `sandbox: opts.sandbox,`):
 
 - [ ] **Step 5: Run tests + typecheck**
 
-Run: `pnpm --filter lite-agent-sdk test -- permission && pnpm --filter lite-agent-sdk typecheck`
+Run: `pnpm --filter lite-agent test -- permission && pnpm --filter lite-agent typecheck`
 Expected: both tests PASS, typecheck clean.
 
 - [ ] **Step 6: Commit**
@@ -377,6 +487,7 @@ git commit -m "feat(sdk): permission/onApproval options wire the gate into creat
 ## Task 3: CLI app — interactive approver + render approval events
 
 **Files:**
+
 - Modify: `src/main.ts`
 
 No automated test (the CLI entry has none by convention); verified by typecheck + manual reasoning. The reviewer validates the stdin coordination logic.
@@ -386,8 +497,8 @@ No automated test (the CLI entry has none by convention); verified by typecheck 
 In `src/main.ts`, extend the SDK import and add the type:
 
 ```ts
-import { createLiteAgent, policy } from "lite-agent-sdk";
-import type { AgentEvent, ApprovalHandler, Message } from "lite-agent-sdk";
+import { createLiteAgent, policy } from "lite-agent";
+import type { AgentEvent, ApprovalHandler, Message } from "lite-agent";
 ```
 
 - [ ] **Step 2: Add a module-level pending-approval slot + the approver**
@@ -442,21 +553,21 @@ In `render`, add a case before `default:`:
 In `main()`, replace the `onKey` body so a pending approval takes priority over ESC-abort:
 
 ```ts
-    const onKey = (key: Buffer) => {
-      if (pendingApproval) {
-        const resolve = pendingApproval;
-        pendingApproval = null;
-        const ch = key.toString();
-        const allow = ch === "y" || ch === "Y";
-        process.stdout.write("\n");
-        resolve(allow ? "allow" : "deny");
-        return;
-      }
-      if (key[0] === 0x1b && key.length === 1) {
-        ac.abort();
-        process.stdout.write("\n\x1b[33m[ESC] interrupted\x1b[0m\n");
-      }
-    };
+const onKey = (key: Buffer) => {
+  if (pendingApproval) {
+    const resolve = pendingApproval;
+    pendingApproval = null;
+    const ch = key.toString();
+    const allow = ch === "y" || ch === "Y";
+    process.stdout.write("\n");
+    resolve(allow ? "allow" : "deny");
+    return;
+  }
+  if (key[0] === 0x1b && key.length === 1) {
+    ac.abort();
+    process.stdout.write("\n\x1b[33m[ESC] interrupted\x1b[0m\n");
+  }
+};
 ```
 
 - [ ] **Step 5: Typecheck**

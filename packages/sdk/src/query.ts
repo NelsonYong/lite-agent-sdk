@@ -1,4 +1,15 @@
-import type { AgentEvent, ApprovalHandler, InputHandler, Message, Middleware, ModelProvider, PermissionPolicy, RunResult, Sandbox, Tool } from "@lite-agent-sdk/core";
+import type {
+  AgentEvent,
+  ApprovalHandler,
+  InputHandler,
+  Message,
+  Middleware,
+  ModelProvider,
+  PermissionPolicy,
+  RunResult,
+  Sandbox,
+  Tool,
+} from "@lite-agent/core";
 import { createLiteAgent } from "./createLiteAgent";
 
 export interface QueryOptions {
@@ -22,7 +33,9 @@ export interface QueryOptions {
   onAskUser?: InputHandler;
 }
 
-export function query(opts: QueryOptions): AsyncGenerator<AgentEvent, RunResult> {
+export function query(
+  opts: QueryOptions,
+): AsyncGenerator<AgentEvent, RunResult> {
   const agent = createLiteAgent({
     model: opts.model,
     modelName: opts.modelName,
@@ -40,5 +53,8 @@ export function query(opts: QueryOptions): AsyncGenerator<AgentEvent, RunResult>
     onApproval: opts.onApproval,
     onAskUser: opts.onAskUser,
   });
-  return agent.run(opts.prompt, { signal: opts.signal, sessionId: opts.sessionId });
+  return agent.run(opts.prompt, {
+    signal: opts.signal,
+    sessionId: opts.sessionId,
+  });
 }

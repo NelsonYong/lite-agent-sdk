@@ -1,4 +1,4 @@
-import type { Tool } from "@lite-agent-sdk/core";
+import type { Tool } from "@lite-agent/core";
 import { bashTool } from "./bash";
 import { fileTools } from "./file";
 import { todoTool } from "./todo";
