@@ -21,7 +21,8 @@
 ### P0-1 上下文压缩 Compactor（长会话）🟡 确定性层已完成（2026-06-23，TDD）
 - **已实现（积木 + 管道）**：`core/src/compaction/` —— `CompactPass` 接口 + `runPipeline`（数据流串联）+ `estimateTokens`；`microPass`(L2，旧 tool_result→占位、不删块、配对安全) + `snipPass`(L1，回合级裁中段、不破坏 tool_call↔tool_result 配对)；`defaultCompactor()` 装配管道→固定 `Compactor` 接口；`compaction()` `beforeModel` block；`compactor?` 贯穿 `createLiteAgent`/`query`。零 kernel 改动，12 个新测试全绿。
 - **reactiveCompact 应急层已完成（2026-06-23，TDD）**：`reactiveCompaction()`（`wrapModelCall` block，捕获 413/`prompt_too_long` → `reactiveTrim` 回合级激进裁剪、保留最近若干回合+占位、**LLM-free** → 重试一次）；配套两处 additive kernel 调整:① `codec.encode` 移进 `ModelCall` 闭包(重试用当前 messages 重新编码);② model 调用后 `messages = ctx.messages` 重新同步(让 wrapModelCall 改写的 messages 进入结果/持久化)。createLiteAgent 设 `compactor` 时自动叠加 `compaction()` + `reactiveCompaction()`(proactive+reactive 一体)。+8 测试。
-- **待做（后续轮次，"贵"的层）**：① L3 toolResultBudget 落盘 + 重读工具；② L4 autoCompact（LLM 全量摘要，作为一个 `CompactPass` 热插拔进 `defaultCompactor` 的 `passes`）。
+- **L4 autoCompact 已完成（2026-06-23，TDD）**：`llmCompactor({ provider, model, base?, tokenThreshold, keepRecentTurns, maxFailures })`。**修正**：LLM 调用是异步、`CompactPass.apply` 是同步,所以 L4 不是 pass,而是另一个 **`Compactor`**(异步接口天然契合)——先跑确定性 base,仍超阈值才调**一次**模型把旧回合摘要成一条、保留最近 N 回合(回合对齐、配对安全),含熔断器(连续失败 N 次→停调 LLM、退回 base)。与 `defaultCompactor` 互换。+4 测试。
+- **待做（后续轮次）**：L3 toolResultBudget 落盘 + 重读工具(磁盘耦合,复杂度最高)。
 - ~~**缺口**：`Compactor` 接口 + `compaction` 事件已存在，但 kernel 无调用点；`KernelConfig` 无 `compactor` 字段。长会话会直接撑爆上下文。~~
 - **现状**：`packages/core/src/strategies.ts`（`Compactor.maybeCompact`）、`events.ts`（`compaction` variant）有定义；`kernel.ts` 零引用。
 - **改动**：
