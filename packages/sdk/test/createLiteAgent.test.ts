@@ -2,7 +2,8 @@ import { expect, test } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fakeProvider, textBlock } from "@lite-agent/core";
+import { fakeProvider, textBlock, memoryStore, defaultCompactor, ProviderError } from "@lite-agent/core";
+import type { Message } from "@lite-agent/core";
 import { createLiteAgent } from "../src/createLiteAgent";
 
 test("runs with default tools wired", async () => {
@@ -84,6 +85,60 @@ test("allowedTools restricts the registered set", async () => {
   for await (const ev of agent.run("hi"))
     if (ev.type === "tool_result") results.push(ev.result.content);
   expect(results.join("")).toMatch(/unknown tool/);
+});
+
+test("a configured store resumes the session across separate runs", async () => {
+  const store = memoryStore();
+  const make = (text: string) =>
+    createLiteAgent({
+      model: fakeProvider([{ text, message: { role: "assistant", content: [textBlock(text)] } }]),
+      workdir: process.cwd(),
+      store,
+    });
+  await make("one").send("first", { sessionId: "x" });
+  const r2 = await make("two").send("second", { sessionId: "x" });
+  expect(r2.messages).toContainEqual({ role: "user", content: "first" });
+  expect(r2.messages).toContainEqual({ role: "user", content: "second" });
+});
+
+test("a configured compactor plugs in and emits compaction on a run", async () => {
+  const shrink = {
+    async maybeCompact(messages: { role: string; content: unknown }[]) {
+      return messages.length <= 1
+        ? { messages, before: 1, after: 1 }
+        : { messages: [messages[0]!], kind: "micro" as const, before: 10, after: 1 };
+    },
+  };
+  const fp = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "bash", input: { command: "echo hi" } }] } },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  const agent = createLiteAgent({ model: fp, workdir: process.cwd(), compactor: shrink as any });
+  const types: string[] = [];
+  for await (const ev of agent.run("hi")) types.push(ev.type);
+  expect(types).toContain("compaction");
+});
+
+test("compactor wiring includes the reactive net — recovers from prompt_too_long", async () => {
+  let calls = 0;
+  const provider = {
+    id: "ov",
+    async *stream() {
+      calls++;
+      if (calls === 1) throw new ProviderError("prompt is too long", 413);
+      yield { type: "message_done", message: { role: "assistant", content: [textBlock("ok")] }, usage: { inputTokens: 0, outputTokens: 0 } };
+    },
+  };
+  const turn = (u: string, id: string, r: string): Message[] => [
+    { role: "user", content: u },
+    { role: "assistant", content: [{ type: "tool_call", id, name: "f", input: {} }] },
+    { role: "user", content: [{ type: "tool_result", id, content: r }] },
+  ];
+  const history = [0, 1, 2, 3, 4, 5].flatMap((i) => turn(`q${i}`, `c${i}`, `r${i}`));
+  const agent = createLiteAgent({ model: provider as any, workdir: process.cwd(), compactor: defaultCompactor() });
+  const result = await agent.send(history);
+  expect(calls).toBe(2);
+  expect(result.text).toBe("ok");
 });
 
 test("a configured sandbox wraps bash commands end-to-end", async () => {

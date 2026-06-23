@@ -1,4 +1,4 @@
-import type { ModelProvider, Tool, ToolCallCodec, Sandbox, InputHandler } from "./strategies";
+import type { ModelProvider, Tool, ToolCallCodec, Sandbox, InputHandler, Store } from "./strategies";
 import { noopSandbox } from "./sandbox";
 import type { Middleware } from "./middleware";
 import type { Message } from "./types";
@@ -17,6 +17,7 @@ export interface CreateAgentConfig {
   maxTokens?: number;
   sandbox?: Sandbox;
   input?: InputHandler;
+  store?: Store;
 }
 
 export type RunOptions = { signal?: AbortSignal; sessionId?: string };
@@ -40,6 +41,7 @@ export function createAgent(cfg: CreateAgentConfig): Agent {
     maxTokens: cfg.maxTokens,
     sandbox: cfg.sandbox ?? noopSandbox(),
     input: cfg.input,
+    store: cfg.store,
   };
 
   const agent: Agent = {

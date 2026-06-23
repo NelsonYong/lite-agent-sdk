@@ -4,6 +4,7 @@ import { createAgent } from "../src/createAgent";
 import { nativeCodec } from "../src/codecs/native";
 import { fakeProvider } from "../src/testing/fakeProvider";
 import { defineTool } from "../src/tools/define";
+import { memoryStore } from "../src/store";
 import { textBlock } from "../src/types";
 
 test("send() runs the loop and returns the final result", async () => {
@@ -35,6 +36,21 @@ test("run() streams events for a tool-using turn via configured tools", async ()
   expect(types).toContain("tool_use");
   expect(types).toContain("tool_result");
   expect(types.at(-1)).toBe("done");
+});
+
+test("createAgent resumes a session across separate runs via its store", async () => {
+  const store = memoryStore();
+  const cfg = (text: string) => ({
+    model: fakeProvider([{ text, message: { role: "assistant" as const, content: [textBlock(text)] } }]),
+    codec: nativeCodec(),
+    store,
+  });
+  await createAgent(cfg("one")).send("first", { sessionId: "x" });
+  const r2 = await createAgent(cfg("two")).send("second", { sessionId: "x" });
+  // the second run resumed the first run's persisted transcript
+  expect(r2.messages).toContainEqual({ role: "user", content: "first" });
+  expect(r2.messages).toContainEqual({ role: "user", content: "second" });
+  expect(r2.text).toBe("two");
 });
 
 test("a user middleware observes via beforeAgent", async () => {

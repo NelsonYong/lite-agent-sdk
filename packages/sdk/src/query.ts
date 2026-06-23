@@ -1,6 +1,7 @@
 import type {
   AgentEvent,
   ApprovalHandler,
+  Compactor,
   InputHandler,
   Message,
   Middleware,
@@ -8,6 +9,7 @@ import type {
   PermissionPolicy,
   RunResult,
   Sandbox,
+  Store,
   Tool,
 } from "@lite-agent/core";
 import { createLiteAgent } from "./createLiteAgent";
@@ -28,6 +30,8 @@ export interface QueryOptions {
   signal?: AbortSignal;
   sessionId?: string;
   sandbox?: Sandbox;
+  store?: Store;
+  compactor?: Compactor;
   permission?: PermissionPolicy;
   onApproval?: ApprovalHandler;
   onAskUser?: InputHandler;
@@ -49,6 +53,8 @@ export function query(
     maxTokens: opts.maxTokens,
     use: opts.use,
     sandbox: opts.sandbox,
+    store: opts.store,
+    compactor: opts.compactor,
     permission: opts.permission,
     onApproval: opts.onApproval,
     onAskUser: opts.onAskUser,
