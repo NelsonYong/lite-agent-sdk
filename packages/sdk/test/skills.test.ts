@@ -66,3 +66,14 @@ test("parses YAML list frontmatter via gray-matter (tags as array)", () => {
   expect(loader.getDescriptions()).toContain("alpha");
   expect(loader.getDescriptions()).toContain("beta");
 });
+
+test("renders YAML array tags joined with a comma-space separator", () => {
+  const root = mkdtempSync(join(tmpdir(), "sk-tags-"));
+  mkdirSync(join(root, "demo"));
+  writeFileSync(
+    join(root, "demo", "SKILL.md"),
+    "---\nname: demo\ndescription: d\ntags:\n  - alpha\n  - beta\n---\nBODY",
+  );
+  const loader = new SkillLoader(root);
+  expect(loader.getDescriptions()).toContain("[alpha, beta]");
+});
