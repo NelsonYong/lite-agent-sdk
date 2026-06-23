@@ -9,3 +9,5 @@ export type { DefaultCompactorOptions } from "./defaultCompactor";
 export { compaction } from "./middleware";
 export { reactiveCompaction, reactiveTrim } from "./reactive";
 export type { ReactiveCompactionOptions, ReactiveTrimOptions } from "./reactive";
+export { llmCompactor } from "./llm";
+export type { LlmCompactorOptions } from "./llm";
