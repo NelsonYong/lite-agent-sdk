@@ -5,7 +5,7 @@
   "fixed": [
     [
       "@lite-agent/core",
-      "lite-agent",
+      "@lite-agent/sdk",
       "@lite-agent/provider",
       "@lite-agent/sandbox-anthropic"
     ]

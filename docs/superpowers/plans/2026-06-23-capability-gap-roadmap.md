@@ -57,7 +57,7 @@
 ### P1-1 MCP（Model Context Protocol）支持 ★最大单点缺口
 - **缺口**：完全没有 MCP（grep `mcp` 零命中）。Claude Agent SDK（`mcpServers` + MCP-as-hooks + Elicitation）、OpenAI Agents SDK（Hosted/StreamableHTTP/SSE/stdio 四传输 + 工具过滤）都是一等公民。当前用户要接任何 MCP server 都得手写 `Tool` 包装。
 - **改动**：
-  - 新增 MCP 客户端适配层（建议新包 `@lite-agent-sdk/mcp` 或 sdk 子模块），把远端 MCP 工具动态注册为现有 `Tool`（zod schema 由 MCP JSON Schema 反推或透传）。
+  - 新增 MCP 客户端适配层（建议新包 `@lite-agent/mcp` 或 sdk 子模块），把远端 MCP 工具动态注册为现有 `Tool`（zod schema 由 MCP JSON Schema 反推或透传）。
   - 传输优先级：**stdio + streamable-HTTP**（OpenAI 已弃用 SSE，转 streamable-HTTP，故 SSE 可缓做）。
   - 工具过滤：静态 allow/block + 命名冲突前缀（`server__tool`）。
 - **验收**：起一个本地 stdio MCP server（如 filesystem），断言工具被发现、注册、可调用，且经过现有 permission gate。
