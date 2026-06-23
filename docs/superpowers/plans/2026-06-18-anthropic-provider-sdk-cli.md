@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Deliver the first end-to-end runnable CLI on top of `@lite-agent-sdk/core`: a real Anthropic model provider, a batteries-included SDK (default tools + skills) whose API is shaped after `@anthropic-ai/claude-agent-sdk`, and a rewritten `src/` app — with all old demo code removed.
+**Goal:** Deliver the first end-to-end runnable CLI on top of `@lite-agent/core`: a real Anthropic model provider, a batteries-included SDK (default tools + skills) whose API is shaped after `@anthropic-ai/claude-agent-sdk`, and a rewritten `src/` app — with all old demo code removed.
 
-**Architecture:** Three layers. `@lite-agent-sdk/provider` wraps the raw `@anthropic-ai/sdk` Messages API into a `ModelProvider`. `lite-agent-sdk` adds default tools, skill loading, a `createLiteAgent` factory, and `query()`/`tool()` ergonomics. The outer `src/` CLI wires a provider + the SDK into an event-stream REPL.
+**Architecture:** Three layers. `@lite-agent/provider` wraps the raw `@anthropic-ai/sdk` Messages API into a `ModelProvider`. `lite-agent` adds default tools, skill loading, a `createLiteAgent` factory, and `query()`/`tool()` ergonomics. The outer `src/` CLI wires a provider + the SDK into an event-stream REPL.
 
 **Tech Stack:** TypeScript 6 (strict, ESM, moduleResolution Bundler, verbatimModuleSyntax, noUncheckedIndexedAccess), pnpm workspace, tsup (build), vitest (test), zod 4, `@anthropic-ai/sdk` ^0.80.0.
 
@@ -17,7 +17,7 @@ Spec: `docs/superpowers/specs/2026-06-18-anthropic-provider-sdk-cli-design.md`.
 ## Setup notes (read once before Task 1)
 
 - **Two distinct SDKs:** `@anthropic-ai/sdk` is the raw model client we wrap; `@anthropic-ai/claude-agent-sdk` is only an **API-design reference** (never a dependency).
-- **Core must be built** so downstream packages resolve its types/runtime via `dist`: run `pnpm --filter @lite-agent-sdk/core build` if `packages/core/dist/index.d.ts` is missing.
+- **Core must be built** so downstream packages resolve its types/runtime via `dist`: run `pnpm --filter @lite-agent/core build` if `packages/core/dist/index.d.ts` is missing.
 - **After creating each new `package.json`**, run `pnpm install` at the repo root to create the workspace symlinks.
 - Each package mirrors core's config: `package.json` (tsup build / vitest test / tsc typecheck) + `tsconfig.json` extending `../../tsconfig.base.json` with `{ "outDir": "dist", "types": ["node"] }` and `include: ["src","test"]`.
 - Tests live in `<pkg>/test/*.test.ts` (vitest default discovery; no config file needed).
@@ -25,9 +25,10 @@ Spec: `docs/superpowers/specs/2026-06-18-anthropic-provider-sdk-cli-design.md`.
 
 ---
 
-## Task 1: Scaffold `@lite-agent-sdk/provider` + request mapping
+## Task 1: Scaffold `@lite-agent/provider` + request mapping
 
 **Files:**
+
 - Create: `packages/provider-anthropic/package.json`
 - Create: `packages/provider-anthropic/tsconfig.json`
 - Create: `packages/provider-anthropic/src/mapping.ts`
@@ -37,12 +38,14 @@ Spec: `docs/superpowers/specs/2026-06-18-anthropic-provider-sdk-cli-design.md`.
 
 ```json
 {
-  "name": "@lite-agent-sdk/provider",
+  "name": "@lite-agent/provider",
   "version": "0.0.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
   "engines": { "node": ">=20" },
   "files": ["dist"],
   "scripts": {
@@ -52,9 +55,14 @@ Spec: `docs/superpowers/specs/2026-06-18-anthropic-provider-sdk-cli-design.md`.
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.80.0",
-    "@lite-agent-sdk/core": "workspace:*"
+    "@lite-agent/core": "workspace:*"
   },
-  "devDependencies": { "@types/node": "^25.5.0", "tsup": "^8.3.0", "typescript": "^6.0.2", "vitest": "^2.1.0" }
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsup": "^8.3.0",
+    "typescript": "^6.0.2",
+    "vitest": "^2.1.0"
+  }
 }
 ```
 
@@ -71,14 +79,14 @@ Spec: `docs/superpowers/specs/2026-06-18-anthropic-provider-sdk-cli-design.md`.
 - [ ] **Step 3: Install workspace links**
 
 Run: `pnpm install`
-Expected: adds `@lite-agent-sdk/provider`, links `@lite-agent-sdk/core`. Exit 0.
+Expected: adds `@lite-agent/provider`, links `@lite-agent/core`. Exit 0.
 
 - [ ] **Step 4: Write the failing test** — `packages/provider-anthropic/test/mapping.test.ts`
 
 ```ts
 import { expect, test } from "vitest";
 import { toAnthropicParams } from "../src/mapping";
-import type { ModelRequest } from "@lite-agent-sdk/core";
+import type { ModelRequest } from "@lite-agent/core";
 
 test("hoists system, maps blocks, builds tools, strips $schema, defaults max_tokens", () => {
   const req: ModelRequest = {
@@ -86,14 +94,29 @@ test("hoists system, maps blocks, builds tools, strips $schema, defaults max_tok
     system: "you are x",
     messages: [
       { role: "user", content: "hi" },
-      { role: "assistant", content: [
-        { type: "text", text: "calling" },
-        { type: "tool_call", id: "c1", name: "add", input: { a: 1 } },
-      ] },
-      { role: "user", content: [{ type: "tool_result", id: "c1", content: "2" }] },
+      {
+        role: "assistant",
+        content: [
+          { type: "text", text: "calling" },
+          { type: "tool_call", id: "c1", name: "add", input: { a: 1 } },
+        ],
+      },
+      {
+        role: "user",
+        content: [{ type: "tool_result", id: "c1", content: "2" }],
+      },
     ],
     tools: [
-      { name: "add", description: "add", parameters: { $schema: "x", type: "object", properties: { a: { type: "number" } }, required: ["a"] } },
+      {
+        name: "add",
+        description: "add",
+        parameters: {
+          $schema: "x",
+          type: "object",
+          properties: { a: { type: "number" } },
+          required: ["a"],
+        },
+      },
     ],
   };
   const p = toAnthropicParams(req);
@@ -103,19 +126,37 @@ test("hoists system, maps blocks, builds tools, strips $schema, defaults max_tok
   expect(p.stream).toBe(true);
   expect(p.messages).toEqual([
     { role: "user", content: "hi" },
-    { role: "assistant", content: [
-      { type: "text", text: "calling" },
-      { type: "tool_use", id: "c1", name: "add", input: { a: 1 } },
-    ] },
-    { role: "user", content: [{ type: "tool_result", tool_use_id: "c1", content: "2" }] },
+    {
+      role: "assistant",
+      content: [
+        { type: "text", text: "calling" },
+        { type: "tool_use", id: "c1", name: "add", input: { a: 1 } },
+      ],
+    },
+    {
+      role: "user",
+      content: [{ type: "tool_result", tool_use_id: "c1", content: "2" }],
+    },
   ]);
   expect(p.tools).toEqual([
-    { name: "add", description: "add", input_schema: { type: "object", properties: { a: { type: "number" } }, required: ["a"] } },
+    {
+      name: "add",
+      description: "add",
+      input_schema: {
+        type: "object",
+        properties: { a: { type: "number" } },
+        required: ["a"],
+      },
+    },
   ]);
 });
 
 test("uses provided maxTokens and omits tools/system when absent", () => {
-  const p = toAnthropicParams({ model: "m", messages: [{ role: "user", content: "hi" }], maxTokens: 100 });
+  const p = toAnthropicParams({
+    model: "m",
+    messages: [{ role: "user", content: "hi" }],
+    maxTokens: 100,
+  });
   expect(p.max_tokens).toBe(100);
   expect(p.tools).toBeUndefined();
   expect(p.system).toBeUndefined();
@@ -124,47 +165,74 @@ test("uses provided maxTokens and omits tools/system when absent", () => {
 
 - [ ] **Step 5: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent-sdk/provider test`
+Run: `pnpm --filter @lite-agent/provider test`
 Expected: FAIL — `toAnthropicParams` not found.
 
 - [ ] **Step 6: Implement `packages/provider-anthropic/src/mapping.ts`**
 
 ```ts
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ContentBlock, Message, ModelRequest, ToolSpec } from "@lite-agent-sdk/core";
+import type {
+  ContentBlock,
+  Message,
+  ModelRequest,
+  ToolSpec,
+} from "@lite-agent/core";
 
 const DEFAULT_MAX_TOKENS = 4096;
 
 function toBlockParam(b: ContentBlock): Anthropic.ContentBlockParam {
   if (b.type === "text") return { type: "text", text: b.text };
   if (b.type === "tool_call") {
-    return { type: "tool_use", id: b.id, name: b.name, input: (b.input ?? {}) as Record<string, unknown> };
+    return {
+      type: "tool_use",
+      id: b.id,
+      name: b.name,
+      input: (b.input ?? {}) as Record<string, unknown>,
+    };
   }
   return b.isError
-    ? { type: "tool_result", tool_use_id: b.id, content: b.content, is_error: true }
+    ? {
+        type: "tool_result",
+        tool_use_id: b.id,
+        content: b.content,
+        is_error: true,
+      }
     : { type: "tool_result", tool_use_id: b.id, content: b.content };
 }
 
 function toMessageParam(m: Message): Anthropic.MessageParam {
-  const role: "user" | "assistant" = m.role === "assistant" ? "assistant" : "user";
-  const content = typeof m.content === "string" ? m.content : m.content.map(toBlockParam);
+  const role: "user" | "assistant" =
+    m.role === "assistant" ? "assistant" : "user";
+  const content =
+    typeof m.content === "string" ? m.content : m.content.map(toBlockParam);
   return { role, content };
 }
 
-function toInputSchema(parameters: Record<string, unknown>): Anthropic.Tool.InputSchema {
+function toInputSchema(
+  parameters: Record<string, unknown>,
+): Anthropic.Tool.InputSchema {
   const { $schema: _drop, ...rest } = parameters;
   return rest as Anthropic.Tool.InputSchema;
 }
 
 function toTool(spec: ToolSpec): Anthropic.Tool {
-  return { name: spec.name, description: spec.description, input_schema: toInputSchema(spec.parameters) };
+  return {
+    name: spec.name,
+    description: spec.description,
+    input_schema: toInputSchema(spec.parameters),
+  };
 }
 
-export function toAnthropicParams(req: ModelRequest): Anthropic.MessageCreateParamsStreaming {
+export function toAnthropicParams(
+  req: ModelRequest,
+): Anthropic.MessageCreateParamsStreaming {
   const params: Anthropic.MessageCreateParamsStreaming = {
     model: req.model,
     max_tokens: req.maxTokens ?? DEFAULT_MAX_TOKENS,
-    messages: req.messages.filter((m) => m.role !== "system").map(toMessageParam),
+    messages: req.messages
+      .filter((m) => m.role !== "system")
+      .map(toMessageParam),
     stream: true,
   };
   if (req.system) params.system = req.system;
@@ -176,13 +244,13 @@ export function toAnthropicParams(req: ModelRequest): Anthropic.MessageCreatePar
 
 - [ ] **Step 7: Run test to verify it passes**
 
-Run: `pnpm --filter @lite-agent-sdk/provider test`
+Run: `pnpm --filter @lite-agent/provider test`
 Expected: PASS (2 tests).
 
 - [ ] **Step 8: Typecheck**
 
-Run: `pnpm --filter @lite-agent-sdk/provider typecheck`
-Expected: clean (no errors). If `@lite-agent-sdk/core` types fail to resolve, run `pnpm --filter @lite-agent-sdk/core build` first.
+Run: `pnpm --filter @lite-agent/provider typecheck`
+Expected: clean (no errors). If `@lite-agent/core` types fail to resolve, run `pnpm --filter @lite-agent/core build` first.
 
 - [ ] **Step 9: Commit**
 
@@ -196,6 +264,7 @@ git commit -m "feat(provider-anthropic): scaffold package + request mapping"
 ## Task 2: Stream translation
 
 **Files:**
+
 - Create: `packages/provider-anthropic/src/stream.ts`
 - Test: `packages/provider-anthropic/test/stream.test.ts`
 
@@ -204,7 +273,7 @@ git commit -m "feat(provider-anthropic): scaffold package + request mapping"
 ```ts
 import { expect, test } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ModelChunk } from "@lite-agent-sdk/core";
+import type { ModelChunk } from "@lite-agent/core";
 import { translateStream } from "../src/stream";
 
 async function* gen(events: Anthropic.RawMessageStreamEvent[]) {
@@ -213,16 +282,47 @@ async function* gen(events: Anthropic.RawMessageStreamEvent[]) {
 
 test("translates text + tool_use stream into ModelChunks", async () => {
   const events = [
-    { type: "message_start", message: { usage: { input_tokens: 10, output_tokens: 0 } } },
-    { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } },
-    { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "Hello" } },
-    { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: " world" } },
+    {
+      type: "message_start",
+      message: { usage: { input_tokens: 10, output_tokens: 0 } },
+    },
+    {
+      type: "content_block_start",
+      index: 0,
+      content_block: { type: "text", text: "" },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: "Hello" },
+    },
+    {
+      type: "content_block_delta",
+      index: 0,
+      delta: { type: "text_delta", text: " world" },
+    },
     { type: "content_block_stop", index: 0 },
-    { type: "content_block_start", index: 1, content_block: { type: "tool_use", id: "t1", name: "add", input: {} } },
-    { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '{"a":1,' } },
-    { type: "content_block_delta", index: 1, delta: { type: "input_json_delta", partial_json: '"b":2}' } },
+    {
+      type: "content_block_start",
+      index: 1,
+      content_block: { type: "tool_use", id: "t1", name: "add", input: {} },
+    },
+    {
+      type: "content_block_delta",
+      index: 1,
+      delta: { type: "input_json_delta", partial_json: '{"a":1,' },
+    },
+    {
+      type: "content_block_delta",
+      index: 1,
+      delta: { type: "input_json_delta", partial_json: '"b":2}' },
+    },
     { type: "content_block_stop", index: 1 },
-    { type: "message_delta", delta: { stop_reason: "tool_use" }, usage: { output_tokens: 7 } },
+    {
+      type: "message_delta",
+      delta: { stop_reason: "tool_use" },
+      usage: { output_tokens: 7 },
+    },
     { type: "message_stop" },
   ] as unknown as Anthropic.RawMessageStreamEvent[];
 
@@ -230,7 +330,9 @@ test("translates text + tool_use stream into ModelChunks", async () => {
   for await (const c of translateStream(gen(events))) chunks.push(c);
 
   const deltas = chunks.filter((c) => c.type === "text_delta");
-  expect(deltas.map((d) => (d.type === "text_delta" ? d.text : "")).join("")).toBe("Hello world");
+  expect(
+    deltas.map((d) => (d.type === "text_delta" ? d.text : "")).join(""),
+  ).toBe("Hello world");
 
   const done = chunks.at(-1);
   expect(done?.type).toBe("message_done");
@@ -246,14 +348,19 @@ test("translates text + tool_use stream into ModelChunks", async () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent-sdk/provider test stream`
+Run: `pnpm --filter @lite-agent/provider test stream`
 Expected: FAIL — `translateStream` not found.
 
 - [ ] **Step 3: Implement `packages/provider-anthropic/src/stream.ts`**
 
 ```ts
 import type Anthropic from "@anthropic-ai/sdk";
-import type { AssistantMessage, ContentBlock, ModelChunk, Usage } from "@lite-agent-sdk/core";
+import type {
+  AssistantMessage,
+  ContentBlock,
+  ModelChunk,
+  Usage,
+} from "@lite-agent/core";
 
 export async function* translateStream(
   events: AsyncIterable<Anthropic.RawMessageStreamEvent>,
@@ -273,7 +380,12 @@ export async function* translateStream(
         if (cb.type === "text") {
           blocks[event.index] = { type: "text", text: cb.text };
         } else if (cb.type === "tool_use") {
-          blocks[event.index] = { type: "tool_call", id: cb.id, name: cb.name, input: {} };
+          blocks[event.index] = {
+            type: "tool_call",
+            id: cb.id,
+            name: cb.name,
+            input: {},
+          };
           toolJson[event.index] = "";
         }
         break;
@@ -285,7 +397,8 @@ export async function* translateStream(
           if (b && b.type === "text") b.text += d.text;
           yield { type: "text_delta", text: d.text };
         } else if (d.type === "input_json_delta") {
-          toolJson[event.index] = (toolJson[event.index] ?? "") + d.partial_json;
+          toolJson[event.index] =
+            (toolJson[event.index] ?? "") + d.partial_json;
         }
         break;
       }
@@ -316,12 +429,12 @@ export async function* translateStream(
 
 - [ ] **Step 4: Run test to verify it passes**
 
-Run: `pnpm --filter @lite-agent-sdk/provider test stream`
+Run: `pnpm --filter @lite-agent/provider test stream`
 Expected: PASS.
 
 - [ ] **Step 5: Typecheck + commit**
 
-Run: `pnpm --filter @lite-agent-sdk/provider typecheck`
+Run: `pnpm --filter @lite-agent/provider typecheck`
 Expected: clean.
 
 ```bash
@@ -334,6 +447,7 @@ git commit -m "feat(provider-anthropic): translate Anthropic stream events to Mo
 ## Task 3: Provider assembly + package exports
 
 **Files:**
+
 - Create: `packages/provider-anthropic/src/anthropic.ts`
 - Create: `packages/provider-anthropic/src/index.ts`
 - Test: `packages/provider-anthropic/test/anthropic.test.ts`
@@ -343,7 +457,7 @@ git commit -m "feat(provider-anthropic): translate Anthropic stream events to Mo
 ```ts
 import { expect, test } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ModelChunk } from "@lite-agent-sdk/core";
+import type { ModelChunk } from "@lite-agent/core";
 import { anthropic } from "../src/index";
 import type { AnthropicClientLike } from "../src/index";
 
@@ -354,11 +468,26 @@ test("provider streams ModelChunks via an injected client and forwards params", 
       create(params) {
         captured = params;
         async function* gen() {
-          yield { type: "message_start", message: { usage: { input_tokens: 3, output_tokens: 0 } } };
-          yield { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } };
-          yield { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hi" } };
+          yield {
+            type: "message_start",
+            message: { usage: { input_tokens: 3, output_tokens: 0 } },
+          };
+          yield {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "text", text: "" },
+          };
+          yield {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: "hi" },
+          };
           yield { type: "content_block_stop", index: 0 };
-          yield { type: "message_delta", delta: {}, usage: { output_tokens: 1 } };
+          yield {
+            type: "message_delta",
+            delta: {},
+            usage: { output_tokens: 1 },
+          };
           yield { type: "message_stop" };
         }
         return gen() as unknown as AsyncIterable<Anthropic.RawMessageStreamEvent>;
@@ -370,7 +499,10 @@ test("provider streams ModelChunks via an injected client and forwards params", 
   expect(provider.id).toBe("anthropic");
 
   const chunks: ModelChunk[] = [];
-  for await (const c of provider.stream({ model: "m", messages: [{ role: "user", content: "hi" }] })) {
+  for await (const c of provider.stream({
+    model: "m",
+    messages: [{ role: "user", content: "hi" }],
+  })) {
     chunks.push(c);
   }
 
@@ -386,14 +518,14 @@ test("provider streams ModelChunks via an injected client and forwards params", 
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter @lite-agent-sdk/provider test anthropic`
+Run: `pnpm --filter @lite-agent/provider test anthropic`
 Expected: FAIL — `anthropic` / `AnthropicClientLike` not found.
 
 - [ ] **Step 3: Implement `packages/provider-anthropic/src/anthropic.ts`**
 
 ```ts
 import Anthropic from "@anthropic-ai/sdk";
-import type { ModelChunk, ModelProvider, ModelRequest } from "@lite-agent-sdk/core";
+import type { ModelChunk, ModelProvider, ModelRequest } from "@lite-agent/core";
 import { toAnthropicParams } from "./mapping";
 import { translateStream } from "./stream";
 
@@ -403,7 +535,9 @@ export interface AnthropicClientLike {
     create(
       params: Anthropic.MessageCreateParamsStreaming,
       options?: { signal?: AbortSignal },
-    ): Promise<AsyncIterable<Anthropic.RawMessageStreamEvent>> | AsyncIterable<Anthropic.RawMessageStreamEvent>;
+    ):
+      | Promise<AsyncIterable<Anthropic.RawMessageStreamEvent>>
+      | AsyncIterable<Anthropic.RawMessageStreamEvent>;
   };
 }
 
@@ -423,9 +557,15 @@ export function anthropic(opts: AnthropicProviderOptions = {}): ModelProvider {
 
   return {
     id: "anthropic",
-    async *stream(req: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelChunk> {
+    async *stream(
+      req: ModelRequest,
+      signal?: AbortSignal,
+    ): AsyncIterable<ModelChunk> {
       const params = toAnthropicParams(req);
-      const raw = await client.messages.create(params, signal ? { signal } : undefined);
+      const raw = await client.messages.create(
+        params,
+        signal ? { signal } : undefined,
+      );
       yield* translateStream(raw);
     },
   };
@@ -436,21 +576,24 @@ export function anthropic(opts: AnthropicProviderOptions = {}): ModelProvider {
 
 ```ts
 export { anthropic } from "./anthropic";
-export type { AnthropicProviderOptions, AnthropicClientLike } from "./anthropic";
+export type {
+  AnthropicProviderOptions,
+  AnthropicClientLike,
+} from "./anthropic";
 export { toAnthropicParams } from "./mapping";
 export { translateStream } from "./stream";
 ```
 
 - [ ] **Step 5: Run test + typecheck**
 
-Run: `pnpm --filter @lite-agent-sdk/provider test`
+Run: `pnpm --filter @lite-agent/provider test`
 Expected: PASS (all 3 test files).
-Run: `pnpm --filter @lite-agent-sdk/provider typecheck`
+Run: `pnpm --filter @lite-agent/provider typecheck`
 Expected: clean.
 
 - [ ] **Step 6: Build (verify dts emits)**
 
-Run: `pnpm --filter @lite-agent-sdk/provider build`
+Run: `pnpm --filter @lite-agent/provider build`
 Expected: emits `dist/index.js` + `dist/index.d.ts`. Exit 0.
 
 - [ ] **Step 7: Commit**
@@ -462,9 +605,10 @@ git commit -m "feat(provider-anthropic): assemble ModelProvider + public exports
 
 ---
 
-## Task 4: Scaffold `lite-agent-sdk` + file tools
+## Task 4: Scaffold `lite-agent` + file tools
 
 **Files:**
+
 - Create: `packages/sdk/package.json`
 - Create: `packages/sdk/tsconfig.json`
 - Create: `packages/sdk/src/tools/file.ts`
@@ -474,12 +618,14 @@ git commit -m "feat(provider-anthropic): assemble ModelProvider + public exports
 
 ```json
 {
-  "name": "lite-agent-sdk",
+  "name": "lite-agent",
   "version": "0.0.0",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
-  "exports": { ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" } },
+  "exports": {
+    ".": { "types": "./dist/index.d.ts", "import": "./dist/index.js" }
+  },
   "engines": { "node": ">=20" },
   "files": ["dist"],
   "scripts": {
@@ -487,8 +633,13 @@ git commit -m "feat(provider-anthropic): assemble ModelProvider + public exports
     "test": "vitest run",
     "typecheck": "tsc --noEmit"
   },
-  "dependencies": { "@lite-agent-sdk/core": "workspace:*", "zod": "^4.3.6" },
-  "devDependencies": { "@types/node": "^25.5.0", "tsup": "^8.3.0", "typescript": "^6.0.2", "vitest": "^2.1.0" }
+  "dependencies": { "@lite-agent/core": "workspace:*", "zod": "^4.3.6" },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsup": "^8.3.0",
+    "typescript": "^6.0.2",
+    "vitest": "^2.1.0"
+  }
 }
 ```
 
@@ -505,7 +656,7 @@ git commit -m "feat(provider-anthropic): assemble ModelProvider + public exports
 - [ ] **Step 3: Install workspace links**
 
 Run: `pnpm install`
-Expected: adds `lite-agent-sdk`. Exit 0.
+Expected: adds `lite-agent`. Exit 0.
 
 - [ ] **Step 4: Write the failing test** — `packages/sdk/test/file.test.ts`
 
@@ -514,18 +665,27 @@ import { expect, test } from "vitest";
 import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ToolContext } from "@lite-agent-sdk/core";
+import type { ToolContext } from "@lite-agent/core";
 import { fileTools, makeSafePath } from "../src/tools/file";
 
-const ctx: ToolContext = { sessionId: "s", signal: new AbortController().signal, emit: () => {} };
+const ctx: ToolContext = {
+  sessionId: "s",
+  signal: new AbortController().signal,
+  emit: () => {},
+};
 
 test("read/write/edit operate within the workspace", async () => {
   const dir = mkdtempSync(join(tmpdir(), "la-"));
   const [read, write, edit] = fileTools(dir);
-  expect(await write!.execute({ path: "a.txt", content: "hello" }, ctx)).toContain("Wrote");
+  expect(
+    await write!.execute({ path: "a.txt", content: "hello" }, ctx),
+  ).toContain("Wrote");
   expect(readFileSync(join(dir, "a.txt"), "utf8")).toBe("hello");
   expect(await read!.execute({ path: "a.txt" }, ctx)).toBe("hello");
-  await edit!.execute({ path: "a.txt", old_text: "hello", new_text: "bye" }, ctx);
+  await edit!.execute(
+    { path: "a.txt", old_text: "hello", new_text: "bye" },
+    ctx,
+  );
   expect(readFileSync(join(dir, "a.txt"), "utf8")).toBe("bye");
 });
 
@@ -538,7 +698,7 @@ test("safePath blocks escaping the workspace", () => {
 
 - [ ] **Step 5: Run test to verify it fails**
 
-Run: `pnpm --filter lite-agent-sdk test file`
+Run: `pnpm --filter lite-agent test file`
 Expected: FAIL — `fileTools` not found.
 
 - [ ] **Step 6: Implement `packages/sdk/src/tools/file.ts`**
@@ -547,8 +707,8 @@ Expected: FAIL — `fileTools` not found.
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
-import { defineTool } from "@lite-agent-sdk/core";
-import type { Tool } from "@lite-agent-sdk/core";
+import { defineTool } from "@lite-agent/core";
+import type { Tool } from "@lite-agent/core";
 
 const MAX_BYTES = 50_000;
 
@@ -573,7 +733,12 @@ export function fileTools(workdir: string): Tool[] {
     execute: ({ path, limit }) => {
       const lines = readFileSync(safePath(path), "utf8").split("\n");
       if (limit && limit < lines.length) {
-        return [...lines.slice(0, limit), `... (${lines.length - limit} more lines)`].join("\n").slice(0, MAX_BYTES);
+        return [
+          ...lines.slice(0, limit),
+          `... (${lines.length - limit} more lines)`,
+        ]
+          .join("\n")
+          .slice(0, MAX_BYTES);
       }
       return lines.join("\n").slice(0, MAX_BYTES);
     },
@@ -594,11 +759,16 @@ export function fileTools(workdir: string): Tool[] {
   const editFile = defineTool({
     name: "edit_file",
     description: "Replace exact text in a file.",
-    schema: z.object({ path: z.string(), old_text: z.string(), new_text: z.string() }),
+    schema: z.object({
+      path: z.string(),
+      old_text: z.string(),
+      new_text: z.string(),
+    }),
     execute: ({ path, old_text, new_text }) => {
       const fp = safePath(path);
       const content = readFileSync(fp, "utf8");
-      if (!content.includes(old_text)) return `Error: Text not found in ${path}`;
+      if (!content.includes(old_text))
+        return `Error: Text not found in ${path}`;
       writeFileSync(fp, content.replace(old_text, new_text));
       return `Edited ${path}`;
     },
@@ -610,10 +780,10 @@ export function fileTools(workdir: string): Tool[] {
 
 - [ ] **Step 7: Run test + typecheck**
 
-Run: `pnpm --filter lite-agent-sdk test file`
+Run: `pnpm --filter lite-agent test file`
 Expected: PASS.
-Run: `pnpm --filter lite-agent-sdk typecheck`
-Expected: clean (build `@lite-agent-sdk/core` first if its `dist` types are missing).
+Run: `pnpm --filter lite-agent typecheck`
+Expected: clean (build `@lite-agent/core` first if its `dist` types are missing).
 
 - [ ] **Step 8: Commit**
 
@@ -627,6 +797,7 @@ git commit -m "feat(sdk): scaffold package + workspace-confined file tools"
 ## Task 5: bash + todo tools + default tool set
 
 **Files:**
+
 - Create: `packages/sdk/src/tools/bash.ts`
 - Create: `packages/sdk/src/tools/todo.ts`
 - Create: `packages/sdk/src/tools/index.ts`
@@ -636,40 +807,62 @@ git commit -m "feat(sdk): scaffold package + workspace-confined file tools"
 
 ```ts
 import { expect, test } from "vitest";
-import type { ToolContext } from "@lite-agent-sdk/core";
+import type { ToolContext } from "@lite-agent/core";
 import { bashTool } from "../src/tools/bash";
 import { todoTool } from "../src/tools/todo";
 import { defaultTools } from "../src/tools";
 
-const ctx: ToolContext = { sessionId: "s", signal: new AbortController().signal, emit: () => {} };
+const ctx: ToolContext = {
+  sessionId: "s",
+  signal: new AbortController().signal,
+  emit: () => {},
+};
 
 test("bash runs commands and blocks dangerous ones", async () => {
   const bash = bashTool(process.cwd());
   expect(await bash.execute({ command: "echo hi" }, ctx)).toBe("hi");
-  expect(await bash.execute({ command: "sudo rm -rf x" }, ctx)).toMatch(/Dangerous/);
+  expect(await bash.execute({ command: "sudo rm -rf x" }, ctx)).toMatch(
+    /Dangerous/,
+  );
 });
 
 test("todo renders items and enforces a single in_progress", async () => {
   const todo = todoTool();
-  const out = await todo.execute({ items: [{ id: "1", text: "a", status: "in_progress" }] }, ctx);
+  const out = await todo.execute(
+    { items: [{ id: "1", text: "a", status: "in_progress" }] },
+    ctx,
+  );
   expect(out).toContain("[>] #1: a");
   await expect(
-    todo.execute({ items: [
-      { id: "1", text: "a", status: "in_progress" },
-      { id: "2", text: "b", status: "in_progress" },
-    ] }, ctx),
+    todo.execute(
+      {
+        items: [
+          { id: "1", text: "a", status: "in_progress" },
+          { id: "2", text: "b", status: "in_progress" },
+        ],
+      },
+      ctx,
+    ),
   ).rejects.toThrow(/in_progress/);
 });
 
 test("defaultTools exposes the five built-ins by name", () => {
-  const names = defaultTools(process.cwd()).map((t) => t.name).sort();
-  expect(names).toEqual(["bash", "edit_file", "read_file", "todo", "write_file"]);
+  const names = defaultTools(process.cwd())
+    .map((t) => t.name)
+    .sort();
+  expect(names).toEqual([
+    "bash",
+    "edit_file",
+    "read_file",
+    "todo",
+    "write_file",
+  ]);
 });
 ```
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter lite-agent-sdk test tools`
+Run: `pnpm --filter lite-agent test tools`
 Expected: FAIL — `bashTool` not found.
 
 - [ ] **Step 3: Implement `packages/sdk/src/tools/bash.ts`**
@@ -677,8 +870,8 @@ Expected: FAIL — `bashTool` not found.
 ```ts
 import { execSync } from "node:child_process";
 import { z } from "zod";
-import { defineTool } from "@lite-agent-sdk/core";
-import type { Tool } from "@lite-agent-sdk/core";
+import { defineTool } from "@lite-agent/core";
+import type { Tool } from "@lite-agent/core";
 
 const DANGEROUS = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"];
 
@@ -688,13 +881,22 @@ export function bashTool(workdir: string): Tool {
     description: "Run a shell command.",
     schema: z.object({ command: z.string() }),
     execute: ({ command }) => {
-      if (DANGEROUS.some((d) => command.includes(d))) return "Error: Dangerous command blocked";
+      if (DANGEROUS.some((d) => command.includes(d)))
+        return "Error: Dangerous command blocked";
       try {
-        const out = execSync(command, { cwd: workdir, encoding: "utf8", timeout: 120000, maxBuffer: 50_000_000 });
+        const out = execSync(command, {
+          cwd: workdir,
+          encoding: "utf8",
+          timeout: 120000,
+          maxBuffer: 50_000_000,
+        });
         return out.trim() || "(no output)";
       } catch (e) {
         const err = e as { stdout?: string; stderr?: string; message?: string };
-        return `${err.stdout ?? ""}${err.stderr ?? ""}`.trim().slice(0, 50_000) || `Error: ${err.message}`;
+        return (
+          `${err.stdout ?? ""}${err.stderr ?? ""}`.trim().slice(0, 50_000) ||
+          `Error: ${err.message}`
+        );
       }
     },
   });
@@ -705,13 +907,21 @@ export function bashTool(workdir: string): Tool {
 
 ```ts
 import { z } from "zod";
-import { defineTool } from "@lite-agent-sdk/core";
-import type { Tool } from "@lite-agent-sdk/core";
+import { defineTool } from "@lite-agent/core";
+import type { Tool } from "@lite-agent/core";
 
 type TodoStatus = "pending" | "in_progress" | "completed";
-interface TodoItem { id: string; text: string; status: TodoStatus; }
+interface TodoItem {
+  id: string;
+  text: string;
+  status: TodoStatus;
+}
 
-const MARK: Record<TodoStatus, string> = { pending: "[ ]", in_progress: "[>]", completed: "[x]" };
+const MARK: Record<TodoStatus, string> = {
+  pending: "[ ]",
+  in_progress: "[>]",
+  completed: "[x]",
+};
 
 const itemSchema = z.object({
   id: z.string(),
@@ -731,7 +941,9 @@ class TodoManager {
   }
   render(): string {
     if (!this.items.length) return "No todos.";
-    const lines = this.items.map((t) => `${MARK[t.status]} #${t.id}: ${t.text}`);
+    const lines = this.items.map(
+      (t) => `${MARK[t.status]} #${t.id}: ${t.text}`,
+    );
     const done = this.items.filter((t) => t.status === "completed").length;
     lines.push(`\n(${done}/${this.items.length} completed)`);
     return lines.join("\n");
@@ -752,7 +964,7 @@ export function todoTool(): Tool {
 - [ ] **Step 5: Implement `packages/sdk/src/tools/index.ts`**
 
 ```ts
-import type { Tool } from "@lite-agent-sdk/core";
+import type { Tool } from "@lite-agent/core";
 import { bashTool } from "./bash";
 import { fileTools } from "./file";
 import { todoTool } from "./todo";
@@ -768,9 +980,9 @@ export { todoTool } from "./todo";
 
 - [ ] **Step 6: Run test + typecheck**
 
-Run: `pnpm --filter lite-agent-sdk test tools`
+Run: `pnpm --filter lite-agent test tools`
 Expected: PASS.
-Run: `pnpm --filter lite-agent-sdk typecheck`
+Run: `pnpm --filter lite-agent typecheck`
 Expected: clean.
 
 - [ ] **Step 7: Commit**
@@ -785,6 +997,7 @@ git commit -m "feat(sdk): bash + todo tools and defaultTools set"
 ## Task 6: SkillLoader + load_skill tool
 
 **Files:**
+
 - Create: `packages/sdk/src/skills/loader.ts`
 - Create: `packages/sdk/src/skills/loadSkillTool.ts`
 - Test: `packages/sdk/test/skills.test.ts`
@@ -796,16 +1009,23 @@ import { expect, test } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ToolContext } from "@lite-agent-sdk/core";
+import type { ToolContext } from "@lite-agent/core";
 import { SkillLoader } from "../src/skills/loader";
 import { loadSkillTool } from "../src/skills/loadSkillTool";
 
-const ctx: ToolContext = { sessionId: "s", signal: new AbortController().signal, emit: () => {} };
+const ctx: ToolContext = {
+  sessionId: "s",
+  signal: new AbortController().signal,
+  emit: () => {},
+};
 
 test("loads frontmatter and serves the body via load_skill", async () => {
   const root = mkdtempSync(join(tmpdir(), "sk-"));
   mkdirSync(join(root, "demo"));
-  writeFileSync(join(root, "demo", "SKILL.md"), "---\nname: demo\ndescription: a demo skill\n---\nBODY HERE");
+  writeFileSync(
+    join(root, "demo", "SKILL.md"),
+    "---\nname: demo\ndescription: a demo skill\n---\nBODY HERE",
+  );
 
   const loader = new SkillLoader(root);
   expect(loader.getDescriptions()).toContain("demo: a demo skill");
@@ -823,7 +1043,7 @@ test("empty/missing dir yields a placeholder description", () => {
 
 - [ ] **Step 2: Run test to verify it fails**
 
-Run: `pnpm --filter lite-agent-sdk test skills`
+Run: `pnpm --filter lite-agent test skills`
 Expected: FAIL — `SkillLoader` not found.
 
 - [ ] **Step 3: Implement `packages/sdk/src/skills/loader.ts`**
@@ -832,8 +1052,17 @@ Expected: FAIL — `SkillLoader` not found.
 import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
-interface SkillMeta { name?: string; description?: string; tags?: string; [k: string]: string | undefined; }
-interface Skill { meta: SkillMeta; body: string; path: string; }
+interface SkillMeta {
+  name?: string;
+  description?: string;
+  tags?: string;
+  [k: string]: string | undefined;
+}
+interface Skill {
+  meta: SkillMeta;
+  body: string;
+  path: string;
+}
 
 export class SkillLoader {
   readonly skillsDir: string;
@@ -885,7 +1114,8 @@ export class SkillLoader {
 
   getContent(name: string): string {
     const s = this.skills[name];
-    if (!s) return `Error: Unknown skill '${name}'. Available: ${Object.keys(this.skills).join(", ")}`;
+    if (!s)
+      return `Error: Unknown skill '${name}'. Available: ${Object.keys(this.skills).join(", ")}`;
     return `<skill name="${name}">\n${s.body}\n</skill>`;
   }
 }
@@ -895,14 +1125,15 @@ export class SkillLoader {
 
 ```ts
 import { z } from "zod";
-import { defineTool } from "@lite-agent-sdk/core";
-import type { Tool } from "@lite-agent-sdk/core";
+import { defineTool } from "@lite-agent/core";
+import type { Tool } from "@lite-agent/core";
 import type { SkillLoader } from "./loader";
 
 export function loadSkillTool(loader: SkillLoader): Tool {
   return defineTool({
     name: "load_skill",
-    description: "Load a skill's full instructions by name before tackling an unfamiliar task.",
+    description:
+      "Load a skill's full instructions by name before tackling an unfamiliar task.",
     schema: z.object({ name: z.string() }),
     execute: ({ name }) => loader.getContent(name),
   });
@@ -911,9 +1142,9 @@ export function loadSkillTool(loader: SkillLoader): Tool {
 
 - [ ] **Step 5: Run test + typecheck**
 
-Run: `pnpm --filter lite-agent-sdk test skills`
+Run: `pnpm --filter lite-agent test skills`
 Expected: PASS.
-Run: `pnpm --filter lite-agent-sdk typecheck`
+Run: `pnpm --filter lite-agent typecheck`
 Expected: clean.
 
 - [ ] **Step 6: Commit**
@@ -928,6 +1159,7 @@ git commit -m "feat(sdk): SkillLoader + load_skill tool"
 ## Task 7: System prompt + createLiteAgent + query/tool facade + exports
 
 **Files:**
+
 - Create: `packages/sdk/src/system.ts`
 - Create: `packages/sdk/src/createLiteAgent.ts`
 - Create: `packages/sdk/src/query.ts`
@@ -946,7 +1178,11 @@ import { expect, test } from "vitest";
 import { buildSystemPrompt } from "../src/system";
 
 test("system prompt embeds workdir, model, skills, and load_skill hint", () => {
-  const s = buildSystemPrompt({ workdir: "/w", modelName: "m1", skills: "  - demo: x" });
+  const s = buildSystemPrompt({
+    workdir: "/w",
+    modelName: "m1",
+    skills: "  - demo: x",
+  });
   expect(s).toContain("/w");
   expect(s).toContain("m1");
   expect(s).toContain("- demo: x");
@@ -961,12 +1197,17 @@ import { expect, test } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fakeProvider, textBlock } from "@lite-agent-sdk/core";
+import { fakeProvider, textBlock } from "@lite-agent/core";
 import { createLiteAgent } from "../src/createLiteAgent";
 
 test("runs with default tools wired", async () => {
   const agent = createLiteAgent({
-    model: fakeProvider([{ text: "ok", message: { role: "assistant", content: [textBlock("ok")] } }]),
+    model: fakeProvider([
+      {
+        text: "ok",
+        message: { role: "assistant", content: [textBlock("ok")] },
+      },
+    ]),
     workdir: process.cwd(),
   });
   expect((await agent.send("hi")).text).toBe("ok");
@@ -975,25 +1216,68 @@ test("runs with default tools wired", async () => {
 test("load_skill is wired when skillsDir is set", async () => {
   const root = mkdtempSync(join(tmpdir(), "sk-"));
   mkdirSync(join(root, "demo"));
-  writeFileSync(join(root, "demo", "SKILL.md"), "---\nname: demo\ndescription: d\n---\nBODY");
+  writeFileSync(
+    join(root, "demo", "SKILL.md"),
+    "---\nname: demo\ndescription: d\n---\nBODY",
+  );
   const fp = fakeProvider([
-    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "load_skill", input: { name: "demo" } }] } },
-    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+    {
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "t1",
+            name: "load_skill",
+            input: { name: "demo" },
+          },
+        ],
+      },
+    },
+    {
+      text: "done",
+      message: { role: "assistant", content: [textBlock("done")] },
+    },
   ]);
-  const agent = createLiteAgent({ model: fp, workdir: process.cwd(), skillsDir: root });
+  const agent = createLiteAgent({
+    model: fp,
+    workdir: process.cwd(),
+    skillsDir: root,
+  });
   const results: string[] = [];
-  for await (const ev of agent.run("hi")) if (ev.type === "tool_result") results.push(ev.result.content);
+  for await (const ev of agent.run("hi"))
+    if (ev.type === "tool_result") results.push(ev.result.content);
   expect(results.join("")).toContain("BODY");
 });
 
 test("allowedTools restricts the registered set", async () => {
   const fp = fakeProvider([
-    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "read_file", input: { path: "x" } }] } },
-    { text: "end", message: { role: "assistant", content: [textBlock("end")] } },
+    {
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "t1",
+            name: "read_file",
+            input: { path: "x" },
+          },
+        ],
+      },
+    },
+    {
+      text: "end",
+      message: { role: "assistant", content: [textBlock("end")] },
+    },
   ]);
-  const agent = createLiteAgent({ model: fp, workdir: process.cwd(), allowedTools: ["bash"] });
+  const agent = createLiteAgent({
+    model: fp,
+    workdir: process.cwd(),
+    allowedTools: ["bash"],
+  });
   const results: string[] = [];
-  for await (const ev of agent.run("hi")) if (ev.type === "tool_result") results.push(ev.result.content);
+  for await (const ev of agent.run("hi"))
+    if (ev.type === "tool_result") results.push(ev.result.content);
   expect(results.join("")).toMatch(/unknown tool/);
 });
 ```
@@ -1003,31 +1287,48 @@ test("allowedTools restricts the registered set", async () => {
 ```ts
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { fakeProvider, textBlock } from "@lite-agent-sdk/core";
+import { fakeProvider, textBlock } from "@lite-agent/core";
 import { query } from "../src/query";
 import { tool } from "../src/tool";
 
 test("query() streams events and returns a result", async () => {
-  const fp = fakeProvider([{ text: "hi there", message: { role: "assistant", content: [textBlock("hi there")] } }]);
+  const fp = fakeProvider([
+    {
+      text: "hi there",
+      message: { role: "assistant", content: [textBlock("hi there")] },
+    },
+  ]);
   const types: string[] = [];
   const gen = query({ prompt: "hi", model: fp, cwd: process.cwd() });
   let r = await gen.next();
-  while (!r.done) { types.push(r.value.type); r = await gen.next(); }
+  while (!r.done) {
+    types.push(r.value.type);
+    r = await gen.next();
+  }
   expect(types).toContain("done");
   expect(r.value.text).toBe("hi there");
 });
 
 test("tool() builds a working Tool", async () => {
-  const t = tool("double", "double a number", z.object({ n: z.number() }), ({ n }) => String(n * 2));
+  const t = tool(
+    "double",
+    "double a number",
+    z.object({ n: z.number() }),
+    ({ n }) => String(n * 2),
+  );
   expect(t.name).toBe("double");
-  const ctx = { sessionId: "s", signal: new AbortController().signal, emit: () => {} };
+  const ctx = {
+    sessionId: "s",
+    signal: new AbortController().signal,
+    emit: () => {},
+  };
   expect(await t.execute({ n: 3 }, ctx)).toBe("6");
 });
 ```
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `pnpm --filter lite-agent-sdk test system createLiteAgent query`
+Run: `pnpm --filter lite-agent test system createLiteAgent query`
 Expected: FAIL — modules not found.
 
 - [ ] **Step 3: Implement `packages/sdk/src/system.ts`**
@@ -1061,8 +1362,8 @@ ${opts.skills}`;
 - [ ] **Step 4: Implement `packages/sdk/src/createLiteAgent.ts`**
 
 ```ts
-import { createAgent, nativeCodec } from "@lite-agent-sdk/core";
-import type { Agent, Middleware, ModelProvider, Tool } from "@lite-agent-sdk/core";
+import { createAgent, nativeCodec } from "@lite-agent/core";
+import type { Agent, Middleware, ModelProvider, Tool } from "@lite-agent/core";
 import { defaultTools } from "./tools";
 import { SkillLoader } from "./skills/loader";
 import { loadSkillTool } from "./skills/loadSkillTool";
@@ -1092,10 +1393,18 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
     skills = loader.getDescriptions();
   }
   if (cfg.tools) tools.push(...cfg.tools);
-  if (cfg.allowedTools) tools = tools.filter((t) => cfg.allowedTools!.includes(t.name));
-  if (cfg.disallowedTools) tools = tools.filter((t) => !cfg.disallowedTools!.includes(t.name));
+  if (cfg.allowedTools)
+    tools = tools.filter((t) => cfg.allowedTools!.includes(t.name));
+  if (cfg.disallowedTools)
+    tools = tools.filter((t) => !cfg.disallowedTools!.includes(t.name));
 
-  const system = cfg.system ?? buildSystemPrompt({ workdir: cfg.workdir, modelName: cfg.modelName, skills });
+  const system =
+    cfg.system ??
+    buildSystemPrompt({
+      workdir: cfg.workdir,
+      modelName: cfg.modelName,
+      skills,
+    });
 
   return createAgent({
     model: cfg.model,
@@ -1113,7 +1422,14 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
 - [ ] **Step 5: Implement `packages/sdk/src/query.ts`**
 
 ```ts
-import type { AgentEvent, Message, Middleware, ModelProvider, RunResult, Tool } from "@lite-agent-sdk/core";
+import type {
+  AgentEvent,
+  Message,
+  Middleware,
+  ModelProvider,
+  RunResult,
+  Tool,
+} from "@lite-agent/core";
 import { createLiteAgent } from "./createLiteAgent";
 
 export interface QueryOptions {
@@ -1133,7 +1449,9 @@ export interface QueryOptions {
   sessionId?: string;
 }
 
-export function query(opts: QueryOptions): AsyncGenerator<AgentEvent, RunResult> {
+export function query(
+  opts: QueryOptions,
+): AsyncGenerator<AgentEvent, RunResult> {
   const agent = createLiteAgent({
     model: opts.model,
     modelName: opts.modelName,
@@ -1147,7 +1465,10 @@ export function query(opts: QueryOptions): AsyncGenerator<AgentEvent, RunResult>
     maxTokens: opts.maxTokens,
     use: opts.use,
   });
-  return agent.run(opts.prompt, { signal: opts.signal, sessionId: opts.sessionId });
+  return agent.run(opts.prompt, {
+    signal: opts.signal,
+    sessionId: opts.sessionId,
+  });
 }
 ```
 
@@ -1155,8 +1476,8 @@ export function query(opts: QueryOptions): AsyncGenerator<AgentEvent, RunResult>
 
 ```ts
 import type { ZodType } from "zod";
-import { defineTool } from "@lite-agent-sdk/core";
-import type { Tool, ToolContext } from "@lite-agent-sdk/core";
+import { defineTool } from "@lite-agent/core";
+import type { Tool, ToolContext } from "@lite-agent/core";
 
 export function tool<I>(
   name: string,
@@ -1171,7 +1492,7 @@ export function tool<I>(
 - [ ] **Step 7: Implement `packages/sdk/src/index.ts`**
 
 ```ts
-export * from "@lite-agent-sdk/core";
+export * from "@lite-agent/core";
 
 export { createLiteAgent } from "./createLiteAgent";
 export type { CreateLiteAgentConfig } from "./createLiteAgent";
@@ -1180,18 +1501,24 @@ export type { QueryOptions } from "./query";
 export { tool } from "./tool";
 export { buildSystemPrompt } from "./system";
 export type { SystemPromptOptions } from "./system";
-export { defaultTools, bashTool, fileTools, todoTool, makeSafePath } from "./tools";
+export {
+  defaultTools,
+  bashTool,
+  fileTools,
+  todoTool,
+  makeSafePath,
+} from "./tools";
 export { SkillLoader } from "./skills/loader";
 export { loadSkillTool } from "./skills/loadSkillTool";
 ```
 
 - [ ] **Step 8: Run tests + typecheck + build**
 
-Run: `pnpm --filter lite-agent-sdk test`
+Run: `pnpm --filter lite-agent test`
 Expected: PASS (all sdk test files).
-Run: `pnpm --filter lite-agent-sdk typecheck`
+Run: `pnpm --filter lite-agent typecheck`
 Expected: clean.
-Run: `pnpm --filter lite-agent-sdk build`
+Run: `pnpm --filter lite-agent build`
 Expected: emits `dist/index.js` + `dist/index.d.ts`. Exit 0.
 
 - [ ] **Step 9: Commit**
@@ -1206,6 +1533,7 @@ git commit -m "feat(sdk): createLiteAgent + query/tool facade + public exports"
 ## Task 8: Rewrite outer `src/` CLI; remove old code; update root config
 
 **Files:**
+
 - Delete: `src/agent/` (whole dir), `src/tools/` (whole dir), `src/prompt/` (whole dir), `src/monitor.ts`
 - Rewrite: `src/main.ts`
 - Modify: `package.json` (root)
@@ -1246,8 +1574,8 @@ Replace the file with (sets the app to ESM, swaps deps to the workspace packages
     "typescript": "^6.0.2"
   },
   "dependencies": {
-    "@lite-agent-sdk/provider": "workspace:*",
-    "lite-agent-sdk": "workspace:*",
+    "@lite-agent/provider": "workspace:*",
+    "lite-agent": "workspace:*",
     "dotenv": "^17.3.1"
   }
 }
@@ -1259,9 +1587,9 @@ Replace the file with (sets the app to ESM, swaps deps to the workspace packages
 import "dotenv/config";
 import { join } from "node:path";
 import { createInterface } from "node:readline";
-import { anthropic } from "@lite-agent-sdk/provider";
-import { createLiteAgent } from "lite-agent-sdk";
-import type { AgentEvent, Message } from "lite-agent-sdk";
+import { anthropic } from "@lite-agent/provider";
+import { createLiteAgent } from "lite-agent";
+import type { AgentEvent, Message } from "lite-agent";
 
 const workdir = process.cwd();
 
@@ -1278,10 +1606,15 @@ function render(ev: AgentEvent): void {
       process.stdout.write(ev.text);
       break;
     case "tool_use":
-      process.stdout.write(`\n\x1b[32m[tool] ${ev.call.name} ${JSON.stringify(ev.call.input)}\x1b[0m\n`);
+      process.stdout.write(
+        `\n\x1b[32m[tool] ${ev.call.name} ${JSON.stringify(ev.call.input)}\x1b[0m\n`,
+      );
       break;
     case "tool_result": {
-      const body = ev.result.content.length > 500 ? `${ev.result.content.slice(0, 500)}…` : ev.result.content;
+      const body =
+        ev.result.content.length > 500
+          ? `${ev.result.content.slice(0, 500)}…`
+          : ev.result.content;
       process.stdout.write(`\x1b[90m${body}\x1b[0m\n`);
       break;
     }
@@ -1309,7 +1642,10 @@ function readPrompt(rl: ReturnType<typeof createInterface>): Promise<string> {
     const onLine = (line: string) => {
       if (multiline) {
         if (line === "") submit();
-        else { lines.push(line); process.stdout.write("\x1b[90m...  \x1b[0m"); }
+        else {
+          lines.push(line);
+          process.stdout.write("\x1b[90m...  \x1b[0m");
+        }
         return;
       }
       if (timer) clearTimeout(timer);
@@ -1317,7 +1653,9 @@ function readPrompt(rl: ReturnType<typeof createInterface>): Promise<string> {
       timer = setTimeout(() => {
         if (lines.length > 1) {
           multiline = true;
-          process.stdout.write("\x1b[90m[multi-line: blank line submits]\x1b[0m\n\x1b[90m...  \x1b[0m");
+          process.stdout.write(
+            "\x1b[90m[multi-line: blank line submits]\x1b[0m\n\x1b[90m...  \x1b[0m",
+          );
         } else {
           submit();
         }
@@ -1353,10 +1691,15 @@ async function main(): Promise<void> {
     try {
       const gen = agent.run(history, { signal: ac.signal });
       let r = await gen.next();
-      while (!r.done) { render(r.value); r = await gen.next(); }
+      while (!r.done) {
+        render(r.value);
+        r = await gen.next();
+      }
       history = r.value.messages;
     } catch (e) {
-      process.stdout.write(`\n\x1b[31m[error] ${(e as Error).message}\x1b[0m\n`);
+      process.stdout.write(
+        `\n\x1b[31m[error] ${(e as Error).message}\x1b[0m\n`,
+      );
     } finally {
       process.stdin.removeListener("data", onKey);
       if (process.stdin.isTTY) process.stdin.setRawMode(false);
@@ -1376,13 +1719,13 @@ main().catch((e) => {
 
 Run: `pnpm install`
 Expected: links the new root deps. Exit 0.
-Run: `pnpm -r --filter "@lite-agent-sdk/core" --filter "@lite-agent-sdk/provider" --filter "lite-agent-sdk" build`
+Run: `pnpm -r --filter "@lite-agent/core" --filter "@lite-agent/provider" --filter "lite-agent" build`
 Expected: builds the three libs in dependency order; each emits `dist/`. Exit 0.
 
 - [ ] **Step 5: Typecheck the app**
 
 Run: `pnpm typecheck`
-Expected: clean (the app resolves `lite-agent-sdk` + `@lite-agent-sdk/provider` types from their built `dist`).
+Expected: clean (the app resolves `lite-agent` + `@lite-agent/provider` types from their built `dist`).
 
 - [ ] **Step 6: Smoke-run the REPL (no network)**
 
@@ -1393,15 +1736,15 @@ Expected: prints `lite-agent >> ` then exits 0 (constructs the Anthropic client 
 
 ```bash
 git add -A
-git commit -m "feat(app): rewrite CLI on lite-agent-sdk + provider-anthropic; remove old demo"
+git commit -m "feat(app): rewrite CLI on lite-agent + provider-anthropic; remove old demo"
 ```
 
 ---
 
 ## Final verification (after all tasks)
 
-- [ ] `pnpm -r --filter "@lite-agent-sdk/core" --filter "@lite-agent-sdk/provider" --filter "lite-agent-sdk" test` — all package tests pass.
-- [ ] `pnpm -r --filter "@lite-agent-sdk/core" --filter "@lite-agent-sdk/provider" --filter "lite-agent-sdk" typecheck` — clean.
+- [ ] `pnpm -r --filter "@lite-agent/core" --filter "@lite-agent/provider" --filter "lite-agent" test` — all package tests pass.
+- [ ] `pnpm -r --filter "@lite-agent/core" --filter "@lite-agent/provider" --filter "lite-agent" typecheck` — clean.
 - [ ] `pnpm typecheck` (root app) — clean.
 - [ ] `printf 'q\n' | ANTHROPIC_API_KEY=test MODEL_ID=test pnpm dev` — exits 0.
 - [ ] Manual end-to-end (user, with a real `.env`): `pnpm dev`, ask a question, confirm streaming text + a tool call (e.g. "list files with bash") + skill load works.

@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import type Anthropic from "@anthropic-ai/sdk";
-import type { ModelChunk } from "@lite-agent-sdk/core";
-import { ProviderError } from "@lite-agent-sdk/core";
+import type { ModelChunk } from "@lite-agent/core";
+import { ProviderError } from "@lite-agent/core";
 import { anthropic } from "../src/anthropic";
 import type { AnthropicClientLike } from "../src/anthropic";
 
@@ -12,11 +12,26 @@ test("provider streams ModelChunks via an injected client and forwards params", 
       create(params) {
         captured = params;
         async function* gen() {
-          yield { type: "message_start", message: { usage: { input_tokens: 3, output_tokens: 0 } } };
-          yield { type: "content_block_start", index: 0, content_block: { type: "text", text: "" } };
-          yield { type: "content_block_delta", index: 0, delta: { type: "text_delta", text: "hi" } };
+          yield {
+            type: "message_start",
+            message: { usage: { input_tokens: 3, output_tokens: 0 } },
+          };
+          yield {
+            type: "content_block_start",
+            index: 0,
+            content_block: { type: "text", text: "" },
+          };
+          yield {
+            type: "content_block_delta",
+            index: 0,
+            delta: { type: "text_delta", text: "hi" },
+          };
           yield { type: "content_block_stop", index: 0 };
-          yield { type: "message_delta", delta: {}, usage: { output_tokens: 1 } };
+          yield {
+            type: "message_delta",
+            delta: {},
+            usage: { output_tokens: 1 },
+          };
           yield { type: "message_stop" };
         }
         return gen() as unknown as AsyncIterable<Anthropic.RawMessageStreamEvent>;
@@ -28,7 +43,10 @@ test("provider streams ModelChunks via an injected client and forwards params", 
   expect(provider.id).toBe("anthropic");
 
   const chunks: ModelChunk[] = [];
-  for await (const c of provider.stream({ model: "m", messages: [{ role: "user", content: "hi" }] })) {
+  for await (const c of provider.stream({
+    model: "m",
+    messages: [{ role: "user", content: "hi" }],
+  })) {
     chunks.push(c);
   }
 
@@ -52,7 +70,10 @@ test("wraps client errors in ProviderError preserving status", async () => {
   };
   const provider = anthropic({ client: failing });
   await expect(async () => {
-    for await (const chunk of provider.stream({ model: "m", messages: [{ role: "user", content: "hi" }] })) {
+    for await (const chunk of provider.stream({
+      model: "m",
+      messages: [{ role: "user", content: "hi" }],
+    })) {
       void chunk;
     }
   }).rejects.toMatchObject({ name: "ProviderError", status: 429 });

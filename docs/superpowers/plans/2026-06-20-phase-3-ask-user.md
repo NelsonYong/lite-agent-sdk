@@ -9,6 +9,7 @@
 **Tech Stack:** TypeScript (ESM, strict, `verbatimModuleSyntax`, `noUncheckedIndexedAccess`), vitest, zod. No new deps.
 
 **Design decisions (locked):**
+
 - `ctx.input` and `ctx.call` are **optional** fields (bare `ToolContext` literals exist in tests); the kernel always provides them during real execution. `ask_user` guards `ctx.input`.
 - `input` is threaded via `ToolContext` (consistent with `sandbox`, matches spec §295), not closured into the tool.
 - The events for `ask_user` are observational (kernel drains the queue after the tool resolves); the `InputHandler` does the blocking I/O — same model as approval.
@@ -43,26 +44,44 @@
 test("kernel threads input + call into the tool execute context", async () => {
   const asker = { request: vi.fn(async () => ({ text: "blue" })) };
   const ask = defineTool({
-    name: "ask", description: "ask", schema: z.object({}),
+    name: "ask",
+    description: "ask",
+    schema: z.object({}),
     execute: async (_i, ctx) => {
-      ctx.emit({ type: "input_request", call: ctx.call!, question: { question: "color?" } });
+      ctx.emit({
+        type: "input_request",
+        call: ctx.call!,
+        question: { question: "color?" },
+      });
       const ans = await ctx.input!.request({ question: "color?" });
       ctx.emit({ type: "input_resolved", id: ctx.call!.id, answer: ans });
       return ans.text ?? "";
     },
   });
   const provider = fakeProvider([
-    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "ask", input: {} }] } },
+    {
+      message: {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "t1", name: "ask", input: {} }],
+      },
+    },
     { text: "ok", message: { role: "assistant", content: [textBlock("ok")] } },
   ]);
   const { events } = await drain(
-    runKernel(baseCfg({ provider, tools: [ask], input: asker }), "hi", new AbortController().signal, "s1"),
+    runKernel(
+      baseCfg({ provider, tools: [ask], input: asker }),
+      "hi",
+      new AbortController().signal,
+      "s1",
+    ),
   );
   expect(asker.request).toHaveBeenCalledTimes(1);
   const types = events.map((e) => e.type);
   expect(types).toContain("input_request");
   expect(types).toContain("input_resolved");
-  expect(events.find((e) => e.type === "tool_result")).toMatchObject({ result: { id: "t1", content: "blue" } });
+  expect(events.find((e) => e.type === "tool_result")).toMatchObject({
+    result: { id: "t1", content: "blue" },
+  });
 });
 ```
 
@@ -70,7 +89,7 @@ Also add `vi` to the vitest import at the top of the file (`import { expect, tes
 
 - [ ] **Step 2: Run to confirm it fails**
 
-Run: `pnpm --filter @lite-agent-sdk/core test -- kernel`
+Run: `pnpm --filter @lite-agent/core test -- kernel`
 Expected: FAIL — `KernelConfig` has no `input`, and `ctx.call`/`ctx.input` are not provided (asker never called / `ctx.call` undefined).
 
 - [ ] **Step 3: Add `call` to `ToolContext`** in `packages/core/src/strategies.ts`. The `ToolContext` interface currently ends with `readonly sandbox?: Sandbox;`. Add one line after it:
@@ -86,7 +105,13 @@ Expected: FAIL — `KernelConfig` has no `input`, and `ctx.call`/`ctx.input` are
 Add `InputHandler` to the strategies import (line 1):
 
 ```ts
-import type { ModelProvider, ToolCallCodec, Tool, Sandbox, InputHandler } from "./strategies";
+import type {
+  ModelProvider,
+  ToolCallCodec,
+  Tool,
+  Sandbox,
+  InputHandler,
+} from "./strategies";
 ```
 
 Add to `KernelConfig` (after `sandbox: Sandbox;`):
@@ -98,7 +123,14 @@ Add to `KernelConfig` (after `sandbox: Sandbox;`):
 Change the `tool.execute(...)` call (currently `await tool.execute(parsed, { sessionId, signal, emit, sandbox: cfg.sandbox });`) to:
 
 ```ts
-          const out = await tool.execute(parsed, { sessionId, signal, emit, sandbox: cfg.sandbox, input: cfg.input, call });
+const out = await tool.execute(parsed, {
+  sessionId,
+  signal,
+  emit,
+  sandbox: cfg.sandbox,
+  input: cfg.input,
+  call,
+});
 ```
 
 - [ ] **Step 5: Forward from `createAgent`** in `packages/core/src/createAgent.ts`.
@@ -106,7 +138,13 @@ Change the `tool.execute(...)` call (currently `await tool.execute(parsed, { ses
 Add `InputHandler` to the strategies type import (line 1):
 
 ```ts
-import type { ModelProvider, Tool, ToolCallCodec, Sandbox, InputHandler } from "./strategies";
+import type {
+  ModelProvider,
+  Tool,
+  ToolCallCodec,
+  Sandbox,
+  InputHandler,
+} from "./strategies";
 ```
 
 Add to `CreateAgentConfig` (after `sandbox?: Sandbox;`):
@@ -123,7 +161,7 @@ Add to the `kernelCfg` object (after `sandbox: cfg.sandbox ?? noopSandbox(),`):
 
 - [ ] **Step 6: Run tests + typecheck**
 
-Run: `pnpm --filter @lite-agent-sdk/core test && pnpm --filter @lite-agent-sdk/core typecheck`
+Run: `pnpm --filter @lite-agent/core test && pnpm --filter @lite-agent/core typecheck`
 Expected: all PASS (39 tests), typecheck clean.
 
 - [ ] **Step 7: Commit**
@@ -145,11 +183,26 @@ git commit -m "feat(core): thread InputHandler + call into ToolContext (ask_user
 import { expect, test, vi } from "vitest";
 import { createLiteAgent } from "../src/createLiteAgent";
 import { askUserTool } from "../src/tools";
-import { fakeProvider, textBlock } from "@lite-agent-sdk/core";
-import type { AgentEvent, InputHandler, ToolContext, ToolCall } from "@lite-agent-sdk/core";
+import { fakeProvider, textBlock } from "@lite-agent/core";
+import type {
+  AgentEvent,
+  InputHandler,
+  ToolContext,
+  ToolCall,
+} from "@lite-agent/core";
 
-function ctxWith(input: InputHandler | undefined, call: ToolCall, events: AgentEvent[]): ToolContext {
-  return { sessionId: "s", signal: new AbortController().signal, emit: (e) => events.push(e), input, call };
+function ctxWith(
+  input: InputHandler | undefined,
+  call: ToolCall,
+  events: AgentEvent[],
+): ToolContext {
+  return {
+    sessionId: "s",
+    signal: new AbortController().signal,
+    emit: (e) => events.push(e),
+    input,
+    call,
+  };
 }
 
 test("ask_user emits request/resolved and returns the rendered text answer", async () => {
@@ -162,14 +215,20 @@ test("ask_user emits request/resolved and returns the rendered text answer", asy
   expect(out).toBe("Bob");
   expect(input.request).toHaveBeenCalledWith({ question: "name?" });
   expect(events).toEqual([
-    { type: "input_request", call: { id: "t1", name: "ask_user", input: {} }, question: { question: "name?" } },
+    {
+      type: "input_request",
+      call: { id: "t1", name: "ask_user", input: {} },
+      question: { question: "name?" },
+    },
     { type: "input_resolved", id: "t1", answer: { text: "Bob" } },
   ]);
 });
 
 test("ask_user renders a multi-select answer as comma-joined", async () => {
   const events: AgentEvent[] = [];
-  const input: InputHandler = { request: async () => ({ selected: ["a", "c"] }) };
+  const input: InputHandler = {
+    request: async () => ({ selected: ["a", "c"] }),
+  };
   const out = await askUserTool().execute(
     { question: "pick", options: ["a", "b", "c"], multiSelect: true },
     ctxWith(input, { id: "t1", name: "ask_user", input: {} }, events),
@@ -190,26 +249,51 @@ test("ask_user without an input handler returns an error string", async () => {
 async function drain(gen: AsyncGenerator<AgentEvent, unknown>) {
   const events: AgentEvent[] = [];
   let r = await gen.next();
-  while (!r.done) { events.push(r.value); r = await gen.next(); }
+  while (!r.done) {
+    events.push(r.value);
+    r = await gen.next();
+  }
   return events;
 }
 
 function scripted(toolName: string) {
   return fakeProvider([
-    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: toolName, input: { question: "q?" } }] } },
-    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+    {
+      message: {
+        role: "assistant",
+        content: [
+          {
+            type: "tool_call",
+            id: "t1",
+            name: toolName,
+            input: { question: "q?" },
+          },
+        ],
+      },
+    },
+    {
+      text: "done",
+      message: { role: "assistant", content: [textBlock("done")] },
+    },
   ]);
 }
 
 test("createLiteAgent registers ask_user only when onAskUser is configured", async () => {
   const input: InputHandler = { request: async () => ({ text: "yes" }) };
-  const withAsker = createLiteAgent({ model: scripted("ask_user"), workdir: process.cwd(), onAskUser: input });
+  const withAsker = createLiteAgent({
+    model: scripted("ask_user"),
+    workdir: process.cwd(),
+    onAskUser: input,
+  });
   const events = await drain(withAsker.run("go"));
   const tr = events.find((e) => e.type === "tool_result");
   expect(tr).toMatchObject({ result: { content: "yes" } });
   expect(tr).not.toMatchObject({ result: { isError: true } });
 
-  const withoutAsker = createLiteAgent({ model: scripted("ask_user"), workdir: process.cwd() });
+  const withoutAsker = createLiteAgent({
+    model: scripted("ask_user"),
+    workdir: process.cwd(),
+  });
   const events2 = await drain(withoutAsker.run("go"));
   const tr2 = events2.find((e) => e.type === "tool_result");
   expect(tr2).toMatchObject({ result: { isError: true } }); // unknown tool 'ask_user'
@@ -218,15 +302,15 @@ test("createLiteAgent registers ask_user only when onAskUser is configured", asy
 
 - [ ] **Step 2: Run to confirm it fails**
 
-Run: `pnpm --filter lite-agent-sdk test -- askUser`
+Run: `pnpm --filter lite-agent test -- askUser`
 Expected: FAIL — `askUserTool` does not exist / `onAskUser` not accepted.
 
 - [ ] **Step 3: Create the tool** `packages/sdk/src/tools/askUser.ts`:
 
 ```ts
 import { z } from "zod";
-import { defineTool } from "@lite-agent-sdk/core";
-import type { Tool, UserAnswer, UserQuestion } from "@lite-agent-sdk/core";
+import { defineTool } from "@lite-agent/core";
+import type { Tool, UserAnswer, UserQuestion } from "@lite-agent/core";
 
 function renderAnswer(a: UserAnswer): string {
   if (a.selected && a.selected.length) return a.selected.join(", ");
@@ -245,15 +329,21 @@ export function askUserTool(): Tool {
       multiSelect: z.boolean().optional(),
     }),
     execute: async ({ question, options, multiSelect }, ctx) => {
-      if (!ctx.input) return "Error: ask_user is unavailable (no input handler configured).";
+      if (!ctx.input)
+        return "Error: ask_user is unavailable (no input handler configured).";
       const q: UserQuestion = {
         question,
         ...(options ? { options } : {}),
         ...(multiSelect ? { multiSelect } : {}),
       };
-      if (ctx.call) ctx.emit({ type: "input_request", call: ctx.call, question: q });
+      if (ctx.call)
+        ctx.emit({ type: "input_request", call: ctx.call, question: q });
       const answer = await ctx.input.request(q);
-      ctx.emit({ type: "input_resolved", id: ctx.call?.id ?? "ask_user", answer });
+      ctx.emit({
+        type: "input_resolved",
+        id: ctx.call?.id ?? "ask_user",
+        answer,
+      });
       return renderAnswer(answer);
     },
   });
@@ -274,10 +364,19 @@ Add `askUserTool` to the tools import:
 import { defaultTools, askUserTool } from "./tools";
 ```
 
-Add `InputHandler` to the type import from `@lite-agent-sdk/core`:
+Add `InputHandler` to the type import from `@lite-agent/core`:
 
 ```ts
-import type { Agent, ApprovalHandler, InputHandler, Middleware, ModelProvider, PermissionPolicy, Sandbox, Tool } from "@lite-agent-sdk/core";
+import type {
+  Agent,
+  ApprovalHandler,
+  InputHandler,
+  Middleware,
+  ModelProvider,
+  PermissionPolicy,
+  Sandbox,
+  Tool,
+} from "@lite-agent/core";
 ```
 
 Add to `CreateLiteAgentConfig` (after `onApproval?: ApprovalHandler;`):
@@ -289,7 +388,7 @@ Add to `CreateLiteAgentConfig` (after `onApproval?: ApprovalHandler;`):
 Register the tool conditionally — immediately after the `if (cfg.tools) tools.push(...cfg.tools);` line and BEFORE the `allowedTools` filter:
 
 ```ts
-  if (cfg.onAskUser) tools.push(askUserTool());
+if (cfg.onAskUser) tools.push(askUserTool());
 ```
 
 Add to the `createAgent({...})` call (after `sandbox: cfg.sandbox,`):
@@ -316,7 +415,7 @@ Add to the `createLiteAgent({...})` call (after `onApproval: opts.onApproval,`):
 
 - [ ] **Step 8: Build core + run tests + typecheck**
 
-Run: `pnpm --filter @lite-agent-sdk/core build && pnpm --filter lite-agent-sdk test && pnpm --filter lite-agent-sdk typecheck`
+Run: `pnpm --filter @lite-agent/core build && pnpm --filter lite-agent test && pnpm --filter lite-agent typecheck`
 Expected: all PASS, typecheck clean.
 
 - [ ] **Step 9: Commit**
@@ -335,11 +434,20 @@ git commit -m "feat(sdk): ask_user tool + onAskUser wiring (registered only when
 - [ ] **Step 1: Extend the type import.** Change:
 
 ```ts
-import type { AgentEvent, ApprovalHandler, Message } from "lite-agent-sdk";
+import type { AgentEvent, ApprovalHandler, Message } from "lite-agent";
 ```
+
 to:
+
 ```ts
-import type { AgentEvent, ApprovalHandler, InputHandler, Message, UserAnswer, UserQuestion } from "lite-agent-sdk";
+import type {
+  AgentEvent,
+  ApprovalHandler,
+  InputHandler,
+  Message,
+  UserAnswer,
+  UserQuestion,
+} from "lite-agent";
 ```
 
 - [ ] **Step 2: Add the line-input slot + `cliAsker`.** Below the existing `pendingApproval` / `onApproval` block, add:
@@ -347,7 +455,8 @@ import type { AgentEvent, ApprovalHandler, InputHandler, Message, UserAnswer, Us
 ```ts
 // A line being typed in response to ask_user. onKey accumulates bytes into `buffer`
 // (raw mode, so we echo + handle backspace ourselves) and resolves on Enter.
-let pendingInput: { buffer: string; resolve: (text: string) => void } | null = null;
+let pendingInput: { buffer: string; resolve: (text: string) => void } | null =
+  null;
 
 function parseAnswer(q: UserQuestion, text: string): UserAnswer {
   const t = text.trim();
@@ -357,7 +466,8 @@ function parseAnswer(q: UserQuestion, text: string): UserAnswer {
       .map((s) => Number.parseInt(s.trim(), 10) - 1)
       .filter((n) => Number.isInteger(n) && q.options![n] !== undefined)
       .map((n) => q.options![n]!);
-    if (picked.length) return q.multiSelect ? { selected: picked } : { selected: [picked[0]!] };
+    if (picked.length)
+      return q.multiSelect ? { selected: picked } : { selected: [picked[0]!] };
   }
   return { text: t };
 }
@@ -374,7 +484,10 @@ const onAskUser: InputHandler = {
       } else {
         process.stdout.write("> ");
       }
-      pendingInput = { buffer: "", resolve: (text) => resolve(parseAnswer(q, text)) };
+      pendingInput = {
+        buffer: "",
+        resolve: (text) => resolve(parseAnswer(q, text)),
+      };
     }),
 };
 ```
@@ -388,31 +501,31 @@ const onAskUser: InputHandler = {
 - [ ] **Step 4: Handle the line read in `onKey`.** In `main()`, the `onKey` handler currently checks `pendingApproval` then ESC. Insert a `pendingInput` branch AFTER the `pendingApproval` branch and BEFORE the ESC branch:
 
 ```ts
-      if (pendingInput) {
-        const b = key[0];
-        if (b === 0x0d || b === 0x0a) {
-          const { resolve, buffer } = pendingInput;
-          pendingInput = null;
-          process.stdout.write("\n");
-          resolve(buffer);
-        } else if (b === 0x7f || b === 0x08) {
-          if (pendingInput.buffer.length) {
-            pendingInput.buffer = pendingInput.buffer.slice(0, -1);
-            process.stdout.write("\b \b");
-          }
-        } else if (b !== 0x1b) {
-          const ch = key.toString();
-          pendingInput.buffer += ch;
-          process.stdout.write(ch);
-        }
-        return;
-      }
+if (pendingInput) {
+  const b = key[0];
+  if (b === 0x0d || b === 0x0a) {
+    const { resolve, buffer } = pendingInput;
+    pendingInput = null;
+    process.stdout.write("\n");
+    resolve(buffer);
+  } else if (b === 0x7f || b === 0x08) {
+    if (pendingInput.buffer.length) {
+      pendingInput.buffer = pendingInput.buffer.slice(0, -1);
+      process.stdout.write("\b \b");
+    }
+  } else if (b !== 0x1b) {
+    const ch = key.toString();
+    pendingInput.buffer += ch;
+    process.stdout.write(ch);
+  }
+  return;
+}
 ```
 
 - [ ] **Step 5: Reset `pendingInput` in `finally`.** The `finally` block already resets `pendingApproval = null;`. Add next to it:
 
 ```ts
-      pendingInput = null;
+pendingInput = null;
 ```
 
 - [ ] **Step 6: Typecheck**

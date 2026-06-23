@@ -1,8 +1,8 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
-import { defineTool } from "@lite-agent-sdk/core";
-import type { Tool } from "@lite-agent-sdk/core";
+import { defineTool } from "@lite-agent/core";
+import type { Tool } from "@lite-agent/core";
 
 const MAX_BYTES = 50_000;
 
@@ -27,7 +27,12 @@ export function fileTools(workdir: string): Tool[] {
     execute: ({ path, limit }) => {
       const lines = readFileSync(safePath(path), "utf8").split("\n");
       if (limit && limit < lines.length) {
-        return [...lines.slice(0, limit), `... (${lines.length - limit} more lines)`].join("\n").slice(0, MAX_BYTES);
+        return [
+          ...lines.slice(0, limit),
+          `... (${lines.length - limit} more lines)`,
+        ]
+          .join("\n")
+          .slice(0, MAX_BYTES);
       }
       return lines.join("\n").slice(0, MAX_BYTES);
     },
@@ -48,11 +53,16 @@ export function fileTools(workdir: string): Tool[] {
   const editFile = defineTool({
     name: "edit_file",
     description: "Replace exact text in a file.",
-    schema: z.object({ path: z.string(), old_text: z.string(), new_text: z.string() }),
+    schema: z.object({
+      path: z.string(),
+      old_text: z.string(),
+      new_text: z.string(),
+    }),
     execute: ({ path, old_text, new_text }) => {
       const fp = safePath(path);
       const content = readFileSync(fp, "utf8");
-      if (!content.includes(old_text)) return `Error: Text not found in ${path}`;
+      if (!content.includes(old_text))
+        return `Error: Text not found in ${path}`;
       writeFileSync(fp, content.replace(old_text, new_text));
       return `Edited ${path}`;
     },

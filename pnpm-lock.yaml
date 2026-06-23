@@ -17,18 +17,18 @@ importers:
 
   examples/cli:
     dependencies:
-      '@lite-agent-sdk/provider':
+      '@lite-agent/provider':
         specifier: workspace:*
         version: link:../../packages/provider
-      '@lite-agent-sdk/sandbox-anthropic':
+      '@lite-agent/sandbox-anthropic':
         specifier: workspace:*
         version: link:../../packages/sandbox-anthropic
+      '@lite-agent/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
       dotenv:
         specifier: ^17.3.1
         version: 17.3.1
-      lite-agent-sdk:
-        specifier: workspace:*
-        version: link:../../packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^25.5.0
@@ -64,7 +64,7 @@ importers:
       '@anthropic-ai/sdk':
         specifier: ^0.80.0
         version: 0.80.0(zod@4.3.6)
-      '@lite-agent-sdk/core':
+      '@lite-agent/core':
         specifier: workspace:*
         version: link:../core
       openai:
@@ -89,7 +89,7 @@ importers:
       '@anthropic-ai/sandbox-runtime':
         specifier: ^0.0.55
         version: 0.0.55
-      '@lite-agent-sdk/core':
+      '@lite-agent/core':
         specifier: workspace:*
         version: link:../core
     devDependencies:
@@ -108,7 +108,7 @@ importers:
 
   packages/sdk:
     dependencies:
-      '@lite-agent-sdk/core':
+      '@lite-agent/core':
         specifier: workspace:*
         version: link:../core
       zod:

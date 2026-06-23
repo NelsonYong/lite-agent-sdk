@@ -1,6 +1,11 @@
 import type OpenAI from "openai";
-import type { AssistantMessage, ContentBlock, ModelChunk, Usage } from "@lite-agent-sdk/core";
-import { textBlock } from "@lite-agent-sdk/core";
+import type {
+  AssistantMessage,
+  ContentBlock,
+  ModelChunk,
+  Usage,
+} from "@lite-agent/core";
+import { textBlock } from "@lite-agent/core";
 
 type Chunk = OpenAI.Chat.Completions.ChatCompletionChunk;
 
@@ -13,7 +18,9 @@ function safeParse(args: string): unknown {
   }
 }
 
-export async function* translateStream(raw: AsyncIterable<Chunk>): AsyncIterable<ModelChunk> {
+export async function* translateStream(
+  raw: AsyncIterable<Chunk>,
+): AsyncIterable<ModelChunk> {
   let text = "";
   const calls = new Map<number, { id: string; name: string; args: string }>();
   let usage: Usage = { inputTokens: 0, outputTokens: 0 };
@@ -32,14 +39,22 @@ export async function* translateStream(raw: AsyncIterable<Chunk>): AsyncIterable
       calls.set(tc.index, cur);
     }
     if (chunk.usage) {
-      usage = { inputTokens: chunk.usage.prompt_tokens, outputTokens: chunk.usage.completion_tokens };
+      usage = {
+        inputTokens: chunk.usage.prompt_tokens,
+        outputTokens: chunk.usage.completion_tokens,
+      };
     }
   }
 
   const content: ContentBlock[] = [];
   if (text) content.push(textBlock(text));
   for (const [, c] of [...calls.entries()].sort((a, b) => a[0] - b[0])) {
-    content.push({ type: "tool_call", id: c.id, name: c.name, input: safeParse(c.args) });
+    content.push({
+      type: "tool_call",
+      id: c.id,
+      name: c.name,
+      input: safeParse(c.args),
+    });
   }
   const message: AssistantMessage = { role: "assistant", content };
   yield { type: "message_done", message, usage };

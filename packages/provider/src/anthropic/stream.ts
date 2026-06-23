@@ -1,5 +1,10 @@
 import type Anthropic from "@anthropic-ai/sdk";
-import type { AssistantMessage, ContentBlock, ModelChunk, Usage } from "@lite-agent-sdk/core";
+import type {
+  AssistantMessage,
+  ContentBlock,
+  ModelChunk,
+  Usage,
+} from "@lite-agent/core";
 
 export async function* translateStream(
   events: AsyncIterable<Anthropic.RawMessageStreamEvent>,
@@ -19,7 +24,12 @@ export async function* translateStream(
         if (cb.type === "text") {
           blocks[event.index] = { type: "text", text: cb.text };
         } else if (cb.type === "tool_use") {
-          blocks[event.index] = { type: "tool_call", id: cb.id, name: cb.name, input: {} };
+          blocks[event.index] = {
+            type: "tool_call",
+            id: cb.id,
+            name: cb.name,
+            input: {},
+          };
           toolJson[event.index] = "";
         }
         break;
@@ -31,7 +41,8 @@ export async function* translateStream(
           if (b && b.type === "text") b.text += d.text;
           yield { type: "text_delta", text: d.text };
         } else if (d.type === "input_json_delta") {
-          toolJson[event.index] = (toolJson[event.index] ?? "") + d.partial_json;
+          toolJson[event.index] =
+            (toolJson[event.index] ?? "") + d.partial_json;
         }
         break;
       }

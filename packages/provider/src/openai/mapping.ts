@@ -1,18 +1,26 @@
 import type OpenAI from "openai";
-import type { ContentBlock, Message, ModelRequest, ToolSpec } from "@lite-agent-sdk/core";
+import type {
+  ContentBlock,
+  Message,
+  ModelRequest,
+  ToolSpec,
+} from "@lite-agent/core";
 
 type ChatMessage = OpenAI.Chat.Completions.ChatCompletionMessageParam;
 
 function textOf(blocks: ContentBlock[]): string {
   return blocks
-    .filter((b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text")
+    .filter(
+      (b): b is Extract<ContentBlock, { type: "text" }> => b.type === "text",
+    )
     .map((b) => b.text)
     .join("");
 }
 
 function toChatMessages(m: Message): ChatMessage[] {
   if (typeof m.content === "string") {
-    if (m.role === "assistant") return [{ role: "assistant", content: m.content }];
+    if (m.role === "assistant")
+      return [{ role: "assistant", content: m.content }];
     return [{ role: "user", content: m.content }];
   }
   if (m.role === "assistant") {
@@ -21,7 +29,10 @@ function toChatMessages(m: Message): ChatMessage[] {
       content: textOf(m.content) || null,
     };
     const toolCalls = m.content
-      .filter((b): b is Extract<ContentBlock, { type: "tool_call" }> => b.type === "tool_call")
+      .filter(
+        (b): b is Extract<ContentBlock, { type: "tool_call" }> =>
+          b.type === "tool_call",
+      )
       .map(
         (b): OpenAI.Chat.Completions.ChatCompletionMessageFunctionToolCall => ({
           id: b.id,
@@ -35,14 +46,17 @@ function toChatMessages(m: Message): ChatMessage[] {
   const out: ChatMessage[] = [];
   const texts: string[] = [];
   for (const b of m.content) {
-    if (b.type === "tool_result") out.push({ role: "tool", tool_call_id: b.id, content: b.content });
+    if (b.type === "tool_result")
+      out.push({ role: "tool", tool_call_id: b.id, content: b.content });
     else if (b.type === "text") texts.push(b.text);
   }
   if (texts.length) out.push({ role: "user", content: texts.join("") });
   return out;
 }
 
-function toChatTool(spec: ToolSpec): OpenAI.Chat.Completions.ChatCompletionFunctionTool {
+function toChatTool(
+  spec: ToolSpec,
+): OpenAI.Chat.Completions.ChatCompletionFunctionTool {
   const { $schema: _drop, ...parameters } = spec.parameters;
   return {
     type: "function",
@@ -50,7 +64,9 @@ function toChatTool(spec: ToolSpec): OpenAI.Chat.Completions.ChatCompletionFunct
   };
 }
 
-export function toOpenAIParams(req: ModelRequest): OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming {
+export function toOpenAIParams(
+  req: ModelRequest,
+): OpenAI.Chat.Completions.ChatCompletionCreateParamsStreaming {
   const messages: ChatMessage[] = [];
   if (req.system) messages.push({ role: "system", content: req.system });
   for (const m of req.messages) {

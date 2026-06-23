@@ -1,11 +1,19 @@
 import { z } from "zod";
-import { defineTool } from "@lite-agent-sdk/core";
-import type { Tool } from "@lite-agent-sdk/core";
+import { defineTool } from "@lite-agent/core";
+import type { Tool } from "@lite-agent/core";
 
 type TodoStatus = "pending" | "in_progress" | "completed";
-interface TodoItem { id: string; text: string; status: TodoStatus; }
+interface TodoItem {
+  id: string;
+  text: string;
+  status: TodoStatus;
+}
 
-const MARK: Record<TodoStatus, string> = { pending: "[ ]", in_progress: "[>]", completed: "[x]" };
+const MARK: Record<TodoStatus, string> = {
+  pending: "[ ]",
+  in_progress: "[>]",
+  completed: "[x]",
+};
 
 const itemSchema = z.object({
   id: z.string(),
@@ -25,7 +33,9 @@ class TodoManager {
   }
   render(): string {
     if (!this.items.length) return "No todos.";
-    const lines = this.items.map((t) => `${MARK[t.status]} #${t.id}: ${t.text}`);
+    const lines = this.items.map(
+      (t) => `${MARK[t.status]} #${t.id}: ${t.text}`,
+    );
     const done = this.items.filter((t) => t.status === "completed").length;
     lines.push(`\n(${done}/${this.items.length} completed)`);
     return lines.join("\n");

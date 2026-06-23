@@ -2,9 +2,16 @@ import { config } from "dotenv";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
-import { sandboxRuntime } from "@lite-agent-sdk/sandbox-anthropic";
-import { createLiteAgent, policy } from "lite-agent-sdk";
-import type { AgentEvent, ApprovalHandler, InputHandler, Message, UserAnswer, UserQuestion } from "lite-agent-sdk";
+import { sandboxRuntime } from "@lite-agent/sandbox-anthropic";
+import { createLiteAgent, policy } from "@lite-agent/sdk";
+import type {
+  AgentEvent,
+  ApprovalHandler,
+  InputHandler,
+  Message,
+  UserAnswer,
+  UserQuestion,
+} from "lite-agent";
 import { resolveModel } from "./model.js";
 
 // Resolve this example's own root (examples/cli) so its .env + skills/ load
@@ -31,7 +38,8 @@ const onApproval: ApprovalHandler = {
 
 // A line being typed in response to ask_user. onKey accumulates bytes into `buffer`
 // (raw mode, so we echo + handle backspace ourselves) and resolves on Enter.
-let pendingInput: { buffer: string; resolve: (text: string) => void } | null = null;
+let pendingInput: { buffer: string; resolve: (text: string) => void } | null =
+  null;
 
 function parseAnswer(q: UserQuestion, text: string): UserAnswer {
   const t = text.trim();
@@ -41,7 +49,8 @@ function parseAnswer(q: UserQuestion, text: string): UserAnswer {
       .map((s) => Number.parseInt(s.trim(), 10) - 1)
       .filter((n) => Number.isInteger(n) && q.options![n] !== undefined)
       .map((n) => q.options![n]!);
-    if (picked.length) return q.multiSelect ? { selected: picked } : { selected: [picked[0]!] };
+    if (picked.length)
+      return q.multiSelect ? { selected: picked } : { selected: [picked[0]!] };
   }
   return { text: t };
 }
@@ -58,7 +67,10 @@ const onAskUser: InputHandler = {
       } else {
         process.stdout.write("> ");
       }
-      pendingInput = { buffer: "", resolve: (text) => resolve(parseAnswer(q, text)) };
+      pendingInput = {
+        buffer: "",
+        resolve: (text) => resolve(parseAnswer(q, text)),
+      };
     }),
 };
 
