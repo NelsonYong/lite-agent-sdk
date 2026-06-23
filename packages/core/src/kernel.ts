@@ -1,4 +1,4 @@
-import type { ModelProvider, ToolCallCodec, Tool, Sandbox, InputHandler } from "./strategies";
+import type { ModelProvider, ToolCallCodec, Tool, Sandbox, InputHandler, Store } from "./strategies";
 import type { AssistantMessage, Message, ToolResultBlock, Usage } from "./types";
 import { isTextBlock, toolResultBlock } from "./types";
 import type { AgentEvent, RunResult } from "./events";
@@ -18,6 +18,7 @@ export interface KernelConfig {
   maxTokens?: number;
   sandbox: Sandbox;
   input?: InputHandler;
+  store?: Store;
 }
 
 export async function* runKernel(
@@ -27,6 +28,11 @@ export async function* runKernel(
   sessionId: string,
 ): AsyncGenerator<AgentEvent, RunResult> {
   let messages: Message[] = typeof input === "string" ? [{ role: "user", content: input }] : [...input];
+  if (cfg.store) {
+    const saved = await cfg.store.load(sessionId);
+    if (saved) messages = [...saved, ...messages];
+  }
+  const persist = async () => { if (cfg.store) await cfg.store.save(sessionId, messages); };
   const queue: AgentEvent[] = [];
   const emit = (ev: AgentEvent) => { queue.push(ev); };
   const toolMap = new Map(cfg.tools.map((t) => [t.name, t]));
@@ -54,11 +60,18 @@ export async function* runKernel(
     yield* drain();
     messages = ctx.messages;
 
-    const req = cfg.codec.encode(
-      { model: cfg.model, system: cfg.system, messages: ctx.messages, maxTokens: cfg.maxTokens },
-      toolSpecs,
+    // Encode inside the ModelCall so each (re)invocation reflects the CURRENT
+    // ctx.messages — lets a wrapModelCall middleware mutate messages and retry
+    // (e.g. reactive compaction on prompt_too_long) against the new context.
+    const modelCall = composeModelCall(cfg.middleware, ctx, () =>
+      cfg.provider.stream(
+        cfg.codec.encode(
+          { model: cfg.model, system: cfg.system, messages: ctx.messages, maxTokens: cfg.maxTokens },
+          toolSpecs,
+        ),
+        signal,
+      ),
     );
-    const modelCall = composeModelCall(cfg.middleware, ctx, () => cfg.provider.stream(req, signal));
 
     let assistant: AssistantMessage | undefined;
     for await (const chunk of modelCall()) {
@@ -71,6 +84,7 @@ export async function* runKernel(
         };
       }
     }
+    messages = ctx.messages; // re-sync: a wrapModelCall middleware may have replaced ctx.messages (e.g. reactive compaction)
     yield* drain();
     if (!assistant) throw new ProviderError("provider produced no message_done chunk");
 
@@ -105,12 +119,14 @@ export async function* runKernel(
       yield { type: "tool_result", result };
     }
     ctx.messages.push({ role: "user", content: resultBlocks });
+    await persist();
     yield { type: "turn_end", turn, stopReason: "tool_use" };
   }
 
   await runLifecycle(cfg.middleware, "afterAgent", mkCtx(0));
   yield* drain();
 
+  await persist();
   const result: RunResult = { messages, text: lastAssistantText(messages), usage, stopReason };
   yield { type: "done", reason: stopReason, result };
   return result;

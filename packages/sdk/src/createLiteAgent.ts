@@ -1,12 +1,14 @@
-import { createAgent, nativeCodec, permission } from "@lite-agent/core";
+import { createAgent, nativeCodec, permission, compaction, reactiveCompaction } from "@lite-agent/core";
 import type {
   Agent,
   ApprovalHandler,
+  Compactor,
   InputHandler,
   Middleware,
   ModelProvider,
   PermissionPolicy,
   Sandbox,
+  Store,
   Tool,
 } from "@lite-agent/core";
 import { defaultTools, askUserTool } from "./tools";
@@ -27,6 +29,8 @@ export interface CreateLiteAgentConfig {
   maxTokens?: number;
   use?: Middleware[];
   sandbox?: Sandbox;
+  store?: Store;
+  compactor?: Compactor;
   permission?: PermissionPolicy;
   onApproval?: ApprovalHandler;
   onAskUser?: InputHandler;
@@ -57,6 +61,8 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
     });
 
   const use: Middleware[] = [
+    // proactive compaction (beforeModel) + reactive overflow net (wrapModelCall)
+    ...(cfg.compactor ? [compaction(cfg.compactor), reactiveCompaction()] : []),
     ...(cfg.permission ? [permission(cfg.permission, cfg.onApproval)] : []),
     ...(cfg.use ?? []),
   ];
@@ -71,6 +77,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
     maxTurns: cfg.maxTurns,
     maxTokens: cfg.maxTokens,
     sandbox: cfg.sandbox,
+    store: cfg.store,
     input: cfg.onAskUser,
   });
 }

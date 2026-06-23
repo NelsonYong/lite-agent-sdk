@@ -10,6 +10,17 @@ export { composeModelCall, composeToolCall, runLifecycle } from "./middleware";
 export type { AgentContext, ToolCallContext, Middleware, ModelCall, ToolExec } from "./middleware";
 
 export { noopSandbox } from "./sandbox";
+export { memoryStore } from "./store";
+export { retry } from "./retry";
+export type { RetryOptions } from "./retry";
+export {
+  compaction, defaultCompactor, snipPass, microPass, splitTurns, runPipeline, estimateTokens,
+  reactiveCompaction, reactiveTrim,
+} from "./compaction";
+export type {
+  CompactPass, MicroPassOptions, SnipPassOptions, DefaultCompactorOptions,
+  ReactiveCompactionOptions, ReactiveTrimOptions,
+} from "./compaction";
 export { policy, permission } from "./permission";
 export type { PolicyOptions } from "./permission";
 export type {
