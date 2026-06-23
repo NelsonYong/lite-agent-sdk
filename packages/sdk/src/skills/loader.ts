@@ -5,16 +5,15 @@ interface SkillMeta { name?: string; description?: string; tags?: string; [k: st
 interface Skill { meta: SkillMeta; body: string; path: string; }
 
 export class SkillLoader {
-  readonly skillsDir: string;
+  readonly dirs: string[];
   private skills: Record<string, Skill> = {};
 
-  constructor(skillsDir: string) {
-    this.skillsDir = skillsDir;
+  constructor(dirs: string | string[]) {
+    this.dirs = Array.isArray(dirs) ? dirs : [dirs];
     this.loadAll();
   }
 
   private loadAll(): void {
-    if (!existsSync(this.skillsDir)) return;
     const walk = (dir: string): void => {
       for (const entry of readdirSync(dir, { withFileTypes: true })) {
         const p = join(dir, entry.name);
@@ -26,7 +25,10 @@ export class SkillLoader {
         }
       }
     };
-    walk(this.skillsDir);
+    // Walk in order; later dirs overwrite earlier ones on name collision.
+    for (const dir of this.dirs) {
+      if (existsSync(dir)) walk(dir);
+    }
   }
 
   private parse(text: string): { meta: SkillMeta; body: string } {
@@ -50,6 +52,10 @@ export class SkillLoader {
         return `  - ${n}: ${s.meta.description ?? "No description"}${tags}`;
       })
       .join("\n");
+  }
+
+  names(): string[] {
+    return Object.keys(this.skills);
   }
 
   getContent(name: string): string {

@@ -32,3 +32,25 @@ test("empty/missing dir yields a placeholder description", () => {
   const loader = new SkillLoader(join(tmpdir(), "does-not-exist-xyz"));
   expect(loader.getDescriptions()).toBe("(no skills available)");
 });
+
+test("a later dir overrides an earlier dir on name collision", () => {
+  const a = mkdtempSync(join(tmpdir(), "sk-a-"));
+  const b = mkdtempSync(join(tmpdir(), "sk-b-"));
+  mkdirSync(join(a, "demo"));
+  mkdirSync(join(b, "demo"));
+  writeFileSync(join(a, "demo", "SKILL.md"), "---\nname: demo\ndescription: from A\n---\nBODY A");
+  writeFileSync(join(b, "demo", "SKILL.md"), "---\nname: demo\ndescription: from B\n---\nBODY B");
+
+  const loader = new SkillLoader([a, b]);
+  expect(loader.getContent("demo")).toContain("BODY B");
+  expect(loader.getContent("demo")).not.toContain("BODY A");
+});
+
+test("names() lists loaded skills; a missing dir in the list is skipped", () => {
+  const a = mkdtempSync(join(tmpdir(), "sk-a-"));
+  mkdirSync(join(a, "demo"));
+  writeFileSync(join(a, "demo", "SKILL.md"), "---\nname: demo\ndescription: d\n---\nB");
+
+  const loader = new SkillLoader([join(tmpdir(), "missing-xyz"), a]);
+  expect(loader.names()).toEqual(["demo"]);
+});
