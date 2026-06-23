@@ -1,4 +1,11 @@
-import { createAgent, nativeCodec, permission, compaction, reactiveCompaction } from "@lite-agent/core";
+import {
+  createAgent,
+  nativeCodec,
+  permission,
+  compaction,
+  reactiveCompaction,
+  defaultCompactor,
+} from "@lite-agent/core";
 import type {
   Agent,
   ApprovalHandler,
@@ -15,6 +22,10 @@ import { defaultTools, askUserTool } from "./tools";
 import { SkillLoader } from "./skills/loader";
 import { loadSkillTool } from "./skills/loadSkillTool";
 import { buildSystemPrompt } from "./system";
+import { resolveProjectPaths } from "./paths";
+import { jsonlStore } from "./store";
+import { fileSpillStore, readSpilledTool } from "./spill";
+import { sweepStale } from "./cleanup";
 
 export interface CreateLiteAgentConfig {
   model: ModelProvider;
@@ -30,21 +41,51 @@ export interface CreateLiteAgentConfig {
   use?: Middleware[];
   sandbox?: Sandbox;
   store?: Store;
-  compactor?: Compactor;
+  /** Override the global home (default `$LITE_AGENT_HOME` || `~/.lite-agent`). */
+  home?: string;
+  /** Persist transcripts under the project's sessions dir. Default true. Ignored when `store` is set. */
+  sessions?: boolean;
+  /** Spill oversized tool_results to disk + register `read_spilled`. Default true. */
+  spill?: boolean | { budgetBytes?: number };
+  /** Proactive compactor. Default deterministic `defaultCompactor`; `false` disables compaction. */
+  compactor?: Compactor | false;
+  /** Sweep stale spill/session files once at startup. Default true (30 days). */
+  cleanup?: boolean | { maxAgeDays?: number };
   permission?: PermissionPolicy;
   onApproval?: ApprovalHandler;
   onAskUser?: InputHandler;
 }
 
 export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
-  let tools: Tool[] = [...defaultTools(cfg.workdir)];
-  let skills = "(no skills available)";
+  const paths = resolveProjectPaths({ workdir: cfg.workdir, home: cfg.home });
 
-  if (cfg.skillsDir) {
-    const loader = new SkillLoader(cfg.skillsDir);
+  // Age-based cleanup runs once at construction (global sweep, fully guarded).
+  if (cfg.cleanup !== false) {
+    sweepStale({
+      home: paths.home,
+      maxAgeDays: typeof cfg.cleanup === "object" ? cfg.cleanup.maxAgeDays : undefined,
+    });
+  }
+
+  let tools: Tool[] = [...defaultTools(cfg.workdir)];
+
+  // Skills: global < project < explicit skillsDir (later overrides earlier).
+  const loader = new SkillLoader([
+    paths.globalSkillsDir,
+    paths.projectSkillsDir,
+    ...(cfg.skillsDir ? [cfg.skillsDir] : []),
+  ]);
+  let skills = "(no skills available)";
+  if (loader.names().length > 0) {
     tools.push(loadSkillTool(loader));
     skills = loader.getDescriptions();
   }
+
+  // L3 spill: content-addressed store + retrieval tool, on by default.
+  const spillEnabled = cfg.spill !== false;
+  const spillStore = spillEnabled ? fileSpillStore({ dir: paths.spillDir }) : undefined;
+  if (spillStore) tools.push(readSpilledTool(spillStore));
+
   if (cfg.tools) tools.push(...cfg.tools);
   if (cfg.onAskUser) tools.push(askUserTool());
   if (cfg.allowedTools)
@@ -54,15 +95,26 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
 
   const system =
     cfg.system ??
-    buildSystemPrompt({
-      workdir: cfg.workdir,
-      modelName: cfg.modelName,
-      skills,
-    });
+    buildSystemPrompt({ workdir: cfg.workdir, modelName: cfg.modelName, skills });
+
+  // Compaction: explicit compactor wins; `false` disables; default = deterministic
+  // pipeline with the spill store auto-injected (no LLM call ever by default).
+  const compactor =
+    cfg.compactor === false
+      ? undefined
+      : cfg.compactor ??
+        defaultCompactor({
+          spillStore,
+          budgetBytes: typeof cfg.spill === "object" ? cfg.spill.budgetBytes : undefined,
+        });
+
+  // Sessions: explicit store wins; else default jsonlStore unless sessions:false.
+  const store =
+    cfg.store ?? (cfg.sessions === false ? undefined : jsonlStore({ dir: paths.sessionsDir }));
 
   const use: Middleware[] = [
     // proactive compaction (beforeModel) + reactive overflow net (wrapModelCall)
-    ...(cfg.compactor ? [compaction(cfg.compactor), reactiveCompaction()] : []),
+    ...(compactor ? [compaction(compactor), reactiveCompaction()] : []),
     ...(cfg.permission ? [permission(cfg.permission, cfg.onApproval)] : []),
     ...(cfg.use ?? []),
   ];
@@ -77,7 +129,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
     maxTurns: cfg.maxTurns,
     maxTokens: cfg.maxTokens,
     sandbox: cfg.sandbox,
-    store: cfg.store,
+    store,
     input: cfg.onAskUser,
   });
 }
