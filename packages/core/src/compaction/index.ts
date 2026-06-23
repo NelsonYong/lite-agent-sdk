@@ -11,3 +11,6 @@ export { reactiveCompaction, reactiveTrim } from "./reactive";
 export type { ReactiveCompactionOptions, ReactiveTrimOptions } from "./reactive";
 export { llmCompactor } from "./llm";
 export type { LlmCompactorOptions } from "./llm";
+export { memorySpillStore, toolResultBudgetPass } from "./budget";
+export type { SpillStore, ToolResultBudgetOptions } from "./budget";
+export { SPILL_PREFIX } from "./types";

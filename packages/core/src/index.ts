@@ -16,10 +16,12 @@ export type { RetryOptions } from "./retry";
 export {
   compaction, defaultCompactor, snipPass, microPass, splitTurns, runPipeline, estimateTokens,
   reactiveCompaction, reactiveTrim, llmCompactor,
+  memorySpillStore, toolResultBudgetPass, SPILL_PREFIX,
 } from "./compaction";
 export type {
   CompactPass, MicroPassOptions, SnipPassOptions, DefaultCompactorOptions,
   ReactiveCompactionOptions, ReactiveTrimOptions, LlmCompactorOptions,
+  SpillStore, ToolResultBudgetOptions,
 } from "./compaction";
 export { policy, permission } from "./permission";
 export type { PolicyOptions } from "./permission";

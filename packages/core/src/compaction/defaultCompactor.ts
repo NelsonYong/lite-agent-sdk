@@ -3,6 +3,8 @@ import type { CompactPass } from "./types";
 import { runPipeline, estimateTokens } from "./types";
 import { snipPass } from "./snip";
 import { microPass } from "./micro";
+import { toolResultBudgetPass } from "./budget";
+import type { SpillStore } from "./budget";
 
 export interface DefaultCompactorOptions {
   /** snip: only snip beyond this many messages. Default 50. */
@@ -13,7 +15,11 @@ export interface DefaultCompactorOptions {
   tailKeep?: number;
   /** micro: how many recent tool_results keep full bodies. Default 3. */
   keepRecentToolResults?: number;
-  /** Replace the whole pass pipeline (hot-swap). Defaults to snip → micro. */
+  /** L3: when set, spill oversized tool_results to this store (runs first). */
+  spillStore?: SpillStore;
+  /** L3: spill largest tool_results until total body bytes ≤ this. Default 200_000. */
+  budgetBytes?: number;
+  /** Replace the whole pass pipeline (hot-swap). Defaults to [spill?] → snip → micro. */
   passes?: CompactPass[];
 }
 
@@ -22,6 +28,7 @@ export interface DefaultCompactorOptions {
 // LLM-summary compactor can later drop in behind this same interface.
 export function defaultCompactor(opts: DefaultCompactorOptions = {}): Compactor {
   const passes = opts.passes ?? [
+    ...(opts.spillStore ? [toolResultBudgetPass({ store: opts.spillStore, budgetBytes: opts.budgetBytes })] : []),
     snipPass({ maxMessages: opts.maxMessages, headTurns: opts.headTurns, tailKeep: opts.tailKeep }),
     microPass({ keepRecent: opts.keepRecentToolResults }),
   ];
