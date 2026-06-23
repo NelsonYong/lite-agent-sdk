@@ -19,5 +19,7 @@ export { SkillLoader } from "./skills/loader";
 export { loadSkillTool } from "./skills/loadSkillTool";
 export { jsonlStore } from "./store";
 export type { JsonlStoreOptions } from "./store";
+export { liteAgentHome, projectHash, resolveProjectPaths } from "./paths";
+export type { ProjectPaths } from "./paths";
 export { fileSpillStore, readSpilledTool } from "./spill";
 export type { FileSpillStoreOptions } from "./spill";
