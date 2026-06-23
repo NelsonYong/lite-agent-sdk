@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fakeProvider, textBlock } from "@lite-agent/core";
+import { fakeProvider, textBlock, ProviderError } from "@lite-agent/core";
 import type { Message } from "@lite-agent/core";
 import { createLiteAgent } from "../src/createLiteAgent";
 import { resolveProjectPaths } from "../src/paths";
@@ -83,6 +83,31 @@ test("a project skill shadows a same-named global skill", async () => {
   const res = await toolResults(agent);
   expect(res).toContain("PROJECT BODY");
   expect(res).not.toContain("GLOBAL BODY");
+});
+
+test("compactor:false disables the reactive net (prompt_too_long is not recovered)", async () => {
+  let calls = 0;
+  const provider = {
+    id: "ov",
+    async *stream() {
+      calls++;
+      if (calls === 1) throw new ProviderError("prompt is too long", 413);
+      yield {
+        type: "message_done",
+        message: { role: "assistant", content: [textBlock("ok")] },
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    },
+  };
+  const turn = (i: number): Message[] => [
+    { role: "user", content: `q${i}` },
+    { role: "assistant", content: [{ type: "tool_call", id: `c${i}`, name: "f", input: {} }] },
+    { role: "user", content: [{ type: "tool_result", id: `c${i}`, content: `r${i}` }] },
+  ];
+  const history = [0, 1, 2].flatMap(turn);
+  const agent = createLiteAgent({ model: provider as any, workdir: freshWorkdir(), compactor: false });
+  await expect(agent.send(history)).rejects.toThrow(/prompt is too long/);
+  expect(calls).toBe(1);
 });
 
 test("cleanup default removes a stale file; cleanup:false keeps it", async () => {
