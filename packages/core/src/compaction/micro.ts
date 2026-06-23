@@ -1,5 +1,6 @@
 import type { Message } from "../types";
 import type { CompactPass } from "./types";
+import { SPILL_PREFIX } from "./types";
 
 export interface MicroPassOptions {
   /** How many of the most recent tool_results keep their full body. Default 3. */
@@ -32,7 +33,7 @@ export function microPass(opts: MicroPassOptions = {}): CompactPass {
         if (!Array.isArray(m.content)) return m;
         let changed = false;
         const content = m.content.map((b, bi) => {
-          if (b.type === "tool_result" && omit.has(`${mi}:${bi}`) && b.content !== placeholder) {
+          if (b.type === "tool_result" && omit.has(`${mi}:${bi}`) && b.content !== placeholder && !b.content.startsWith(SPILL_PREFIX)) {
             changed = true;
             return { ...b, content: placeholder };
           }

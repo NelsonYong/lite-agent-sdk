@@ -1,5 +1,9 @@
 import type { Message } from "../types";
 
+// Sentinel that prefixes a spilled tool_result's in-context marker. Shared so
+// micro can recognize an already-spilled block and leave its ref intact.
+export const SPILL_PREFIX = "[spilled:";
+
 // A single compaction "brick": a pure transform over the message list. Returns
 // the SAME array reference when it changes nothing (so callers can cheaply
 // detect no-ops and stay idempotent). Compose bricks with runPipeline.
