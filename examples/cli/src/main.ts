@@ -11,7 +11,7 @@ import type {
   Message,
   UserAnswer,
   UserQuestion,
-} from "lite-agent";
+} from "@lite-agent/sdk";
 import { resolveModel } from "./model.js";
 
 // Resolve this example's own root (examples/cli) so its .env + skills/ load
