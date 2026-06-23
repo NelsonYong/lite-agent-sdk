@@ -21,5 +21,6 @@ export { jsonlStore } from "./store";
 export type { JsonlStoreOptions } from "./store";
 export { liteAgentHome, projectHash, resolveProjectPaths } from "./paths";
 export type { ProjectPaths } from "./paths";
+export { sweepStale } from "./cleanup";
 export { fileSpillStore, readSpilledTool } from "./spill";
 export type { FileSpillStoreOptions } from "./spill";
