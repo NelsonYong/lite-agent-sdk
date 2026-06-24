@@ -43,3 +43,15 @@ test("does not inject anything when the task list is empty", async () => {
   const seen = await drive(taskReminder(store), ctx);
   expect(seen.some((m) => String(m.content).includes("system-reminder"))).toBe(false);
 });
+
+test("restores ctx.messages even when next() throws", async () => {
+  const store = fileTaskStore({ dir: mkdtempSync(join(tmpdir(), "rem-")), listId: "default" });
+  await store.create({ subject: "x", description: "d" });
+  const ctx = mkCtx([{ role: "user", content: "hi" }]);
+  const mw = taskReminder(store);
+  const failing = async function* (): AsyncIterable<ModelChunk> { throw new Error("provider exploded"); };
+  await expect(
+    (async () => { for await (const _ of mw.wrapModelCall!(ctx, failing)) { /* consume */ } })(),
+  ).rejects.toThrow("provider exploded");
+  expect(ctx.messages).toHaveLength(1); // restored despite the throw
+});
