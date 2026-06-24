@@ -6,6 +6,27 @@ import type { Task, TaskStore, CreateTaskInput, UpdateTaskInput, TaskStatus } fr
 const MARK: Record<TaskStatus, string> = { pending: "[ ]", in_progress: "[>]", completed: "[x]" };
 const LOCK_OPTS = { retries: { retries: 20, factor: 1.4, minTimeout: 5, maxTimeout: 100 } };
 
+// DFS over the blockedBy graph; true if any back-edge (unresolvable deadlock) exists.
+function hasCycle(map: Map<string, Task>): boolean {
+  const GRAY = 1, BLACK = 2;
+  const color = new Map<string, number>();
+  const visit = (id: string): boolean => {
+    color.set(id, GRAY);
+    for (const dep of map.get(id)?.blockedBy ?? []) {
+      if (!map.has(dep)) continue;
+      const c = color.get(dep);
+      if (c === GRAY) return true;
+      if (c === undefined && visit(dep)) return true;
+    }
+    color.set(id, BLACK);
+    return false;
+  };
+  for (const id of map.keys()) {
+    if (color.get(id) === undefined && visit(id)) return true;
+  }
+  return false;
+}
+
 export interface FileTaskStoreOptions {
   /** Parent dir (paths.tasksDir). The list lives under `<dir>/<listId>/`. */
   dir: string;
@@ -71,9 +92,45 @@ export function fileTaskStore(opts: FileTaskStoreOptions): TaskStore {
       });
     },
 
-    // Implemented in Task 3.
-    async update(_input: UpdateTaskInput): Promise<Task> {
-      throw new Error("not implemented");
+    async update(input: UpdateTaskInput) {
+      return withLock(() => {
+        const map = new Map(readAll().map((t) => [t.id, t]));
+        const task = map.get(input.taskId);
+        if (!task) throw new Error(`no task '${input.taskId}'`);
+
+        if (input.status !== undefined) task.status = input.status;
+        if (input.subject !== undefined) task.subject = input.subject;
+        if (input.description !== undefined) task.description = input.description;
+        if (input.activeForm !== undefined) task.activeForm = input.activeForm;
+        if (input.owner !== undefined) task.owner = input.owner;
+        if (input.metadata !== undefined) task.metadata = { ...task.metadata, ...input.metadata };
+
+        const touched = new Set<string>([task.id]);
+        for (const other of input.addBlockedBy ?? []) {
+          const o = map.get(other);
+          if (!o) throw new Error(`no task '${other}'`);
+          if (!task.blockedBy.includes(other)) task.blockedBy.push(other);
+          if (!o.blocks.includes(task.id)) o.blocks.push(task.id);
+          touched.add(other);
+        }
+        for (const other of input.addBlocks ?? []) {
+          const o = map.get(other);
+          if (!o) throw new Error(`no task '${other}'`);
+          if (!task.blocks.includes(other)) task.blocks.push(other);
+          if (!o.blockedBy.includes(task.id)) o.blockedBy.push(task.id);
+          touched.add(other);
+        }
+
+        if (hasCycle(map)) throw new Error(`update would create a dependency cycle`);
+
+        const now = Date.now();
+        for (const id of touched) {
+          const t = map.get(id)!;
+          t.updatedAt = now;
+          writeAtomic(t); // only reached after all validation → no partial write on error
+        }
+        return task;
+      });
     },
 
     render() {

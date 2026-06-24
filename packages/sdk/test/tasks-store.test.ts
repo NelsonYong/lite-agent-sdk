@@ -42,3 +42,35 @@ test("get sanitizes the id so it cannot traverse outside the list dir", () => {
   const s = fileTaskStore({ dir: parent, listId: "default" });
   expect(s.get("../secret")).toBeNull();
 });
+
+test("update changes status and merges metadata", async () => {
+  const s = newStore();
+  await s.create({ subject: "x", description: "d" });
+  const t = await s.update({ taskId: "1", status: "in_progress", metadata: { k: 1 } });
+  expect(t.status).toBe("in_progress");
+  expect(t.metadata).toEqual({ k: 1 });
+  expect(s.get("1")?.status).toBe("in_progress");
+});
+
+test("addBlockedBy maintains both sides of the dependency", async () => {
+  const s = newStore();
+  await s.create({ subject: "a", description: "d" }); // #1
+  await s.create({ subject: "b", description: "d" }); // #2
+  await s.update({ taskId: "2", addBlockedBy: ["1"] });
+  expect(s.get("2")?.blockedBy).toEqual(["1"]);
+  expect(s.get("1")?.blocks).toEqual(["2"]);
+});
+
+test("update on an unknown task id throws", async () => {
+  await expect(newStore().update({ taskId: "99", status: "completed" })).rejects.toThrow(/no task/);
+});
+
+test("a dependency edge that would create a cycle is rejected", async () => {
+  const s = newStore();
+  await s.create({ subject: "a", description: "d" }); // #1
+  await s.create({ subject: "b", description: "d" }); // #2
+  await s.update({ taskId: "2", addBlockedBy: ["1"] });          // 2 waits for 1
+  await expect(s.update({ taskId: "1", addBlockedBy: ["2"] }))   // 1 waits for 2 → cycle
+    .rejects.toThrow(/cycle/);
+  expect(s.get("1")?.blockedBy).toEqual([]); // rejected → no partial write
+});
