@@ -15,7 +15,7 @@ export interface FileTaskStoreOptions {
 
 export function fileTaskStore(opts: FileTaskStoreOptions): TaskStore {
   const dir = join(opts.dir, opts.listId.replace(/[^a-zA-Z0-9_-]/g, "_"));
-  const fileFor = (id: string) => join(dir, `${id}.json`);
+  const fileFor = (id: string) => join(dir, `${id.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`);
 
   const readAll = (): Task[] => {
     if (!existsSync(dir)) return [];

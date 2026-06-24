@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { mkdtempSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileTaskStore } from "../src/tasks/store";
@@ -32,4 +32,13 @@ test("render shows a marker + status per task and empty string for none", async 
   expect(s.render()).toBe("");
   await s.create({ subject: "build it", description: "d" });
   expect(s.render()).toContain("[ ] #1 build it (pending)");
+});
+
+test("get sanitizes the id so it cannot traverse outside the list dir", () => {
+  const parent = mkdtempSync(join(tmpdir(), "tasks-"));
+  mkdirSync(join(parent, "default"), { recursive: true });
+  // A file OUTSIDE the list dir that an unsanitized "../secret" id would resolve to.
+  writeFileSync(join(parent, "secret.json"), JSON.stringify({ id: "x", subject: "SECRET" }));
+  const s = fileTaskStore({ dir: parent, listId: "default" });
+  expect(s.get("../secret")).toBeNull();
 });
