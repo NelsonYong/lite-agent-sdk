@@ -93,3 +93,15 @@ test("a rejected cycle update writes neither side to disk", async () => {
   expect(s.get("1")?.blockedBy).toEqual([]);   // primary side not written
   expect(s.get("2")?.blocks).toEqual([]);      // counter side not written either (no partial write)
 });
+
+test("concurrent creates on the same dir get distinct ids (lock works)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "tasks-"));
+  const a = fileTaskStore({ dir, listId: "default" });
+  const b = fileTaskStore({ dir, listId: "default" });
+  const results = await Promise.all([
+    a.create({ subject: "from-a", description: "d" }),
+    b.create({ subject: "from-b", description: "d" }),
+  ]);
+  expect(new Set(results.map((t) => t.id)).size).toBe(2);
+  expect(a.list().length).toBe(2);
+});
