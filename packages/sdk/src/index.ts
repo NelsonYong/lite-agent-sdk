@@ -11,9 +11,9 @@ export {
   defaultTools,
   bashTool,
   fileTools,
-  todoTool,
   makeSafePath,
   askUserTool,
+  taskTools,
 } from "./tools";
 export { SkillLoader } from "./skills/loader";
 export { loadSkillTool } from "./skills/loadSkillTool";
@@ -24,3 +24,7 @@ export type { ProjectPaths } from "./paths";
 export { sweepStale } from "./cleanup";
 export { fileSpillStore, readSpilledTool } from "./spill";
 export type { FileSpillStoreOptions } from "./spill";
+export { fileTaskStore } from "./tasks/store";
+export type { FileTaskStoreOptions } from "./tasks/store";
+export { taskReminder } from "./tasks/reminder";
+export type { Task, TaskStatus, TaskStore, CreateTaskInput, UpdateTaskInput } from "./tasks/types";

@@ -7,4 +7,5 @@ test("system prompt embeds workdir, model, skills, and load_skill hint", () => {
   expect(s).toContain("m1");
   expect(s).toContain("- demo: x");
   expect(s).toContain("load_skill");
+  expect(s).toContain("TaskCreate");
 });

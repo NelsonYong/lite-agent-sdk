@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, utimesSync, existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeProvider, textBlock, ProviderError } from "@lite-agent/core";
@@ -128,4 +128,24 @@ test("cleanup default removes a stale file; cleanup:false keeps it", async () =>
   const swept = stale("spill");
   createLiteAgent({ model: sayOk(), workdir: freshWorkdir() });
   expect(existsSync(swept)).toBe(false);
+});
+
+test("task tools are registered by default; tasks:false removes them", async () => {
+  const present = createLiteAgent({ model: callTool("TaskCreate", { subject: "x", description: "d" }), workdir: freshWorkdir() });
+  expect(await toolResults(present)).toMatch(/Created task #1/);
+
+  const off = createLiteAgent({ model: callTool("TaskCreate", { subject: "x", description: "d" }), workdir: freshWorkdir(), tasks: false });
+  expect(await toolResults(off)).toMatch(/unknown tool/);
+});
+
+test("the per-turn task reminder is never persisted to the transcript", async () => {
+  const workdir = freshWorkdir();
+  const agent = createLiteAgent({
+    model: callTool("TaskCreate", { subject: "persisted-subject", description: "d" }),
+    workdir,
+  });
+  await agent.send("hi", { sessionId: "rem-sess" });
+  const { sessionsDir } = resolveProjectPaths({ workdir, home: home() });
+  const transcript = readFileSync(join(sessionsDir, "rem-sess.jsonl"), "utf8");
+  expect(transcript).not.toContain("<system-reminder>");
 });

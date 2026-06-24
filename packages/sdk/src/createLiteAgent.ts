@@ -26,6 +26,9 @@ import { resolveProjectPaths } from "./paths";
 import { jsonlStore } from "./store";
 import { fileSpillStore, readSpilledTool } from "./spill";
 import { sweepStale } from "./cleanup";
+import { fileTaskStore } from "./tasks/store";
+import { taskTools } from "./tools/task";
+import { taskReminder } from "./tasks/reminder";
 
 export interface CreateLiteAgentConfig {
   model: ModelProvider;
@@ -47,6 +50,10 @@ export interface CreateLiteAgentConfig {
   sessions?: boolean;
   /** Spill oversized tool_results to disk + register `read_spilled`. Default true. */
   spill?: boolean | { budgetBytes?: number };
+  /** Persistent Tasks API (TaskCreate/Update/Get/List) + per-turn reminder. Default true. */
+  tasks?: boolean;
+  /** Task-list id under tasksDir. Default `$LITE_AGENT_TASK_LIST_ID` || "default". */
+  taskListId?: string;
   /** Proactive compactor. Default deterministic `defaultCompactor`; `false` disables compaction. */
   compactor?: Compactor | false;
   /** Sweep stale spill/session files once at startup. Default true (30 days). */
@@ -86,6 +93,16 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
   const spillStore = spillEnabled ? fileSpillStore({ dir: paths.spillDir }) : undefined;
   if (spillStore) tools.push(readSpilledTool(spillStore));
 
+  // Persistent Tasks API: store closed over by the four tools + the reminder.
+  const tasksEnabled = cfg.tasks !== false;
+  const taskStore = tasksEnabled
+    ? fileTaskStore({
+        dir: paths.tasksDir,
+        listId: cfg.taskListId ?? process.env.LITE_AGENT_TASK_LIST_ID ?? "default",
+      })
+    : undefined;
+  if (taskStore) tools.push(...taskTools(taskStore));
+
   if (cfg.tools) tools.push(...cfg.tools);
   if (cfg.onAskUser) tools.push(askUserTool());
   if (cfg.allowedTools)
@@ -117,6 +134,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
     ...(compactor ? [compaction(compactor), reactiveCompaction()] : []),
     ...(cfg.permission ? [permission(cfg.permission, cfg.onApproval)] : []),
     ...(cfg.use ?? []),
+    ...(taskStore ? [taskReminder(taskStore)] : []),
   ];
 
   return createAgent({
