@@ -74,3 +74,22 @@ test("a dependency edge that would create a cycle is rejected", async () => {
     .rejects.toThrow(/cycle/);
   expect(s.get("1")?.blockedBy).toEqual([]); // rejected → no partial write
 });
+
+test("addBlocks maintains both sides of the dependency", async () => {
+  const s = newStore();
+  await s.create({ subject: "a", description: "d" }); // #1
+  await s.create({ subject: "b", description: "d" }); // #2
+  await s.update({ taskId: "1", addBlocks: ["2"] });
+  expect(s.get("1")?.blocks).toEqual(["2"]);
+  expect(s.get("2")?.blockedBy).toEqual(["1"]);
+});
+
+test("a rejected cycle update writes neither side to disk", async () => {
+  const s = newStore();
+  await s.create({ subject: "a", description: "d" }); // #1
+  await s.create({ subject: "b", description: "d" }); // #2
+  await s.update({ taskId: "2", addBlockedBy: ["1"] });        // 2 waits for 1
+  await expect(s.update({ taskId: "1", addBlockedBy: ["2"] })).rejects.toThrow(/cycle/);
+  expect(s.get("1")?.blockedBy).toEqual([]);   // primary side not written
+  expect(s.get("2")?.blocks).toEqual([]);      // counter side not written either (no partial write)
+});
