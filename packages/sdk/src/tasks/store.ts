@@ -42,7 +42,13 @@ export function fileTaskStore(opts: FileTaskStoreOptions): TaskStore {
     if (!existsSync(dir)) return [];
     return readdirSync(dir)
       .filter((f) => f.endsWith(".json"))
-      .map((f) => JSON.parse(readFileSync(join(dir, f), "utf8")) as Task)
+      .flatMap((f) => {
+        try {
+          return [JSON.parse(readFileSync(join(dir, f), "utf8")) as Task];
+        } catch {
+          return []; // skip a corrupted/foreign file rather than wedging every read (the reminder calls render() each turn)
+        }
+      })
       .sort((a, b) => Number(a.id) - Number(b.id));
   };
 
@@ -64,7 +70,12 @@ export function fileTaskStore(opts: FileTaskStoreOptions): TaskStore {
 
   const get = (taskId: string): Task | null => {
     const fp = fileFor(taskId);
-    return existsSync(fp) ? (JSON.parse(readFileSync(fp, "utf8")) as Task) : null;
+    if (!existsSync(fp)) return null;
+    try {
+      return JSON.parse(readFileSync(fp, "utf8")) as Task;
+    } catch {
+      return null;
+    }
   };
 
   const store: TaskStore = {

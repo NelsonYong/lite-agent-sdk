@@ -105,3 +105,13 @@ test("concurrent creates on the same dir get distinct ids (lock works)", async (
   expect(new Set(results.map((t) => t.id)).size).toBe(2);
   expect(a.list().length).toBe(2);
 });
+
+test("a malformed task file is skipped instead of crashing reads", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "tasks-"));
+  const s = fileTaskStore({ dir, listId: "default" });
+  await s.create({ subject: "good", description: "d" }); // writes default/1.json
+  writeFileSync(join(dir, "default", "2.json"), "{ not valid json"); // corrupt sibling
+  expect(s.list().map((t) => t.subject)).toEqual(["good"]); // bad file skipped, not thrown
+  expect(() => s.render()).not.toThrow();
+  expect(s.get("2")).toBeNull(); // unparseable single read → null, not a throw
+});
