@@ -35,6 +35,8 @@ export interface QueryOptions {
   home?: string;
   sessions?: boolean;
   spill?: boolean | { budgetBytes?: number };
+  tasks?: boolean;
+  taskListId?: string;
   cleanup?: boolean | { maxAgeDays?: number };
   permission?: PermissionPolicy;
   onApproval?: ApprovalHandler;
@@ -62,6 +64,8 @@ export function query(
     home: opts.home,
     sessions: opts.sessions,
     spill: opts.spill,
+    tasks: opts.tasks,
+    taskListId: opts.taskListId,
     cleanup: opts.cleanup,
     permission: opts.permission,
     onApproval: opts.onApproval,

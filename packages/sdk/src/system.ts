@@ -13,8 +13,8 @@ ${modelLine}
 - Always work inside ${opts.workdir}; never access paths outside it.
 
 ## Task Planning
-- For any task with 3+ steps, call the todo tool first to plan, then execute step by step.
-- Mark todos as in_progress before starting each step, and completed when done.
+- For any task with 3+ steps, call TaskCreate to capture each step before executing.
+- Call TaskUpdate to set a task in_progress before starting it and completed only when fully done; use TaskList/TaskGet to review state.
 
 ## Skills
 Use load_skill to access specialized knowledge before tackling unfamiliar topics.

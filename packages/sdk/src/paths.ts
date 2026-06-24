@@ -17,6 +17,7 @@ export interface ProjectPaths {
   hash: string;
   spillDir: string;
   sessionsDir: string;
+  tasksDir: string;
   globalSkillsDir: string;
   projectSkillsDir: string;
 }
@@ -31,6 +32,7 @@ export function resolveProjectPaths(opts: { workdir: string; home?: string }): P
     hash,
     spillDir: join(projectDir, "spill"),
     sessionsDir: join(projectDir, "sessions"),
+    tasksDir: join(projectDir, "tasks"),
     globalSkillsDir: join(home, "skills"),
     projectSkillsDir: join(resolve(opts.workdir), ".lite-agent", "skills"),
   };
