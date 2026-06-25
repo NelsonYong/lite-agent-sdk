@@ -34,10 +34,18 @@ test("resolveProjectPaths derives the project + global subpaths", () => {
     tasksDir: join(projectDir, "tasks"),
     globalSkillsDir: join("/home", "skills"),
     projectSkillsDir: join("/proj", ".lite-agent", "skills"),
+    globalAgentsDir: join("/home", "agents"),
+    projectAgentsDir: join("/proj", ".lite-agent", "agents"),
   });
 });
 
 test("resolveProjectPaths exposes a per-project tasksDir", () => {
   const { tasksDir, hash } = resolveProjectPaths({ workdir: "/some/proj", home: "/h" });
   expect(tasksDir).toBe(`/h/projects/${hash}/tasks`);
+});
+
+test("resolveProjectPaths derives global and project agent dirs", () => {
+  const p = resolveProjectPaths({ workdir: "/tmp/proj", home: "/tmp/home" });
+  expect(p.globalAgentsDir).toBe("/tmp/home/agents");
+  expect(p.projectAgentsDir).toBe("/tmp/proj/.lite-agent/agents");
 });
