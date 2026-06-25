@@ -20,6 +20,8 @@ export interface ProjectPaths {
   tasksDir: string;
   globalSkillsDir: string;
   projectSkillsDir: string;
+  globalAgentsDir: string;
+  projectAgentsDir: string;
 }
 
 /** Pure: derive every path from `workdir` (+ optional home). No fs side effects. */
@@ -35,5 +37,7 @@ export function resolveProjectPaths(opts: { workdir: string; home?: string }): P
     tasksDir: join(projectDir, "tasks"),
     globalSkillsDir: join(home, "skills"),
     projectSkillsDir: join(resolve(opts.workdir), ".lite-agent", "skills"),
+    globalAgentsDir: join(home, "agents"),
+    projectAgentsDir: join(resolve(opts.workdir), ".lite-agent", "agents"),
   };
 }
