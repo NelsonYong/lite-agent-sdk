@@ -66,7 +66,7 @@ Provider-agnostic `Message` / `ContentBlock` / `ToolCall` / `ToolResult` / `User
 
 ### SDK batteries (`lite-agent`)
 
-`createLiteAgent(cfg)` assembles `defaultTools` (bash/file) + task tools + skills + a built system prompt + a `nativeCodec` agent, prepending the `permission()` middleware when `permission` is set, registering `ask_user` only when `onAskUser` is set, and threading `sandbox` / `onApproval` / `onAskUser`. `query(opts)` is the claude-agent-sdk-style facade over it. `tool(name, desc, schema, handler)` defines a tool; `ask_user` (`tools/askUser.ts`) emits `input_request` → `await ctx.input.request` → `input_resolved`. Skills load from a `skillsDir` of `SKILL.md` files (YAML frontmatter); `load_skill` injects a body on demand.
+`createLiteAgent(cfg)` assembles `defaultTools` (bash/file) + task tools + skills + a built system prompt + a `nativeCodec` agent, prepending the `permission()` middleware when `permission` is set, registering `ask_user` only when `onAskUser` is set, and threading `sandbox` / `onApproval` / `onAskUser`. `query(opts)` is the claude-agent-sdk-style facade over it. `tool(name, desc, schema, handler)` defines a tool; `ask_user` (`tools/askUser.ts`) emits `input_request` → `await ctx.input.request` → `input_resolved`. Skills load from a `skillsDir` of `SKILL.md` files (YAML frontmatter); `load_skill` injects a body on demand. Subagents load from `agents/*.md` (global `~/.lite-agent/agents` + project `<workdir>/.lite-agent/agents`); when any exist, a parallel-capable `Agent` dispatch tool is registered (default on; `agents:false` disables) whose children run isolated, persisted, resumable sessions and share the project task list.
 
 ### Providers (`@lite-agent/provider`)
 
