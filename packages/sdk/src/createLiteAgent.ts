@@ -29,6 +29,9 @@ import { sweepStale } from "./cleanup";
 import { fileTaskStore } from "./tasks/store";
 import { taskTools } from "./tools/task";
 import { taskReminder } from "./tasks/reminder";
+import { AgentLoader } from "./agents/loader";
+import { agentTool } from "./tools/agent";
+import type { Spawn } from "./tools/agent";
 
 export interface CreateLiteAgentConfig {
   model: ModelProvider;
@@ -54,6 +57,12 @@ export interface CreateLiteAgentConfig {
   tasks?: boolean;
   /** Task-list id under tasksDir. Default `$LITE_AGENT_TASK_LIST_ID` || "default". */
   taskListId?: string;
+  /** File-defined subagents + the `Agent` dispatch tool. Default true. */
+  agents?: boolean;
+  /** Extra agents dir, appended last so it overrides global + project. */
+  agentsDir?: string;
+  /** Permission policy applied to subagent runs. Default: none (lenient — sandbox still applies). */
+  subagentPermission?: PermissionPolicy;
   /** Proactive compactor. Default deterministic `defaultCompactor`; `false` disables compaction. */
   compactor?: Compactor | false;
   /** Sweep stale spill/session files once at startup. Default true (30 days). */
@@ -103,6 +112,36 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
     : undefined;
   if (taskStore) tools.push(...taskTools(taskStore));
 
+  // Subagents: file-defined agents + the parallel `Agent` dispatch tool.
+  let subagents = "(no subagents available)";
+  if (cfg.agents !== false) {
+    const agentLoader = new AgentLoader([
+      paths.globalAgentsDir,
+      paths.projectAgentsDir,
+      ...(cfg.agentsDir ? [cfg.agentsDir] : []),
+    ]);
+    if (agentLoader.names().length > 0) {
+      subagents = agentLoader.getDescriptions();
+      const spawn: Spawn = async (def, prompt, { signal, sessionId }) => {
+        const child = createLiteAgent({
+          ...cfg,
+          system:
+            `You are the "${def.name}" subagent operating in ${cfg.workdir}. ` +
+            `Return your final answer as your last message.\n\n${def.body}`,
+          modelName: def.model ?? cfg.modelName,
+          allowedTools: def.tools ?? cfg.allowedTools,
+          agents: false, // no recursion: the child gets no Agent tool
+          cleanup: false, // the parent already swept at startup
+          permission: cfg.subagentPermission, // undefined → lenient (no gate)
+          onApproval: undefined, // don't share the interactive handler (avoids interleaving)
+        });
+        const r = await child.send([{ role: "user", content: prompt }], { signal, sessionId });
+        return r.text;
+      };
+      tools.push(agentTool({ loader: agentLoader, spawn }));
+    }
+  }
+
   if (cfg.tools) tools.push(...cfg.tools);
   if (cfg.onAskUser) tools.push(askUserTool());
   if (cfg.allowedTools)
@@ -112,7 +151,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
 
   const system =
     cfg.system ??
-    buildSystemPrompt({ workdir: cfg.workdir, modelName: cfg.modelName, skills });
+    buildSystemPrompt({ workdir: cfg.workdir, modelName: cfg.modelName, skills, subagents });
 
   // Compaction: explicit compactor wins; `false` disables; default = deterministic
   // pipeline with the spill store auto-injected (no LLM call ever by default).

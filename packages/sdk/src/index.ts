@@ -28,3 +28,7 @@ export { fileTaskStore } from "./tasks/store";
 export type { FileTaskStoreOptions } from "./tasks/store";
 export { taskReminder } from "./tasks/reminder";
 export type { Task, TaskStatus, TaskStore, CreateTaskInput, UpdateTaskInput } from "./tasks/types";
+export { AgentLoader } from "./agents/loader";
+export type { AgentDefinition } from "./agents/types";
+export { agentTool } from "./tools/agent";
+export type { Spawn, SpawnOptions } from "./tools/agent";

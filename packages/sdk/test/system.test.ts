@@ -9,3 +9,22 @@ test("system prompt embeds workdir, model, skills, and load_skill hint", () => {
   expect(s).toContain("load_skill");
   expect(s).toContain("TaskCreate");
 });
+
+test("includes a Subagents section listing types when subagents are provided", () => {
+  const prompt = buildSystemPrompt({
+    workdir: "/w",
+    skills: "(no skills available)",
+    subagents: "  - researcher: digs through code",
+  });
+  expect(prompt).toContain("## Subagents");
+  expect(prompt).toContain("researcher: digs through code");
+});
+
+test("omits the Subagents section when none are available", () => {
+  const prompt = buildSystemPrompt({
+    workdir: "/w",
+    skills: "(no skills available)",
+    subagents: "(no subagents available)",
+  });
+  expect(prompt).not.toContain("## Subagents");
+});

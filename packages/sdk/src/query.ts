@@ -37,6 +37,9 @@ export interface QueryOptions {
   spill?: boolean | { budgetBytes?: number };
   tasks?: boolean;
   taskListId?: string;
+  agents?: boolean;
+  agentsDir?: string;
+  subagentPermission?: PermissionPolicy;
   cleanup?: boolean | { maxAgeDays?: number };
   permission?: PermissionPolicy;
   onApproval?: ApprovalHandler;
@@ -66,6 +69,9 @@ export function query(
     spill: opts.spill,
     tasks: opts.tasks,
     taskListId: opts.taskListId,
+    agents: opts.agents,
+    agentsDir: opts.agentsDir,
+    subagentPermission: opts.subagentPermission,
     cleanup: opts.cleanup,
     permission: opts.permission,
     onApproval: opts.onApproval,

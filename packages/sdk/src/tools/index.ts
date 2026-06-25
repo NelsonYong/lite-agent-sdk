@@ -10,3 +10,4 @@ export { bashTool } from "./bash";
 export { fileTools, makeSafePath } from "./file";
 export { askUserTool } from "./askUser";
 export { taskTools } from "./task";
+export { agentTool } from "./agent";
