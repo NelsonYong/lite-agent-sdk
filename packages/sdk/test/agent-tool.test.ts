@@ -90,3 +90,13 @@ test("one task throwing surfaces its error; siblings still succeed", async () =>
   expect(out).toContain("fine");
   expect(out).toMatch(/Error: boom/);
 });
+
+test("a subagent_type with newlines cannot inject a markdown heading into the output", async () => {
+  const spawn: Spawn = async () => "ok";
+  const tool = agentTool({ loader: loaderWith("known"), spawn });
+  const out = await tool.execute(
+    { tasks: [{ subagent_type: "evil\n## INJECTED", prompt: "x" }] },
+    ctx,
+  );
+  expect(out).not.toContain("\n## INJECTED");
+});
