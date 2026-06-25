@@ -1,7 +1,7 @@
 export * from "@lite-agent/core";
 
 export { createLiteAgent } from "./createLiteAgent";
-export type { CreateLiteAgentConfig } from "./createLiteAgent";
+export type { CreateLiteAgentConfig, LiteAgent } from "./createLiteAgent";
 export { query } from "./query";
 export type { QueryOptions } from "./query";
 export { tool } from "./tool";
@@ -18,8 +18,8 @@ export {
 } from "./tools";
 export { SkillLoader } from "./skills/loader";
 export { loadSkillTool } from "./skills/loadSkillTool";
-export { jsonlStore } from "./store";
-export type { JsonlStoreOptions } from "./store";
+export { jsonlStore, newSessionId, isSessionStore } from "./store";
+export type { JsonlStoreOptions, SessionStore, SessionInfo } from "./store";
 export { liteAgentHome, projectHash, resolveProjectPaths } from "./paths";
 export type { ProjectPaths } from "./paths";
 export { sweepStale } from "./cleanup";
