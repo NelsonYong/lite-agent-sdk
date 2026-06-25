@@ -63,3 +63,20 @@ test("a user middleware observes via beforeAgent", async () => {
   await agent.send("hi");
   expect(seen).toEqual(["before"]);
 });
+
+test("the default session id is a unique value, not a restart-colliding counter", async () => {
+  const seen: string[] = [];
+  const spyStore = {
+    load: async () => null,
+    save: async (id: string) => {
+      seen.push(id);
+    },
+  };
+  await createAgent({
+    model: fakeProvider([{ text: "x", message: { role: "assistant", content: [textBlock("x")] } }]),
+    codec: nativeCodec(),
+    store: spyStore,
+  }).send("hi");
+  // Old behavior persisted under "s1"/"sN"; the fix uses a unique uuid.
+  expect(seen[0]).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+});
