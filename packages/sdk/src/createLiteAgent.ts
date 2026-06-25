@@ -5,6 +5,7 @@ import {
   compaction,
   reactiveCompaction,
   defaultCompactor,
+  AgentError,
 } from "@lite-agent/core";
 import type {
   Agent,
@@ -23,7 +24,8 @@ import { SkillLoader } from "./skills/loader";
 import { loadSkillTool } from "./skills/loadSkillTool";
 import { buildSystemPrompt } from "./system";
 import { resolveProjectPaths } from "./paths";
-import { jsonlStore } from "./store";
+import { jsonlStore, newSessionId, isSessionStore } from "./store";
+import type { SessionInfo, SessionStore } from "./store";
 import { fileSpillStore, readSpilledTool } from "./spill";
 import { sweepStale } from "./cleanup";
 import { fileTaskStore } from "./tasks/store";
@@ -73,7 +75,20 @@ export interface CreateLiteAgentConfig {
   onAskUser?: InputHandler;
 }
 
-export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
+export interface LiteAgent extends Agent {
+  /** The session id `run`/`send` use when none is passed in `opts`. */
+  readonly sessionId: string;
+  /** Switch the current session to an existing id (lenient — unknown id starts empty). */
+  resume(id: string): void;
+  /** Rotate to a brand-new empty session; returns the new id. Does not delete the old transcript. */
+  clear(): string;
+  /** Delete a persisted session transcript. Requires a session-capable store. */
+  deleteSession(id: string): Promise<void>;
+  /** List persisted sessions (id + mtime, most-recent first). Requires a session-capable store. */
+  listSessions(): Promise<SessionInfo[]>;
+}
+
+export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
   const paths = resolveProjectPaths({ workdir: cfg.workdir, home: cfg.home });
 
   // Age-based cleanup runs once at construction (global sweep, fully guarded).
@@ -184,7 +199,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
     ...(taskStore ? [taskReminder(taskStore)] : []),
   ];
 
-  return createAgent({
+  const core = createAgent({
     model: cfg.model,
     modelName: cfg.modelName,
     codec: nativeCodec(),
@@ -197,4 +212,29 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
     store,
     input: cfg.onAskUser,
   });
+
+  // Stateful session ownership lives here (sdk), not in the primitive core agent.
+  let currentSessionId = newSessionId();
+  const sessionStore = isSessionStore(store) ? store : undefined;
+  const noSessionStore = (): Promise<never> =>
+    Promise.reject(new AgentError("session management requires a session-capable store"));
+
+  return {
+    run: (input, opts) =>
+      core.run(input, { signal: opts?.signal, sessionId: opts?.sessionId ?? currentSessionId }),
+    send: (input, opts) =>
+      core.send(input, { signal: opts?.signal, sessionId: opts?.sessionId ?? currentSessionId }),
+    get sessionId() {
+      return currentSessionId;
+    },
+    resume(id: string) {
+      currentSessionId = id;
+    },
+    clear() {
+      currentSessionId = newSessionId();
+      return currentSessionId;
+    },
+    deleteSession: (id: string) => sessionStore ? sessionStore.delete(id) : noSessionStore(),
+    listSessions: () => sessionStore ? sessionStore.list() : noSessionStore(),
+  };
 }
