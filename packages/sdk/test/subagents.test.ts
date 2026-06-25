@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { mkdtempSync, writeFileSync, readdirSync } from "node:fs";
+import { mkdtempSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeProvider, textBlock } from "@lite-agent/core";
@@ -63,6 +63,23 @@ test("a subagent run persists a durable transcript under sessionsDir", async () 
   const paths = resolveProjectPaths({ workdir: wd });
   const files = readdirSync(paths.sessionsDir);
   expect(files).toContain("agent-echo-persist1.jsonl");
+});
+
+test("a spawned child has no Agent tool (no recursion)", async () => {
+  const wd = workdir();
+  const fp = fakeProvider([
+    // parent dispatches the child...
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ subagent_type: "echo", prompt: "hi", resume: "agent-echo-norecurse" }] } }] } },
+    // ...child tries to dispatch its OWN subagent — it must have no Agent tool...
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "Agent", input: { tasks: [{ subagent_type: "echo", prompt: "again" }] } }] } },
+    { text: "child-done", message: { role: "assistant", content: [textBlock("child-done")] } },
+    { text: "parent-done", message: { role: "assistant", content: [textBlock("parent-done")] } },
+  ]);
+  const agent = createLiteAgent({ model: fp, workdir: wd, agentsDir: agentsDir("echo") });
+  await collectResults(agent.run("start"));
+  const paths = resolveProjectPaths({ workdir: wd });
+  const transcript = readFileSync(join(paths.sessionsDir, "agent-echo-norecurse.jsonl"), "utf8");
+  expect(transcript).toContain("unknown tool 'Agent'");
 });
 
 test("a subagent shares the project task list with its parent", async () => {

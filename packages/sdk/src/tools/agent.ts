@@ -46,7 +46,11 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn }): Tool {
             }`,
           };
         }
-        const sessionId = t.resume ?? `agent-${sanitize(t.subagent_type)}-${shortId()}`;
+        // Sanitize the resume handle too: keeps the reported agentId, the output
+        // header, and the on-disk session key identical and filesystem-safe.
+        const sessionId = t.resume
+          ? sanitize(t.resume)
+          : `agent-${sanitize(t.subagent_type)}-${shortId()}`;
         try {
           const out = await spawn(def, t.prompt, { signal: ctx.signal, sessionId });
           return { id: sessionId, out };
