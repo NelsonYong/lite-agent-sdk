@@ -1,0 +1,92 @@
+import { expect, test } from "vitest";
+import { mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { ToolContext } from "@lite-agent/core";
+import { AgentLoader } from "../src/agents/loader";
+import { agentTool } from "../src/tools/agent";
+import type { Spawn } from "../src/tools/agent";
+
+const ctx: ToolContext = {
+  sessionId: "s",
+  signal: new AbortController().signal,
+  emit: () => {},
+};
+
+function loaderWith(...names: string[]): AgentLoader {
+  const d = mkdtempSync(join(tmpdir(), "at-"));
+  for (const n of names)
+    writeFileSync(join(d, `${n}.md`), `---\nname: ${n}\ndescription: ${n} agent\n---\n${n} body`);
+  return new AgentLoader(d);
+}
+
+test("unknown subagent_type is reported but does not fail the batch", async () => {
+  const spawn: Spawn = async () => "ran";
+  const tool = agentTool({ loader: loaderWith("known"), spawn });
+  const out = await tool.execute(
+    { tasks: [{ subagent_type: "ghost", prompt: "x" }, { subagent_type: "known", prompt: "y" }] },
+    ctx,
+  );
+  expect(out).toMatch(/unknown subagent_type 'ghost'/);
+  expect(out).toContain("Available: known");
+  expect(out).toContain("ran");
+});
+
+test("a single task returns the child's final text attributed with its agentId", async () => {
+  const spawn: Spawn = async () => "child result";
+  const tool = agentTool({ loader: loaderWith("worker"), spawn });
+  const out = await tool.execute({ tasks: [{ subagent_type: "worker", prompt: "go" }] }, ctx);
+  expect(out).toContain("child result");
+  expect(out).toMatch(/agentId: agent-worker-[0-9a-f]{8}/);
+});
+
+test("isolation: spawn receives exactly the task prompt", async () => {
+  let seen = "";
+  const spawn: Spawn = async (_def, prompt) => { seen = prompt; return "ok"; };
+  const tool = agentTool({ loader: loaderWith("worker"), spawn });
+  await tool.execute({ tasks: [{ subagent_type: "worker", prompt: "ONLY THIS" }] }, ctx);
+  expect(seen).toBe("ONLY THIS");
+});
+
+test("resume reuses the supplied agentId as the session id", async () => {
+  let seenSession = "";
+  const spawn: Spawn = async (_def, _prompt, opts) => { seenSession = opts.sessionId; return "ok"; };
+  const tool = agentTool({ loader: loaderWith("worker"), spawn });
+  const out = await tool.execute(
+    { tasks: [{ subagent_type: "worker", prompt: "go", resume: "agent-worker-deadbeef" }] },
+    ctx,
+  );
+  expect(seenSession).toBe("agent-worker-deadbeef");
+  expect(out).toContain("agentId: agent-worker-deadbeef");
+});
+
+test("parallel: every task runs and results are aggregated in order", async () => {
+  const calls: string[] = [];
+  const spawn: Spawn = async (def, prompt) => { calls.push(def.name); return `${def.name}:${prompt}`; };
+  const tool = agentTool({ loader: loaderWith("a", "b", "c"), spawn });
+  const out = await tool.execute(
+    { tasks: [
+      { subagent_type: "a", prompt: "1" },
+      { subagent_type: "b", prompt: "2" },
+      { subagent_type: "c", prompt: "3" },
+    ] },
+    ctx,
+  );
+  expect(calls.sort()).toEqual(["a", "b", "c"]);
+  expect(out.indexOf("a:1")).toBeLessThan(out.indexOf("b:2"));
+  expect(out.indexOf("b:2")).toBeLessThan(out.indexOf("c:3"));
+});
+
+test("one task throwing surfaces its error; siblings still succeed", async () => {
+  const spawn: Spawn = async (def) => {
+    if (def.name === "bad") throw new Error("boom");
+    return "fine";
+  };
+  const tool = agentTool({ loader: loaderWith("good", "bad"), spawn });
+  const out = await tool.execute(
+    { tasks: [{ subagent_type: "good", prompt: "x" }, { subagent_type: "bad", prompt: "y" }] },
+    ctx,
+  );
+  expect(out).toContain("fine");
+  expect(out).toMatch(/Error: boom/);
+});
