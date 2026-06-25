@@ -8,7 +8,6 @@ import type {
   AgentEvent,
   ApprovalHandler,
   InputHandler,
-  Message,
   UserAnswer,
   UserQuestion,
 } from "@lite-agent/sdk";
@@ -103,6 +102,8 @@ const agent = createLiteAgent({
   }),
 });
 
+process.stdout.write(`\x1b[90m[session] ${agent.sessionId}\x1b[0m\n`);
+
 function render(ev: AgentEvent): void {
   switch (ev.type) {
     case "text_delta":
@@ -178,13 +179,45 @@ function readPrompt(rl: ReturnType<typeof createInterface>): Promise<string> {
 }
 
 async function main(): Promise<void> {
-  let history: Message[] = [];
   const rl = createInterface({ input: process.stdin, output: process.stdout });
 
   while (true) {
     const text = (await readPrompt(rl)).trim();
-    if (!text || ["q", "exit"].includes(text.toLowerCase())) break;
-    history.push({ role: "user", content: text });
+    if (!text) continue;
+    if (["q", "exit"].includes(text.toLowerCase())) break;
+
+    // Session-management commands are handled locally (never sent to the model).
+    if (text.startsWith("/")) {
+      const [cmd, ...rest] = text.slice(1).split(/\s+/);
+      const arg = rest.join(" ").trim();
+      try {
+        if (cmd === "sessions") {
+          const list = await agent.listSessions();
+          if (!list.length) process.stdout.write("\x1b[90m(no sessions)\x1b[0m\n");
+          for (const s of list)
+            process.stdout.write(`  ${s.id}\t${new Date(s.mtime).toLocaleString()}\n`);
+        } else if (cmd === "resume") {
+          if (!arg) process.stdout.write("\x1b[31musage: /resume <id>\x1b[0m\n");
+          else {
+            agent.resume(arg);
+            process.stdout.write(`\x1b[90m[session] ${agent.sessionId}\x1b[0m\n`);
+          }
+        } else if (cmd === "clear") {
+          process.stdout.write(`\x1b[90m[session] ${agent.clear()} (new)\x1b[0m\n`);
+        } else if (cmd === "delete") {
+          if (!arg) process.stdout.write("\x1b[31musage: /delete <id>\x1b[0m\n");
+          else {
+            await agent.deleteSession(arg);
+            process.stdout.write(`\x1b[90m[deleted] ${arg}\x1b[0m\n`);
+          }
+        } else {
+          process.stdout.write(`\x1b[31munknown command: /${cmd}\x1b[0m\n`);
+        }
+      } catch (e) {
+        process.stdout.write(`\n\x1b[31m[error] ${(e as Error).message}\x1b[0m\n`);
+      }
+      continue;
+    }
 
     const ac = new AbortController();
     rl.pause();
@@ -227,17 +260,16 @@ async function main(): Promise<void> {
     process.stdin.on("data", onKey);
 
     try {
-      const gen = agent.run(history, { signal: ac.signal });
+      // Server-side history: send only the new turn; the kernel reloads the
+      // session's transcript from the store via the agent's current sessionId.
+      const gen = agent.run([{ role: "user", content: text }], { signal: ac.signal });
       let r = await gen.next();
       while (!r.done) {
         render(r.value);
         r = await gen.next();
       }
-      history = r.value.messages;
     } catch (e) {
-      process.stdout.write(
-        `\n\x1b[31m[error] ${(e as Error).message}\x1b[0m\n`,
-      );
+      process.stdout.write(`\n\x1b[31m[error] ${(e as Error).message}\x1b[0m\n`);
     } finally {
       pendingApproval = null;
       pendingInput = null;
