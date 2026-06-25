@@ -96,6 +96,14 @@ A near-twin of `SkillLoader`: walk each dir (later dirs override earlier on name
 collision), parse each `*.md` with `gray-matter`, `name` from frontmatter or
 filename.
 
+**Built-in default agent (amendment, 2026-06-25).** The loader constructor accepts
+a `seed: AgentDefinition[]` applied before the dir walk (so file definitions
+override by name). `createLiteAgent` seeds `builtinAgents()` — a `general-purpose`
+agent (inherits the parent's full tool set + model). This makes subagents
+**default-on and usable with no `agents/*.md` files**: the main agent can always
+delegate to `general-purpose`. A file named `general-purpose` overrides the built-in.
+`agents: false` still disables the whole capability.
+
 ```ts
 class AgentLoader {
   constructor(dirs: string | string[]);

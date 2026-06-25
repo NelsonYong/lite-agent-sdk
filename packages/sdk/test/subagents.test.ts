@@ -41,6 +41,20 @@ test("registers the Agent tool and runs a child to completion when a definition 
   expect(results.join("")).not.toMatch(/unknown tool/);
 });
 
+test("the built-in general-purpose subagent works with no agent files (default on)", async () => {
+  const fp = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ subagent_type: "general-purpose", prompt: "do it", resume: "agent-gp-default1" }] } }] } },
+    { text: "child-done", message: { role: "assistant", content: [textBlock("child-done")] } },
+    { text: "parent-done", message: { role: "assistant", content: [textBlock("parent-done")] } },
+  ]);
+  // No agentsDir, fresh empty workdir → only the built-in general-purpose exists.
+  const agent = createLiteAgent({ model: fp, workdir: workdir() });
+  const results = await collectResults(agent.run("start"));
+  expect(results.join("")).toContain("child-done");
+  expect(results.join("")).toContain("agentId: agent-gp-default1");
+  expect(results.join("")).not.toMatch(/unknown tool/);
+});
+
 test("agents:false leaves the Agent tool unregistered", async () => {
   const fp = fakeProvider([
     { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ subagent_type: "echo", prompt: "hi" }] } }] } },

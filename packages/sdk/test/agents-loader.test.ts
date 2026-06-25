@@ -3,6 +3,8 @@ import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentLoader } from "../src/agents/loader";
+import { builtinAgents } from "../src/agents/builtin";
+import type { AgentDefinition } from "../src/agents/types";
 
 const dir = () => mkdtempSync(join(tmpdir(), "agents-"));
 
@@ -89,4 +91,29 @@ test("ignores .md files that have no frontmatter (e.g. README)", () => {
   const loader = new AgentLoader(d);
   expect(loader.names()).toEqual(["real"]);
   expect(loader.get("README")).toBeNull();
+});
+
+const seed = (): AgentDefinition[] => [
+  { name: "general-purpose", description: "builtin", body: "BUILTIN", path: "<builtin>" },
+];
+
+test("seeded definitions are available when no file defines them", () => {
+  const loader = new AgentLoader(join(tmpdir(), "missing-seed-xyz"), seed());
+  expect(loader.names()).toEqual(["general-purpose"]);
+  expect(loader.get("general-purpose")!.body).toBe("BUILTIN");
+});
+
+test("a file definition overrides a seeded definition of the same name", () => {
+  const d = dir();
+  writeFileSync(join(d, "gp.md"), "---\nname: general-purpose\ndescription: custom\n---\nCUSTOM");
+  const loader = new AgentLoader(d, seed());
+  expect(loader.get("general-purpose")!.body).toBe("CUSTOM");
+  expect(loader.get("general-purpose")!.description).toBe("custom");
+});
+
+test("builtinAgents() ships a general-purpose agent that inherits tools+model", () => {
+  const gp = builtinAgents().find((a) => a.name === "general-purpose")!;
+  expect(gp).toBeTruthy();
+  expect(gp.tools).toBeUndefined();
+  expect(gp.model).toBeUndefined();
 });

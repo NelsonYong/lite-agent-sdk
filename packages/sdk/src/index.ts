@@ -30,5 +30,6 @@ export type { FileTaskStoreOptions } from "./tasks/store";
 export { taskReminder } from "./tasks/reminder";
 export type { Task, TaskStatus, TaskStore, CreateTaskInput, UpdateTaskInput } from "./tasks/types";
 export { AgentLoader } from "./agents/loader";
+export { builtinAgents, GENERAL_PURPOSE } from "./agents/builtin";
 export type { AgentDefinition } from "./agents/types";
 export type { Spawn, SpawnOptions } from "./tools/agent";

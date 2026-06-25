@@ -30,6 +30,7 @@ import { fileTaskStore } from "./tasks/store";
 import { taskTools } from "./tools/task";
 import { taskReminder } from "./tasks/reminder";
 import { AgentLoader } from "./agents/loader";
+import { builtinAgents } from "./agents/builtin";
 import { agentTool } from "./tools/agent";
 import type { Spawn } from "./tools/agent";
 
@@ -115,11 +116,14 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
   // Subagents: file-defined agents + the parallel `Agent` dispatch tool.
   let subagents: string | undefined;
   if (cfg.agents !== false) {
-    const agentLoader = new AgentLoader([
-      paths.globalAgentsDir,
-      paths.projectAgentsDir,
-      ...(cfg.agentsDir ? [cfg.agentsDir] : []),
-    ]);
+    const agentLoader = new AgentLoader(
+      [
+        paths.globalAgentsDir,
+        paths.projectAgentsDir,
+        ...(cfg.agentsDir ? [cfg.agentsDir] : []),
+      ],
+      builtinAgents(), // built-in general-purpose agent: subagents work with no files
+    );
     if (agentLoader.names().length > 0) {
       subagents = agentLoader.getDescriptions();
       const spawn: Spawn = async (def, prompt, { signal, sessionId }) => {

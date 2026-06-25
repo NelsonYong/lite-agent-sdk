@@ -15,8 +15,10 @@ export class AgentLoader {
   readonly dirs: string[];
   private agents: Record<string, AgentDefinition> = {};
 
-  constructor(dirs: string | string[]) {
+  constructor(dirs: string | string[], seed: AgentDefinition[] = []) {
     this.dirs = Array.isArray(dirs) ? dirs : [dirs];
+    // Seed first (e.g. built-in agents); file definitions below override by name.
+    for (const def of seed) this.agents[def.name] = def;
     this.loadAll();
   }
 
