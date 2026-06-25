@@ -81,3 +81,12 @@ test("list() returns every loaded definition", () => {
   const got = new AgentLoader(d).list().map((x) => x.name).sort();
   expect(got).toEqual(["a", "b"]);
 });
+
+test("ignores .md files that have no frontmatter (e.g. README)", () => {
+  const d = dir();
+  writeFileSync(join(d, "README.md"), "# Just docs\nno frontmatter here");
+  writeFileSync(join(d, "real.md"), "---\nname: real\ndescription: a real agent\n---\nBody");
+  const loader = new AgentLoader(d);
+  expect(loader.names()).toEqual(["real"]);
+  expect(loader.get("README")).toBeNull();
+});
