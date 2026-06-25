@@ -41,7 +41,7 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn }): Tool {
         if (!def) {
           return {
             id: "-",
-            out: `Error: unknown subagent_type '${t.subagent_type}'. Available: ${
+            out: `Error: unknown subagent_type '${t.subagent_type.replace(/[\r\n]+/g, " ")}'. Available: ${
               loader.names().join(", ") || "(none)"
             }`,
           };
@@ -57,7 +57,7 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn }): Tool {
 
       const results = await runPool(tasks, MAX_CONCURRENCY, runOne);
       return results
-        .map((r, i) => `## subagent[${i}] ${tasks[i]!.subagent_type} (agentId: ${r.id})\n${r.out}`)
+        .map((r, i) => `## subagent[${i}] ${tasks[i]!.subagent_type.replace(/[\r\n]+/g, " ")} (agentId: ${r.id})\n${r.out}`)
         .join("\n\n");
     },
   });
