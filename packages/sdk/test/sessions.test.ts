@@ -85,3 +85,14 @@ test("a fresh agent over the same sessions dir does not resume a prior agent's s
   expect(r.messages).not.toContainEqual({ role: "user", content: "first" });
   expect(r.messages).toContainEqual({ role: "user", content: "second" });
 });
+
+test("resume() to an unknown id starts an empty session (no carryover)", async () => {
+  const dir = freshDir();
+  const a1 = createLiteAgent({ model: reply("r1"), workdir: process.cwd(), store: jsonlStore({ dir }), cleanup: false });
+  await a1.send([{ role: "user", content: "first" }]);
+  const a2 = createLiteAgent({ model: reply("r2"), workdir: process.cwd(), store: jsonlStore({ dir }), cleanup: false });
+  a2.resume("does-not-exist");
+  const r = await a2.send([{ role: "user", content: "second" }]);
+  expect(r.messages).not.toContainEqual({ role: "user", content: "first" });
+  expect(r.messages).toContainEqual({ role: "user", content: "second" });
+});

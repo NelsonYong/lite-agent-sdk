@@ -25,7 +25,7 @@ import { loadSkillTool } from "./skills/loadSkillTool";
 import { buildSystemPrompt } from "./system";
 import { resolveProjectPaths } from "./paths";
 import { jsonlStore, newSessionId, isSessionStore } from "./store";
-import type { SessionInfo, SessionStore } from "./store";
+import type { SessionInfo } from "./store";
 import { fileSpillStore, readSpilledTool } from "./spill";
 import { sweepStale } from "./cleanup";
 import { fileTaskStore } from "./tasks/store";
@@ -221,9 +221,9 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
 
   return {
     run: (input, opts) =>
-      core.run(input, { signal: opts?.signal, sessionId: opts?.sessionId ?? currentSessionId }),
+      core.run(input, { ...opts, sessionId: opts?.sessionId ?? currentSessionId }),
     send: (input, opts) =>
-      core.send(input, { signal: opts?.signal, sessionId: opts?.sessionId ?? currentSessionId }),
+      core.send(input, { ...opts, sessionId: opts?.sessionId ?? currentSessionId }),
     get sessionId() {
       return currentSessionId;
     },
