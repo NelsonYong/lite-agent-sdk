@@ -18,6 +18,13 @@ export interface JsonlStoreOptions {
 
 /** Lightweight metadata for one persisted session. */
 export interface SessionInfo {
+  /**
+   * The on-disk session id (the `.jsonl` filename stem). For SDK-generated ids
+   * (`newSessionId`, subagent handles) this equals the original id, so it
+   * round-trips through `resume`/`delete`. A caller-supplied id containing
+   * characters outside `[a-zA-Z0-9_-]` is sanitized on save, so the value here
+   * is that sanitized form, not the raw id originally passed in.
+   */
   id: string;
   mtime: number; // fs mtime in ms since epoch
 }
