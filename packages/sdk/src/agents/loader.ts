@@ -34,6 +34,7 @@ export class AgentLoader {
 
   private add(path: string): void {
     const { data, content } = matter(readFileSync(path, "utf8"));
+    if (Object.keys(data).length === 0) return; // no frontmatter → not an agent definition (skip README/NOTES/etc.)
     const fm = data as Frontmatter;
     const name = fm.name ?? basename(path).replace(/\.md$/, "");
     this.agents[name] = {
