@@ -8,7 +8,7 @@ export interface SystemPromptOptions {
 export function buildSystemPrompt(opts: SystemPromptOptions): string {
   const modelLine = opts.modelName ? `Your model is ${opts.modelName}.\n` : "";
   const subagentsSection =
-    opts.subagents && opts.subagents !== "(no subagents available)"
+    opts.subagents
       ? `\n\n## Subagents
 For large or context-heavy subtasks, delegate to a specialized subagent via the \`Agent\` tool instead of doing the work inline — this keeps your own context clean. To run independent subtasks in parallel, pass multiple entries in a single \`Agent\` call.
 Available subagents:

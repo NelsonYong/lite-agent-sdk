@@ -13,6 +13,9 @@ function agentsDir(name: string, body = `${name} body`): string {
   return d;
 }
 
+// A hermetic per-test project root so sessions/tasks never bleed between tests.
+const workdir = () => mkdtempSync(join(tmpdir(), "wd-"));
+
 // One fakeProvider instance is shared by parent and child kernels; its turn counter
 // advances once per model call, so turns run in deterministic order:
 // parent-turn1 (Agent call) -> child-turn1 -> parent-turn2.
@@ -31,7 +34,7 @@ test("registers the Agent tool and runs a child to completion when a definition 
     { text: "child-done", message: { role: "assistant", content: [textBlock("child-done")] } },
     { text: "parent-done", message: { role: "assistant", content: [textBlock("parent-done")] } },
   ]);
-  const agent = createLiteAgent({ model: fp, workdir: process.cwd(), agentsDir: agentsDir("echo") });
+  const agent = createLiteAgent({ model: fp, workdir: workdir(), agentsDir: agentsDir("echo") });
   const results = await collectResults(agent.run("start"));
   expect(results.join("")).toContain("child-done");
   expect(results.join("")).toContain("agentId: agent-echo-fixed1");
@@ -43,34 +46,36 @@ test("agents:false leaves the Agent tool unregistered", async () => {
     { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ subagent_type: "echo", prompt: "hi" }] } }] } },
     { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
   ]);
-  const agent = createLiteAgent({ model: fp, workdir: process.cwd(), agentsDir: agentsDir("echo"), agents: false });
+  const agent = createLiteAgent({ model: fp, workdir: workdir(), agentsDir: agentsDir("echo"), agents: false });
   const results = await collectResults(agent.run("start"));
   expect(results.join("")).toMatch(/unknown tool 'Agent'/);
 });
 
 test("a subagent run persists a durable transcript under sessionsDir", async () => {
+  const wd = workdir();
   const fp = fakeProvider([
     { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ subagent_type: "echo", prompt: "hi", resume: "agent-echo-persist1" }] } }] } },
     { text: "child-done", message: { role: "assistant", content: [textBlock("child-done")] } },
     { text: "parent-done", message: { role: "assistant", content: [textBlock("parent-done")] } },
   ]);
-  const agent = createLiteAgent({ model: fp, workdir: process.cwd(), agentsDir: agentsDir("echo") });
+  const agent = createLiteAgent({ model: fp, workdir: wd, agentsDir: agentsDir("echo") });
   await collectResults(agent.run("start"));
-  const paths = resolveProjectPaths({ workdir: process.cwd() });
+  const paths = resolveProjectPaths({ workdir: wd });
   const files = readdirSync(paths.sessionsDir);
   expect(files).toContain("agent-echo-persist1.jsonl");
 });
 
 test("a subagent shares the project task list with its parent", async () => {
+  const wd = workdir();
   const fp = fakeProvider([
     { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ subagent_type: "tasker", prompt: "make a task", resume: "agent-tasker-share1" }] } }] } },
     { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "TaskCreate", input: { subject: "from child", description: "d" } }] } },
     { text: "child-done", message: { role: "assistant", content: [textBlock("child-done")] } },
     { text: "parent-done", message: { role: "assistant", content: [textBlock("parent-done")] } },
   ]);
-  const agent = createLiteAgent({ model: fp, workdir: process.cwd(), agentsDir: agentsDir("tasker") });
+  const agent = createLiteAgent({ model: fp, workdir: wd, agentsDir: agentsDir("tasker") });
   await collectResults(agent.run("start"));
-  const paths = resolveProjectPaths({ workdir: process.cwd() });
+  const paths = resolveProjectPaths({ workdir: wd });
   const store = fileTaskStore({ dir: paths.tasksDir, listId: "default" });
   expect(store.list().some((t) => t.subject === "from child")).toBe(true);
 });

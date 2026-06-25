@@ -113,7 +113,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
   if (taskStore) tools.push(...taskTools(taskStore));
 
   // Subagents: file-defined agents + the parallel `Agent` dispatch tool.
-  let subagents = "(no subagents available)";
+  let subagents: string | undefined;
   if (cfg.agents !== false) {
     const agentLoader = new AgentLoader([
       paths.globalAgentsDir,
@@ -124,6 +124,9 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
       subagents = agentLoader.getDescriptions();
       const spawn: Spawn = async (def, prompt, { signal, sessionId }) => {
         const child = createLiteAgent({
+          // `tools`/`use` intentionally inherit: the child is a full lite-agent in the
+          // same project, so an absent `def.tools` means "inherit the parent's tool set"
+          // and cross-cutting middleware still applies. Interactive handlers do NOT.
           ...cfg,
           system:
             `You are the "${def.name}" subagent operating in ${cfg.workdir}. ` +
@@ -133,7 +136,8 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): Agent {
           agents: false, // no recursion: the child gets no Agent tool
           cleanup: false, // the parent already swept at startup
           permission: cfg.subagentPermission, // undefined → lenient (no gate)
-          onApproval: undefined, // don't share the interactive handler (avoids interleaving)
+          onApproval: undefined, // don't share the interactive approval handler (parallel-unsafe)
+          onAskUser: undefined, // subagents run non-interactively (no ask_user prompts)
         });
         const r = await child.send([{ role: "user", content: prompt }], { signal, sessionId });
         return r.text;

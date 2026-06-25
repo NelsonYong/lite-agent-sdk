@@ -20,11 +20,10 @@ test("includes a Subagents section listing types when subagents are provided", (
   expect(prompt).toContain("researcher: digs through code");
 });
 
-test("omits the Subagents section when none are available", () => {
+test("omits the Subagents section when none are provided", () => {
   const prompt = buildSystemPrompt({
     workdir: "/w",
     skills: "(no skills available)",
-    subagents: "(no subagents available)",
   });
   expect(prompt).not.toContain("## Subagents");
 });
