@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { AgentLoader } from "../src/agents/loader";
@@ -59,4 +59,25 @@ test("unknown get returns null; empty loader reports a placeholder", () => {
   expect(loader.get("nope")).toBeNull();
   expect(loader.names()).toEqual([]);
   expect(loader.getDescriptions()).toBe("(no subagents available)");
+});
+
+test("description defaults to 'No description' when frontmatter omits it", () => {
+  const d = dir();
+  writeFileSync(join(d, "a.md"), "---\nname: a\n---\nBody");
+  expect(new AgentLoader(d).get("a")!.description).toBe("No description");
+});
+
+test("recurses into subdirectories to find .md definitions", () => {
+  const d = dir();
+  mkdirSync(join(d, "nested"));
+  writeFileSync(join(d, "nested", "deep.md"), "---\nname: deep\ndescription: nested agent\n---\nBody");
+  expect(new AgentLoader(d).get("deep")!.description).toBe("nested agent");
+});
+
+test("list() returns every loaded definition", () => {
+  const d = dir();
+  writeFileSync(join(d, "a.md"), "---\nname: a\ndescription: da\n---\nA");
+  writeFileSync(join(d, "b.md"), "---\nname: b\ndescription: db\n---\nB");
+  const got = new AgentLoader(d).list().map((x) => x.name).sort();
+  expect(got).toEqual(["a", "b"]);
 });
