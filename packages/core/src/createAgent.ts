@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { ModelProvider, Tool, ToolCallCodec, Sandbox, InputHandler, Store } from "./strategies";
 import { noopSandbox } from "./sandbox";
 import type { Middleware } from "./middleware";
@@ -27,8 +28,6 @@ export interface Agent {
   send(input: string | Message[], opts?: RunOptions): Promise<RunResult>;
 }
 
-let sessionCounter = 0;
-
 export function createAgent(cfg: CreateAgentConfig): Agent {
   const kernelCfg: KernelConfig = {
     provider: cfg.model,
@@ -47,7 +46,7 @@ export function createAgent(cfg: CreateAgentConfig): Agent {
   const agent: Agent = {
     run(input, opts) {
       const signal = opts?.signal ?? new AbortController().signal;
-      const sessionId = opts?.sessionId ?? `s${++sessionCounter}`;
+      const sessionId = opts?.sessionId ?? randomUUID();
       return runKernel(kernelCfg, input, signal, sessionId);
     },
     async send(input, opts) {
