@@ -58,7 +58,7 @@ test("query forwards sessions:false (no transcript written)", async () => {
   expect(existsSync(join(sessionsDir, "qs1.jsonl"))).toBe(false);
 });
 
-test("query forwards maxParallelTools — tool calls run concurrently by default", async () => {
+test("query forwards an explicit maxParallelTools and the kernel honors it as a bound", async () => {
   let inFlight = 0;
   let maxInFlight = 0;
   const slow = (name: string) =>
@@ -73,10 +73,13 @@ test("query forwards maxParallelTools — tool calls run concurrently by default
     { message: { role: "assistant", content: [
       { type: "tool_call", id: "t1", name: "ta", input: {} },
       { type: "tool_call", id: "t2", name: "tb", input: {} },
+      { type: "tool_call", id: "t3", name: "tc", input: {} },
     ] } },
     { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
   ]);
-  const gen = query({ prompt: "go", model: fp, cwd: mkdtempSync(join(tmpdir(), "mpt-")), tools: [slow("ta"), slow("tb")] });
+  // 3 calls, cap 2 → at most 2 in flight. 2 is distinct from both 1 and the call
+  // count (3): a dropped forward would default to 10 (→ 3 in flight) and fail this.
+  const gen = query({ prompt: "go", model: fp, cwd: mkdtempSync(join(tmpdir(), "mpt-")), tools: [slow("ta"), slow("tb"), slow("tc")], maxParallelTools: 2 });
   let r = await gen.next();
   while (!r.done) r = await gen.next();
   expect(maxInFlight).toBe(2);
