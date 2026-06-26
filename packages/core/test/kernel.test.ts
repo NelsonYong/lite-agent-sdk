@@ -297,3 +297,70 @@ test("maxParallelTools: 1 forces sequential execution", async () => {
   );
   expect(maxInFlight).toBe(1);
 });
+
+test("a wrapToolCall middleware that throws yields an error result without stranding siblings", async () => {
+  const ok = defineTool({ name: "ok", description: "o", schema: z.object({}), execute: async () => "OK" });
+  const boom = defineTool({ name: "boom", description: "b", schema: z.object({}), execute: async () => "NEVER" });
+  const boomMw: Middleware = {
+    name: "boom-mw",
+    async wrapToolCall(ctx, next) {
+      if (ctx.call.name === "boom") throw new Error("kaboom");
+      return next();
+    },
+  };
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [
+      { type: "tool_call", id: "t1", name: "ok", input: {} },
+      { type: "tool_call", id: "t2", name: "boom", input: {} },
+    ] } },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  const { events, result } = await drain(
+    runKernel(baseCfg({ provider, tools: [ok, boom], middleware: [boomMw] }), "hi", new AbortController().signal, "s1"),
+  );
+  const results = events
+    .filter((e): e is Extract<AgentEvent, { type: "tool_result" }> => e.type === "tool_result")
+    .map((e) => e.result);
+  expect(results.map((r) => r.id)).toEqual(["t1", "t2"]); // both ran, in input order
+  expect(results[0]).toMatchObject({ content: "OK" });    // sibling unaffected by the throw
+  expect(results[1]).toMatchObject({ isError: true });    // throw → error result
+  expect(results[1]!.content).toContain("kaboom");
+  expect(result.stopReason).toBe("stop");                 // run completed cleanly, no rejection
+});
+
+test("each call's emitted events flush in input order, grouped with its result", async () => {
+  // slow is input-index 0 but finishes LAST; fast is index 1 but finishes first.
+  const slow = defineTool({
+    name: "slow", description: "s", schema: z.object({}),
+    execute: async (_i, ctx) => {
+      ctx.emit({ type: "input_request", call: ctx.call!, question: { question: "slow?" } });
+      await new Promise((r) => setTimeout(r, 30));
+      return "SLOW";
+    },
+  });
+  const fast = defineTool({
+    name: "fast", description: "f", schema: z.object({}),
+    execute: async (_i, ctx) => {
+      ctx.emit({ type: "input_request", call: ctx.call!, question: { question: "fast?" } });
+      return "FAST";
+    },
+  });
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [
+      { type: "tool_call", id: "t1", name: "slow", input: {} },
+      { type: "tool_call", id: "t2", name: "fast", input: {} },
+    ] } },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  const { events } = await drain(
+    runKernel(baseCfg({ provider, tools: [slow, fast] }), "hi", new AbortController().signal, "s1"),
+  );
+  // Keep only each call's emitted request and its result, in stream order.
+  const rel = events.filter((e) => e.type === "input_request" || e.type === "tool_result");
+  // slow (index 0) flushes entirely BEFORE fast (index 1) despite fast finishing first:
+  expect(rel.map((e) => e.type)).toEqual(["input_request", "tool_result", "input_request", "tool_result"]);
+  const ids = rel.map((e) =>
+    e.type === "tool_result" ? e.result.id : (e as Extract<AgentEvent, { type: "input_request" }>).call.id,
+  );
+  expect(ids).toEqual(["t1", "t1", "t2", "t2"]);
+});
