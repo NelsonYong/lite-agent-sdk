@@ -112,3 +112,23 @@ test("permission serializes concurrent approval prompts (no overlap)", async () 
   expect(maxActive).toBe(1); // prompts never overlapped
   expect(results.every((r) => r.content === "ran")).toBe(true);
 });
+
+test("a rejected approval request still advances the lock for the next waiter", async () => {
+  let calls = 0;
+  const approval: ApprovalHandler = {
+    request: async (): Promise<"allow" | "deny"> => {
+      calls++;
+      if (calls === 1) throw new Error("stdin closed");
+      return "allow";
+    },
+  };
+  // One shared instance: the first (rejecting) request must not wedge the second.
+  const mw = permission(policy({ ask: ["bash"] }), approval);
+  const [r1, r2] = await Promise.allSettled([
+    composeToolCall([mw], ctxFor("bash", () => {}), okExec)(),
+    composeToolCall([mw], ctxFor("bash", () => {}), okExec)(),
+  ]);
+  expect(r1.status).toBe("rejected"); // caller observes the real (rejected) outcome
+  expect(r2.status).toBe("fulfilled"); // chain advanced past the rejection
+  if (r2.status === "fulfilled") expect(r2.value.content).toBe("ran");
+});
