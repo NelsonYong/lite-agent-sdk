@@ -19,6 +19,8 @@ export interface CreateAgentConfig {
   sandbox?: Sandbox;
   input?: InputHandler;
   store?: Store;
+  /** Max tool calls run concurrently per turn (default 10; 1 = sequential). */
+  maxParallelTools?: number;
 }
 
 export type RunOptions = { signal?: AbortSignal; sessionId?: string };
@@ -41,6 +43,7 @@ export function createAgent(cfg: CreateAgentConfig): Agent {
     sandbox: cfg.sandbox ?? noopSandbox(),
     input: cfg.input,
     store: cfg.store,
+    maxParallelTools: cfg.maxParallelTools,
   };
 
   const agent: Agent = {

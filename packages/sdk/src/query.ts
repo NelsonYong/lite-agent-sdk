@@ -26,6 +26,7 @@ export interface QueryOptions {
   disallowedTools?: string[];
   maxTurns?: number;
   maxTokens?: number;
+  maxParallelTools?: number;
   use?: Middleware[];
   signal?: AbortSignal;
   sessionId?: string;
@@ -60,6 +61,7 @@ export function query(
     disallowedTools: opts.disallowedTools,
     maxTurns: opts.maxTurns,
     maxTokens: opts.maxTokens,
+    maxParallelTools: opts.maxParallelTools,
     use: opts.use,
     sandbox: opts.sandbox,
     store: opts.store,

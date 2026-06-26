@@ -57,3 +57,51 @@ test("query forwards sessions:false (no transcript written)", async () => {
   const { sessionsDir } = resolveProjectPaths({ workdir: cwd, home: process.env.LITE_AGENT_HOME! });
   expect(existsSync(join(sessionsDir, "qs1.jsonl"))).toBe(false);
 });
+
+test("query forwards maxParallelTools — tool calls run concurrently by default", async () => {
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const slow = (name: string) =>
+    tool(name, name, z.object({}), async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 20));
+      inFlight--;
+      return name;
+    });
+  const fp = fakeProvider([
+    { message: { role: "assistant", content: [
+      { type: "tool_call", id: "t1", name: "ta", input: {} },
+      { type: "tool_call", id: "t2", name: "tb", input: {} },
+    ] } },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  const gen = query({ prompt: "go", model: fp, cwd: mkdtempSync(join(tmpdir(), "mpt-")), tools: [slow("ta"), slow("tb")] });
+  let r = await gen.next();
+  while (!r.done) r = await gen.next();
+  expect(maxInFlight).toBe(2);
+});
+
+test("query forwards maxParallelTools: 1 — tool calls run sequentially", async () => {
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const slow = (name: string) =>
+    tool(name, name, z.object({}), async () => {
+      inFlight++;
+      maxInFlight = Math.max(maxInFlight, inFlight);
+      await new Promise((r) => setTimeout(r, 20));
+      inFlight--;
+      return name;
+    });
+  const fp = fakeProvider([
+    { message: { role: "assistant", content: [
+      { type: "tool_call", id: "t1", name: "ta", input: {} },
+      { type: "tool_call", id: "t2", name: "tb", input: {} },
+    ] } },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  const gen = query({ prompt: "go", model: fp, cwd: mkdtempSync(join(tmpdir(), "mpt-")), tools: [slow("ta"), slow("tb")], maxParallelTools: 1 });
+  let r = await gen.next();
+  while (!r.done) r = await gen.next();
+  expect(maxInFlight).toBe(1);
+});
