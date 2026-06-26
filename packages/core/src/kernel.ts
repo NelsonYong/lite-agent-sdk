@@ -123,7 +123,15 @@ export async function* runKernel(
           return { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true };
         }
       };
-      const result = await composeToolCall(cfg.middleware, tctx, baseExec)();
+      let result: ToolResult;
+      try {
+        result = await composeToolCall(cfg.middleware, tctx, baseExec)();
+      } catch (e) {
+        // A wrapToolCall middleware that throws (rather than returning an isError
+        // result) must not strand sibling calls or surface as an unhandled rejection
+        // under concurrency. Convert to an error result so runCall never rejects.
+        result = { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true };
+      }
       return { events, result };
     };
 
