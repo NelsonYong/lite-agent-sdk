@@ -90,3 +90,25 @@ test("permission: ask with no approver fails closed (by auto)", async () => {
   expect(r).toMatchObject({ content: "Error: denied by user", isError: true });
   expect(events.at(-1)).toEqual({ type: "approval_resolved", id: "t1", decision: "deny", by: "auto" });
 });
+
+test("permission serializes concurrent approval prompts (no overlap)", async () => {
+  let active = 0;
+  let maxActive = 0;
+  const approval: ApprovalHandler = {
+    request: async (): Promise<"allow" | "deny"> => {
+      active++;
+      maxActive = Math.max(maxActive, active);
+      await new Promise((r) => setTimeout(r, 10));
+      active--;
+      return "allow";
+    },
+  };
+  // One shared permission middleware instance gates both concurrent calls.
+  const mw = permission(policy({ ask: ["bash"] }), approval);
+  const results = await Promise.all([
+    composeToolCall([mw], ctxFor("bash", () => {}), okExec)(),
+    composeToolCall([mw], ctxFor("bash", () => {}), okExec)(),
+  ]);
+  expect(maxActive).toBe(1); // prompts never overlapped
+  expect(results.every((r) => r.content === "ran")).toBe(true);
+});
