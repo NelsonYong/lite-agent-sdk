@@ -47,6 +47,8 @@ export interface CreateLiteAgentConfig {
   disallowedTools?: string[];
   maxTurns?: number;
   maxTokens?: number;
+  /** Max tool calls run concurrently per turn (default 10; 1 = sequential). Inherited by subagents. */
+  maxParallelTools?: number;
   use?: Middleware[];
   sandbox?: Sandbox;
   store?: Store;
@@ -208,6 +210,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     system,
     maxTurns: cfg.maxTurns,
     maxTokens: cfg.maxTokens,
+    maxParallelTools: cfg.maxParallelTools,
     sandbox: cfg.sandbox,
     store,
     input: cfg.onAskUser,
