@@ -1,5 +1,5 @@
 import type { ModelProvider, ToolCallCodec, Tool, Sandbox, InputHandler, Store } from "./strategies";
-import type { AssistantMessage, Message, ToolResultBlock, Usage } from "./types";
+import type { AssistantMessage, Message, ToolCall, ToolResult, ToolResultBlock, Usage } from "./types";
 import { isTextBlock, toolResultBlock } from "./types";
 import type { AgentEvent, RunResult } from "./events";
 import { ProviderError } from "./events";
@@ -19,6 +19,8 @@ export interface KernelConfig {
   sandbox: Sandbox;
   input?: InputHandler;
   store?: Store;
+  /** Max tool calls run concurrently within one assistant turn. Default 10; 1 = sequential. */
+  maxParallelTools?: number;
 }
 
 export async function* runKernel(
@@ -98,23 +100,38 @@ export async function* runKernel(
       break;
     }
 
-    const resultBlocks: ToolResultBlock[] = [];
-    for (const call of calls) {
-      yield { type: "tool_use", call };
-      const tctx: ToolCallContext = { ...ctx, call };
+    // All calls of this turn are now in flight: announce them up front, in input order.
+    for (const call of calls) yield { type: "tool_use", call };
+
+    // Each call runs with an ISOLATED emit buffer so a sibling's events (approval_*,
+    // tool emits) don't interleave non-deterministically. Buffers flush in input order
+    // after the pool drains, so the event stream stays deterministic.
+    const runCall = async (
+      call: ToolCall,
+    ): Promise<{ events: AgentEvent[]; result: ToolResult }> => {
+      const events: AgentEvent[] = [];
+      const callEmit = (ev: AgentEvent) => { events.push(ev); };
+      const tctx: ToolCallContext = { ...ctx, call, emit: callEmit };
       const tool = toolMap.get(call.name);
-      const baseExec = async () => {
-        if (!tool) return { id: call.id, name: call.name, content: `Error: unknown tool '${call.name}'`, isError: true as const };
+      const baseExec = async (): Promise<ToolResult> => {
+        if (!tool) return { id: call.id, name: call.name, content: `Error: unknown tool '${call.name}'`, isError: true };
         try {
           const parsed = tool.schema.parse(call.input);
-          const out = await tool.execute(parsed, { sessionId, signal, emit, sandbox: cfg.sandbox, input: cfg.input, call });
+          const out = await tool.execute(parsed, { sessionId, signal, emit: callEmit, sandbox: cfg.sandbox, input: cfg.input, call });
           return { id: call.id, name: call.name, content: String(out) };
         } catch (e) {
-          return { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true as const };
+          return { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true };
         }
       };
       const result = await composeToolCall(cfg.middleware, tctx, baseExec)();
-      yield* drain();
+      return { events, result };
+    };
+
+    const outcomes = await runToolPool(calls, cfg.maxParallelTools ?? 10, runCall);
+
+    const resultBlocks: ToolResultBlock[] = [];
+    for (const { events, result } of outcomes) {
+      for (const ev of events) yield ev;
       resultBlocks.push(toolResultBlock(result.id, result.content, result.isError));
       yield { type: "tool_result", result };
     }
@@ -140,4 +157,23 @@ function lastAssistantText(messages: Message[]): string {
     }
   }
   return "";
+}
+
+/** Run `fn` over `calls` with at most `limit` in flight; results stay input-ordered. */
+async function runToolPool<R>(
+  calls: ToolCall[],
+  limit: number,
+  fn: (call: ToolCall) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(calls.length);
+  let next = 0;
+  const worker = async (): Promise<void> => {
+    while (next < calls.length) {
+      const i = next++;
+      results[i] = await fn(calls[i]!);
+    }
+  };
+  const workers = Math.max(1, Math.min(limit, calls.length));
+  await Promise.all(Array.from({ length: workers }, worker));
+  return results;
 }
