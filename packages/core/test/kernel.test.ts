@@ -8,7 +8,7 @@ import { defineTool } from "../src/tools/define";
 import { textBlock } from "../src/types";
 import type { AgentEvent, RunResult } from "../src/events";
 import type { Middleware } from "../src/middleware";
-import type { Message } from "../src/types";
+import type { Message, ToolResultBlock } from "../src/types";
 import type { ModelProvider } from "../src/strategies";
 import { noopSandbox } from "../src/sandbox";
 import { memoryStore } from "../src/store";
@@ -215,4 +215,85 @@ test("kernel threads input + call into the tool execute context", async () => {
   expect(types).toContain("input_request");
   expect(types).toContain("input_resolved");
   expect(events.find((e) => e.type === "tool_result")).toMatchObject({ result: { id: "t1", content: "blue" } });
+});
+
+test("multiple tool calls in one turn run concurrently", async () => {
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const slow = (name: string) =>
+    defineTool({
+      name, description: name, schema: z.object({}),
+      execute: async () => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 20));
+        inFlight--;
+        return name;
+      },
+    });
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [
+      { type: "tool_call", id: "t1", name: "a", input: {} },
+      { type: "tool_call", id: "t2", name: "b", input: {} },
+    ] } },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  await drain(
+    runKernel(baseCfg({ provider, tools: [slow("a"), slow("b")] }), "hi", new AbortController().signal, "s1"),
+  );
+  expect(maxInFlight).toBe(2);
+});
+
+test("tool_result events and result blocks stay in input order regardless of completion order", async () => {
+  const fast = defineTool({ name: "fast", description: "f", schema: z.object({}), execute: async () => "FAST" });
+  const slow = defineTool({
+    name: "slow", description: "s", schema: z.object({}),
+    execute: async () => { await new Promise((r) => setTimeout(r, 30)); return "SLOW"; },
+  });
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [
+      { type: "tool_call", id: "t1", name: "slow", input: {} }, // input order: slow first
+      { type: "tool_call", id: "t2", name: "fast", input: {} }, // but fast finishes first
+    ] } },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  const { events, result } = await drain(
+    runKernel(baseCfg({ provider, tools: [slow, fast] }), "hi", new AbortController().signal, "s1"),
+  );
+  const contents = events
+    .filter((e): e is Extract<AgentEvent, { type: "tool_result" }> => e.type === "tool_result")
+    .map((e) => e.result.content);
+  expect(contents).toEqual(["SLOW", "FAST"]);
+  const userMsg = result.messages.find(
+    (m) => m.role === "user" && Array.isArray(m.content) && (m.content as ToolResultBlock[]).every((b) => b.type === "tool_result"),
+  );
+  expect((userMsg!.content as ToolResultBlock[]).map((b) => b.id)).toEqual(["t1", "t2"]);
+  expect((userMsg!.content as ToolResultBlock[]).map((b) => b.content)).toEqual(["SLOW", "FAST"]);
+});
+
+test("maxParallelTools: 1 forces sequential execution", async () => {
+  let inFlight = 0;
+  let maxInFlight = 0;
+  const slow = (name: string) =>
+    defineTool({
+      name, description: name, schema: z.object({}),
+      execute: async () => {
+        inFlight++;
+        maxInFlight = Math.max(maxInFlight, inFlight);
+        await new Promise((r) => setTimeout(r, 20));
+        inFlight--;
+        return name;
+      },
+    });
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [
+      { type: "tool_call", id: "t1", name: "a", input: {} },
+      { type: "tool_call", id: "t2", name: "b", input: {} },
+    ] } },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  await drain(
+    runKernel(baseCfg({ provider, tools: [slow("a"), slow("b")], maxParallelTools: 1 }), "hi", new AbortController().signal, "s1"),
+  );
+  expect(maxInFlight).toBe(1);
 });
