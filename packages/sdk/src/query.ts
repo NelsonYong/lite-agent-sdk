@@ -7,13 +7,14 @@ import type {
   Middleware,
   ModelProvider,
   PermissionPolicy,
-  RunResult,
   Sandbox,
   Store,
   Tool,
   ToolChoice,
 } from "@lite-agent/core";
+import type { ZodType } from "zod";
 import { createLiteAgent } from "./createLiteAgent";
+import type { LiteAgentResult } from "./createLiteAgent";
 
 export interface QueryOptions {
   prompt: string | Message[];
@@ -31,6 +32,7 @@ export interface QueryOptions {
   topP?: number;
   toolChoice?: ToolChoice;
   seed?: number;
+  outputSchema?: ZodType;
   maxParallelTools?: number;
   use?: Middleware[];
   signal?: AbortSignal;
@@ -54,7 +56,7 @@ export interface QueryOptions {
 
 export function query(
   opts: QueryOptions,
-): AsyncGenerator<AgentEvent, RunResult> {
+): AsyncGenerator<AgentEvent, LiteAgentResult> {
   const agent = createLiteAgent({
     model: opts.model,
     modelName: opts.modelName,
@@ -70,6 +72,7 @@ export function query(
     topP: opts.topP,
     toolChoice: opts.toolChoice,
     seed: opts.seed,
+    outputSchema: opts.outputSchema,
     maxParallelTools: opts.maxParallelTools,
     use: opts.use,
     sandbox: opts.sandbox,
