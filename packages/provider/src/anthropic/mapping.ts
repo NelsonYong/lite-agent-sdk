@@ -3,6 +3,7 @@ import type {
   ContentBlock,
   Message,
   ModelRequest,
+  ToolChoice,
   ToolSpec,
 } from "@lite-agent/core";
 
@@ -64,6 +65,22 @@ export function toAnthropicParams(
   };
   if (req.system) params.system = req.system;
   if (req.stopSequences) params.stop_sequences = req.stopSequences;
-  if (req.tools && req.tools.length) params.tools = req.tools.map(toTool);
+  if (req.temperature !== undefined) params.temperature = req.temperature;
+  if (req.topP !== undefined) params.top_p = req.topP;
+  // req.seed is intentionally not forwarded — Anthropic's Messages API has no seed.
+  if (req.tools && req.tools.length) {
+    params.tools = req.tools.map(toTool);
+    // tool_choice only applies when tools are present.
+    if (req.toolChoice !== undefined) params.tool_choice = toAnthropicToolChoice(req.toolChoice);
+  }
   return params;
+}
+
+function toAnthropicToolChoice(
+  tc: ToolChoice,
+): Anthropic.MessageCreateParams["tool_choice"] {
+  if (tc === "auto") return { type: "auto" };
+  if (tc === "none") return { type: "none" };
+  if (tc === "required") return { type: "any" };
+  return { type: "tool", name: tc.tool };
 }

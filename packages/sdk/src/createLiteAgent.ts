@@ -18,6 +18,7 @@ import type {
   Sandbox,
   Store,
   Tool,
+  ToolChoice,
 } from "@lite-agent/core";
 import { defaultTools, askUserTool } from "./tools";
 import { SkillLoader } from "./skills/loader";
@@ -47,6 +48,14 @@ export interface CreateLiteAgentConfig {
   disallowedTools?: string[];
   maxTurns?: number;
   maxTokens?: number;
+  /** Sampling temperature, forwarded to the provider. Inherited by subagents. */
+  temperature?: number;
+  /** Nucleus sampling (top_p), forwarded to the provider. Inherited by subagents. */
+  topP?: number;
+  /** Tool-selection mode for the model. Inherited by subagents. */
+  toolChoice?: ToolChoice;
+  /** Reproducibility seed (OpenAI only; ignored by Anthropic). Inherited by subagents. */
+  seed?: number;
   /** Max tool calls run concurrently per turn (default 10; 1 = sequential). Inherited by subagents. */
   maxParallelTools?: number;
   use?: Middleware[];
@@ -210,6 +219,10 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     system,
     maxTurns: cfg.maxTurns,
     maxTokens: cfg.maxTokens,
+    temperature: cfg.temperature,
+    topP: cfg.topP,
+    toolChoice: cfg.toolChoice,
+    seed: cfg.seed,
     maxParallelTools: cfg.maxParallelTools,
     sandbox: cfg.sandbox,
     store,

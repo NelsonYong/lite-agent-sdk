@@ -1,5 +1,5 @@
 import type { ModelProvider, ToolCallCodec, Tool, Sandbox, InputHandler, Store } from "./strategies";
-import type { AssistantMessage, Message, ToolCall, ToolResult, ToolResultBlock, Usage } from "./types";
+import type { AssistantMessage, Message, ToolCall, ToolChoice, ToolResult, ToolResultBlock, Usage } from "./types";
 import { isTextBlock, toolResultBlock } from "./types";
 import type { AgentEvent, RunResult } from "./events";
 import { ProviderError } from "./events";
@@ -16,6 +16,10 @@ export interface KernelConfig {
   system?: string;
   maxTurns: number;
   maxTokens?: number;
+  temperature?: number;
+  topP?: number;
+  toolChoice?: ToolChoice;
+  seed?: number;
   sandbox: Sandbox;
   input?: InputHandler;
   store?: Store;
@@ -68,7 +72,16 @@ export async function* runKernel(
     const modelCall = composeModelCall(cfg.middleware, ctx, () =>
       cfg.provider.stream(
         cfg.codec.encode(
-          { model: cfg.model, system: cfg.system, messages: ctx.messages, maxTokens: cfg.maxTokens },
+          {
+            model: cfg.model,
+            system: cfg.system,
+            messages: ctx.messages,
+            maxTokens: cfg.maxTokens,
+            temperature: cfg.temperature,
+            topP: cfg.topP,
+            toolChoice: cfg.toolChoice,
+            seed: cfg.seed,
+          },
           toolSpecs,
         ),
         signal,

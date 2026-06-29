@@ -19,6 +19,9 @@ export type UserAnswer = { text?: string; selected?: string[] };
 
 export type ToolSpec = { name: string; description: string; parameters: Record<string, unknown> };
 
+/** How the model should choose tools: let it decide, forbid, force any, or force one by name. */
+export type ToolChoice = "auto" | "none" | "required" | { tool: string };
+
 export type ModelRequest = {
   model: string;
   system?: string;
@@ -26,6 +29,11 @@ export type ModelRequest = {
   tools?: ToolSpec[];
   maxTokens?: number;
   stopSequences?: string[];
+  temperature?: number;
+  topP?: number;
+  toolChoice?: ToolChoice;
+  /** Reproducibility hint; honored by OpenAI, ignored by providers that lack it (Anthropic). */
+  seed?: number;
 };
 
 export type ModelChunk =
