@@ -40,10 +40,13 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "p-limit": "^7.3.0",
+    "picomatch": "^4.0.4",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@types/node": "^25.5.0",
+    "@types/picomatch": "^4.0.3",
     "tsup": "^8.3.0",
     "typescript": "^6.0.2",
     "vitest": "^2.1.0"
