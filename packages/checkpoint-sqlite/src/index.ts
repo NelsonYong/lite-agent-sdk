@@ -50,7 +50,10 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): SqliteCheck
 
   return {
     async append(sessionId, events, expectedHead) {
-      return appendTxn(sessionId, events, expectedHead);
+      // BEGIN IMMEDIATE (spec §6): take the write lock up front so a competing
+      // writer waits on busy_timeout instead of failing with SQLITE_BUSY_SNAPSHOT,
+      // then reads a fresh head and throws CheckpointConflictError cleanly.
+      return appendTxn.immediate(sessionId, events, expectedHead);
     },
     async *read(sessionId, opts2) {
       const rows = db
