@@ -16,7 +16,8 @@
     "dev": "pnpm --filter @lite-agent/example-cli dev",
     "changeset": "changeset",
     "publish-version": "changeset version",
-    "release": "pnpm build && changeset publish"
+    "release": "pnpm build && changeset publish",
+    "release:changed": "node scripts/publish.mjs"
   },
   "devDependencies": {
     "@changesets/cli": "^2.27.10",
