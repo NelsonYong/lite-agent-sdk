@@ -1,5 +1,11 @@
 # @lite-agent/provider
 
+## 0.5.2
+
+### Patch Changes
+
+- @lite-agent/core@0.5.2
+
 ## 0.5.1
 
 ### Patch Changes

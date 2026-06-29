@@ -10,7 +10,7 @@ export function buildSystemPrompt(opts: SystemPromptOptions): string {
   const subagentsSection =
     opts.subagents
       ? `\n\n## Subagents
-For large or context-heavy subtasks, delegate to a specialized subagent via the \`Agent\` tool instead of doing the work inline — this keeps your own context clean. To run independent subtasks in parallel, pass multiple entries in a single \`Agent\` call.
+For large or context-heavy subtasks, delegate to a specialized subagent via the \`Agent\` tool instead of doing the work inline — this keeps your own context clean. To run independent subtasks in parallel, pass multiple entries in a single \`Agent\` call: it blocks until all of them finish and returns every subagent's result at once — never call \`Agent\` again just to wait for or check on running subagents.
 Available subagents:
 ${opts.subagents}`
       : "";

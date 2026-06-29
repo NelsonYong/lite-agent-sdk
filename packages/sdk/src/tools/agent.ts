@@ -33,29 +33,44 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn }): Tool {
   return defineTool({
     name: "Agent",
     description:
-      "Delegate a large or context-heavy subtask to a specialized subagent, keeping your own context clean. Each subagent runs in isolation (it sees only the `prompt` you pass) and returns only its final result. Pass MULTIPLE entries in `tasks` to run independent subtasks in parallel. To continue a previous subagent, pass its reported agentId as `resume`.",
+      "Delegate a large or context-heavy subtask to a specialized subagent, keeping your own context clean. Each subagent runs in isolation (it sees only the `prompt` you pass) and returns only its final result. " +
+      "This call is SYNCHRONOUS: it blocks until every subagent has finished, then returns all of their final results together (labeled `subagent[0]`, `subagent[1]`, …). " +
+      "To run subtasks in parallel, pass them as MULTIPLE entries in `tasks` within a SINGLE call — do not issue separate `Agent` calls for that, and never call `Agent` again just to wait for or check on running subagents (they are already finished when this returns). " +
+      "To continue a previous subagent, pass its reported agentId as `resume`.",
     schema: z.object({ tasks: z.array(TASK).min(1) }),
     execute: async ({ tasks }, ctx) => {
+      // Each entry in `tasks` is one subagent. Surface it as an ordinary tool
+      // call (a tool_use + tool_result pair, paired by id) so any UI that already
+      // renders tool calls shows N distinct subagents — no bespoke event type.
+      // These events are observational; the model still receives the single
+      // aggregated string this tool returns. (To later drill into a subagent's
+      // live progress, forward the child kernel's own event stream from `spawn`.)
       const runOne = async (t: z.infer<typeof TASK>): Promise<{ id: string; out: string }> => {
+        const name = t.subagent_type.replace(/[\r\n]+/g, " ");
         const def = loader.get(t.subagent_type);
         if (!def) {
-          return {
-            id: "-",
-            out: `Error: unknown subagent_type '${t.subagent_type.replace(/[\r\n]+/g, " ")}'. Available: ${
-              loader.names().join(", ") || "(none)"
-            }`,
-          };
+          const id = `agent-${sanitize(t.subagent_type) || "unknown"}-${shortId()}`;
+          const out = `Error: unknown subagent_type '${name}'. Available: ${
+            loader.names().join(", ") || "(none)"
+          }`;
+          ctx.emit({ type: "tool_use", call: { id, name, input: { prompt: t.prompt } } });
+          ctx.emit({ type: "tool_result", result: { id, name, content: out, isError: true } });
+          return { id: "-", out };
         }
         // Sanitize the resume handle too: keeps the reported agentId, the output
         // header, and the on-disk session key identical and filesystem-safe.
         const sessionId = t.resume
           ? sanitize(t.resume)
           : `agent-${sanitize(t.subagent_type)}-${shortId()}`;
+        ctx.emit({ type: "tool_use", call: { id: sessionId, name, input: { prompt: t.prompt } } });
         try {
           const out = await spawn(def, t.prompt, { signal: ctx.signal, sessionId });
+          ctx.emit({ type: "tool_result", result: { id: sessionId, name, content: out } });
           return { id: sessionId, out };
         } catch (e) {
-          return { id: sessionId, out: `Error: ${(e as Error).message}` };
+          const out = `Error: ${(e as Error).message}`;
+          ctx.emit({ type: "tool_result", result: { id: sessionId, name, content: out, isError: true } });
+          return { id: sessionId, out };
         }
       };
 

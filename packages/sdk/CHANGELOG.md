@@ -1,5 +1,12 @@
 # lite-agent
 
+## 0.5.2
+
+### Patch Changes
+
+- Subagents dispatched via the `Agent` tool now surface as individual tool calls: each task in a single `Agent` call emits its own `tool_use` + `tool_result` event (paired by id, labeled by `subagent_type`), so a UI renders N distinct subagents instead of one opaque dispatch. The `Agent` description and the subagents prompt now make the synchronous semantics explicit — pass multiple `tasks` in one call to run them in parallel and receive all results together; don't re-invoke the tool to poll for "still running" subagents.
+  - @lite-agent/core@0.5.2
+
 ## 0.5.1
 
 ### Patch Changes

@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { ToolContext } from "@lite-agent/core";
+import type { AgentEvent, ToolContext } from "@lite-agent/core";
 import { AgentLoader } from "../src/agents/loader";
 import { agentTool } from "../src/tools/agent";
 import type { Spawn } from "../src/tools/agent";
@@ -89,6 +89,41 @@ test("one task throwing surfaces its error; siblings still succeed", async () =>
   );
   expect(out).toContain("fine");
   expect(out).toMatch(/Error: boom/);
+});
+
+test("each task surfaces as its own tool_use + tool_result (subagent as a tool call)", async () => {
+  const events: AgentEvent[] = [];
+  const ectx: ToolContext = { ...ctx, emit: (e) => events.push(e) };
+  const spawn: Spawn = async (def, prompt) => `${def.name}:${prompt}`;
+  const tool = agentTool({ loader: loaderWith("a", "b"), spawn });
+  await tool.execute(
+    { tasks: [{ subagent_type: "a", prompt: "1" }, { subagent_type: "b", prompt: "2" }] },
+    ectx,
+  );
+  const uses = events.filter((e) => e.type === "tool_use") as Array<Extract<AgentEvent, { type: "tool_use" }>>;
+  const res = events.filter((e) => e.type === "tool_result") as Array<Extract<AgentEvent, { type: "tool_result" }>>;
+  expect(uses.map((e) => e.call.name)).toEqual(["a", "b"]);
+  expect(res.map((e) => e.result.name)).toEqual(["a", "b"]);
+  expect(res.map((e) => e.result.content)).toEqual(["a:1", "b:2"]);
+  // tool_use and tool_result for the same subagent share an id (pairable)
+  expect(uses[0]!.call.id).toBe(res.find((e) => e.result.name === "a")!.result.id);
+  expect(res.every((e) => !e.result.isError)).toBe(true);
+});
+
+test("a failed subagent surfaces a tool_result with isError", async () => {
+  const events: AgentEvent[] = [];
+  const ectx: ToolContext = { ...ctx, emit: (e) => events.push(e) };
+  const spawn: Spawn = async (def) => { if (def.name === "bad") throw new Error("boom"); return "fine"; };
+  const tool = agentTool({ loader: loaderWith("good", "bad"), spawn });
+  await tool.execute(
+    { tasks: [{ subagent_type: "good", prompt: "x" }, { subagent_type: "bad", prompt: "y" }] },
+    ectx,
+  );
+  const res = events.filter((e) => e.type === "tool_result") as Array<Extract<AgentEvent, { type: "tool_result" }>>;
+  const bad = res.find((e) => e.result.name === "bad")!;
+  expect(bad.result.isError).toBe(true);
+  expect(bad.result.content).toMatch(/boom/);
+  expect(res.find((e) => e.result.name === "good")!.result.isError).toBeFalsy();
 });
 
 test("a subagent_type with newlines cannot inject a markdown heading into the output", async () => {
