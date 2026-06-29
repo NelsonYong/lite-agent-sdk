@@ -1,3 +1,4 @@
+import picomatch from "picomatch";
 import type { Decision, PermissionPolicy } from "./strategies";
 import type { ApprovalHandler } from "./strategies";
 import type { Middleware, ToolCallContext } from "./middleware";
@@ -10,19 +11,16 @@ export interface PolicyOptions {
   default?: Decision;
 }
 
-// Glob → RegExp: escape every regex metachar EXCEPT '*', then '*' → '.*'. Full-match.
-function globToRegExp(pattern: string): RegExp {
-  const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, "\\$&").replace(/\*/g, ".*");
-  return new RegExp(`^${escaped}$`);
-}
-
 export function policy(opts: PolicyOptions = {}): PermissionPolicy {
-  const compile = (pats?: string[]) => (pats ?? []).map(globToRegExp);
+  // Match tool names as globs via picomatch: whole-string anchored, '*' wildcard,
+  // plus brace/character-class support. dot:true keeps '*' matching every name.
+  const compile = (pats?: string[]) =>
+    (pats ?? []).map((p) => picomatch(p, { dot: true }));
   const deny = compile(opts.deny);
   const ask = compile(opts.ask);
   const allow = compile(opts.allow);
   const fallback: Decision = opts.default ?? "allow";
-  const hit = (res: RegExp[], name: string) => res.some((re) => re.test(name));
+  const hit = (ms: Array<(name: string) => boolean>, name: string) => ms.some((m) => m(name));
   return {
     check(call): Decision {
       if (hit(deny, call.name)) return "deny";

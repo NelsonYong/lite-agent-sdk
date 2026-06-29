@@ -38,6 +38,16 @@ test("policy: precedence deny > ask > allow when a name matches several", () => 
   expect(p2.check({ id: "1", name: "bash", input: {} }, { sessionId: "s" })).toBe("ask");
 });
 
+test("policy: glob is whole-string anchored (no partial matches)", () => {
+  const p = policy({ ask: ["write_*"], deny: ["bash"] });
+  // '*' matches a trailing run of chars...
+  expect(p.check({ id: "1", name: "write_file", input: {} }, { sessionId: "s" })).toBe("ask");
+  // ...but the pattern is anchored at the start: a prefix before it does NOT match.
+  expect(p.check({ id: "1", name: "prewrite_file", input: {} }, { sessionId: "s" })).toBe("allow");
+  // a plain (non-glob) pattern is an EXACT match, not a substring/prefix match.
+  expect(p.check({ id: "1", name: "bashx", input: {} }, { sessionId: "s" })).toBe("allow");
+});
+
 // --- permission() middleware ---
 test("permission: allow runs the tool", async () => {
   const events: AgentEvent[] = [];
