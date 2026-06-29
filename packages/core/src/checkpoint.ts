@@ -1,4 +1,5 @@
 import type { AssistantMessage, Message, ToolResultBlock } from "./types";
+import type { Store } from "./strategies";
 import { CheckpointConflictError } from "./events";
 
 /** One appended fact about a session. The canonical persisted unit. */
@@ -78,6 +79,44 @@ export function memoryCheckpointer(): Checkpointer {
     async delete(sessionId) {
       logs.delete(sessionId);
       updated.delete(sessionId);
+    },
+  };
+}
+
+/**
+ * Wrap a legacy whole-array `Store` as a `Checkpointer`, so code that injected a
+ * custom Store keeps working. `append` folds the full state and re-saves it (the
+ * original O(n) behavior — no per-event durability); `read` replays the saved
+ * messages as synthetic `user`/`assistant` events. `head` is the message count.
+ */
+export function legacyStoreAdapter(store: Store): Checkpointer {
+  const eventsOf = (messages: Message[]): SessionEvent[] =>
+    messages.map((m) =>
+      m.role === "assistant"
+        ? { type: "assistant", message: m as AssistantMessage }
+        : { type: "user", message: m },
+    );
+  return {
+    async append(sessionId, events, expectedHead) {
+      const current = (await store.load(sessionId)) ?? [];
+      if (expectedHead !== undefined && expectedHead !== current.length)
+        throw new CheckpointConflictError(sessionId, expectedHead, current.length);
+      const merged = [...current, ...foldEvents(events)];
+      await store.save(sessionId, merged);
+      return merged.length;
+    },
+    async *read(sessionId) {
+      const messages = (await store.load(sessionId)) ?? [];
+      yield* storeEvents(sessionId, 0, eventsOf(messages));
+    },
+    async head(sessionId) {
+      return ((await store.load(sessionId)) ?? []).length;
+    },
+    async list() {
+      return [];
+    },
+    async delete() {
+      /* a bare Store cannot delete; no-op */
     },
   };
 }
