@@ -7,7 +7,8 @@
       "@lite-agent/core",
       "@lite-agent/sdk",
       "@lite-agent/provider",
-      "@lite-agent/sandbox-anthropic"
+      "@lite-agent/sandbox-anthropic",
+      "@lite-agent/checkpoint-sqlite"
     ]
   ],
   "linked": [],
