@@ -1,0 +1,41 @@
+{
+  "name": "@lite-agent/checkpoint-sqlite",
+  "version": "0.4.0",
+  "description": "SQLite (WAL) Checkpointer backend for @lite-agent/core — single-host multi-process event-sourced persistence.",
+  "license": "ISC",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": ["dist"],
+  "engines": { "node": ">=20" },
+  "keywords": ["agent", "ai", "llm", "checkpoint", "sqlite", "persistence"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NelsonYong/lite-agent.git",
+    "directory": "packages/checkpoint-sqlite"
+  },
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean --tsconfig tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lite-agent/core": "workspace:*",
+    "better-sqlite3": "^11.8.0"
+  },
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.11",
+    "@types/node": "^25.5.0",
+    "tsup": "^8.3.0",
+    "typescript": "^6.0.2",
+    "vitest": "^2.1.0"
+  }
+}
