@@ -2,7 +2,7 @@ import { expect, test } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { checkpointerConformance } from "@lite-agent/core";
+import { checkpointerConformance, CheckpointConflictError } from "@lite-agent/core";
 import { sqliteCheckpointer } from "../src/index";
 
 const dbFile = () => join(mkdtempSync(join(tmpdir(), "sq-")), "ckpt.db");
@@ -20,4 +20,24 @@ test("durable across reopen of the same file", async () => {
   a.close();
   const b = sqliteCheckpointer({ file });
   expect(await b.head("s")).toBe(1);
+});
+
+test("two clients on one DB file see each other's writes (optimistic concurrency)", async () => {
+  // Two independent connections to the same file stand in for two processes. Because
+  // every append reads the head from the DB (not a per-instance cache), client B sees
+  // A's write, and a stale expectedHead is rejected with CheckpointConflictError.
+  const file = dbFile();
+  const a = sqliteCheckpointer({ file });
+  const b = sqliteCheckpointer({ file });
+  const head = await a.append("s", [{ type: "user", message: { role: "user", content: "from A" } }]);
+  expect(head).toBe(1);
+  // B observes A's append without any cache priming.
+  expect(await b.head("s")).toBe(1);
+  // B appending against the now-stale head 0 conflicts; against the fresh head 1 it succeeds.
+  await expect(b.append("s", [{ type: "user", message: { role: "user", content: "stale" } }], 0)).rejects.toBeInstanceOf(CheckpointConflictError);
+  expect(await b.append("s", [{ type: "user", message: { role: "user", content: "from B" } }], 1)).toBe(2);
+  // A likewise sees B's committed write.
+  expect(await a.head("s")).toBe(2);
+  a.close();
+  b.close();
 });

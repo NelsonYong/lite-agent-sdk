@@ -121,7 +121,8 @@ export function legacyStoreAdapter(store: Store): Checkpointer {
       yield* storeEvents(sessionId, 0, eventsOf(messages));
     },
     async head(sessionId) {
-      return ((await store.load(sessionId)) ?? []).length;
+      const cached = heads.get(sessionId);
+      return cached ?? ((await store.load(sessionId)) ?? []).length;
     },
     async list() {
       const s = store as Partial<{ list(): Promise<SessionInfo[]> }>;
