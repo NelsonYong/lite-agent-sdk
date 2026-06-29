@@ -1,5 +1,50 @@
 # lite-agent
 
+## 0.5.0
+
+### Minor Changes
+
+- c695991: Event-sourced checkpoint persistence
+
+  The session store is now an append-only, event-sourced `Checkpointer`: a per-session
+  log of `SessionEvent`s keyed by a monotonic `seq`, folded back into messages on load
+  (`foldEvents`). The kernel appends `user`/`assistant`/`tool_result` events as they
+  occur — each tool result is persisted the moment it completes, closing the mid-turn
+  data-loss window under concurrent tool execution. New API: `Checkpointer`,
+  `memoryCheckpointer`, `fileCheckpointer` (the new default), `legacyStoreAdapter`,
+  `foldEvents`, `CheckpointConflictError`, plus optimistic multi-client concurrency via
+  `expectedHead`. The legacy `Store` (`jsonlStore`/`memoryStore`) still works via
+  `legacyStoreAdapter`. Old whole-array transcripts are not migrated and are swept on
+  cleanup.
+
+- fefb68f: Add model sampling and tool-selection controls
+
+  `ModelRequest` gains `temperature`, `topP`, `toolChoice`, and `seed`, threaded through
+  `KernelConfig` → `createAgent` → `createLiteAgent` / `query` (and inherited by subagents).
+  `toolChoice` is normalized as `"auto" | "none" | "required" | { tool: string }`.
+
+  Both providers forward the new fields: the OpenAI mapping emits `temperature` / `top_p` /
+  `seed` / `tool_choice`; the Anthropic mapping emits `temperature` / `top_p` and maps
+  `tool_choice` to its `auto` / `none` / `any` / `tool` shapes (`seed` is unsupported by
+  Anthropic and intentionally ignored). `tool_choice` is only sent when tools are present.
+
+- 7fc43a8: Add `outputSchema` for structured final answers
+
+  `createLiteAgent` and `query` accept an `outputSchema` (a Zod object schema). When set,
+  a `final_answer` tool whose parameters are that schema is registered and the model is
+  instructed to call it when done. The validated arguments surface as `result.output`
+  (typed via the new `LiteAgentResult`). Because the answer travels through a tool call
+  rather than free text, it is robust for reasoning models (whose replies contain `<think>`
+  blocks) and small local models. Subagents do not inherit `outputSchema` — they still
+  return their answer as text.
+
+### Patch Changes
+
+- Updated dependencies [c695991]
+- Updated dependencies [fefb68f]
+- Updated dependencies [c99328b]
+  - @lite-agent/core@0.5.0
+
 ## 0.4.0
 
 ### Minor Changes

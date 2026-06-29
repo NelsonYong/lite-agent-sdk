@@ -1,5 +1,14 @@
 # @lite-agent/sandbox-anthropic
 
+## 0.5.0
+
+### Patch Changes
+
+- Updated dependencies [c695991]
+- Updated dependencies [fefb68f]
+- Updated dependencies [c99328b]
+  - @lite-agent/core@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes

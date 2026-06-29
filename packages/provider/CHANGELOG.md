@@ -1,5 +1,36 @@
 # @lite-agent/provider
 
+## 0.5.0
+
+### Minor Changes
+
+- fefb68f: Add model sampling and tool-selection controls
+
+  `ModelRequest` gains `temperature`, `topP`, `toolChoice`, and `seed`, threaded through
+  `KernelConfig` → `createAgent` → `createLiteAgent` / `query` (and inherited by subagents).
+  `toolChoice` is normalized as `"auto" | "none" | "required" | { tool: string }`.
+
+  Both providers forward the new fields: the OpenAI mapping emits `temperature` / `top_p` /
+  `seed` / `tool_choice`; the Anthropic mapping emits `temperature` / `top_p` and maps
+  `tool_choice` to its `auto` / `none` / `any` / `tool` shapes (`seed` is unsupported by
+  Anthropic and intentionally ignored). `tool_choice` is only sent when tools are present.
+
+- 4681f1e: Stop the providers from double-retrying
+
+  `openai()` and `anthropic()` now construct their SDK clients with `maxRetries: 0` by
+  default, and expose a `maxRetries` option. Previously each SDK retried transient
+  failures twice on its own, which **compounded** with the `retry()` middleware
+  (≈ 3 × 3 connection attempts and inflated backoff latency). Retry policy now has a
+  single owner — the `retry()` middleware — and `maxRetries` lets you restore
+  SDK-level retries when not using the middleware.
+
+### Patch Changes
+
+- Updated dependencies [c695991]
+- Updated dependencies [fefb68f]
+- Updated dependencies [c99328b]
+  - @lite-agent/core@0.5.0
+
 ## 0.4.0
 
 ### Patch Changes

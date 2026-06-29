@@ -1,5 +1,44 @@
 # @lite-agent/core
 
+## 0.5.0
+
+### Minor Changes
+
+- c695991: Event-sourced checkpoint persistence
+
+  The session store is now an append-only, event-sourced `Checkpointer`: a per-session
+  log of `SessionEvent`s keyed by a monotonic `seq`, folded back into messages on load
+  (`foldEvents`). The kernel appends `user`/`assistant`/`tool_result` events as they
+  occur — each tool result is persisted the moment it completes, closing the mid-turn
+  data-loss window under concurrent tool execution. New API: `Checkpointer`,
+  `memoryCheckpointer`, `fileCheckpointer` (the new default), `legacyStoreAdapter`,
+  `foldEvents`, `CheckpointConflictError`, plus optimistic multi-client concurrency via
+  `expectedHead`. The legacy `Store` (`jsonlStore`/`memoryStore`) still works via
+  `legacyStoreAdapter`. Old whole-array transcripts are not migrated and are swept on
+  cleanup.
+
+- fefb68f: Add model sampling and tool-selection controls
+
+  `ModelRequest` gains `temperature`, `topP`, `toolChoice`, and `seed`, threaded through
+  `KernelConfig` → `createAgent` → `createLiteAgent` / `query` (and inherited by subagents).
+  `toolChoice` is normalized as `"auto" | "none" | "required" | { tool: string }`.
+
+  Both providers forward the new fields: the OpenAI mapping emits `temperature` / `top_p` /
+  `seed` / `tool_choice`; the Anthropic mapping emits `temperature` / `top_p` and maps
+  `tool_choice` to its `auto` / `none` / `any` / `tool` shapes (`seed` is unsupported by
+  Anthropic and intentionally ignored). `tool_choice` is only sent when tools are present.
+
+### Patch Changes
+
+- c99328b: Harden the `retry()` middleware
+
+  - Default backoff now applies **full jitter** (a random delay in `[0, ceiling]`) so
+    many agents recovering from the same transient failure don't retry in lockstep.
+    A caller-supplied `backoff` is still used verbatim.
+  - Retries are now **abort-aware**: an aborted run stops retrying immediately and
+    interrupts an in-progress backoff wait instead of sleeping it out.
+  - Each retried failure emits a non-fatal `error` event (`fatal: false`) for observability.
+
 ## 0.4.0
 
 ### Minor Changes
