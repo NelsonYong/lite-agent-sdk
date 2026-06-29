@@ -1,3 +1,4 @@
+import pLimit from "p-limit";
 import type { ModelProvider, ToolCallCodec, Tool, Sandbox, InputHandler } from "./strategies";
 import type { AssistantMessage, Message, ToolCall, ToolChoice, ToolResult, ToolResultBlock, Usage } from "./types";
 import { isTextBlock, toolResultBlock } from "./types";
@@ -166,7 +167,8 @@ export async function* runKernel(
       return { events, result };
     };
 
-    const outcomes = await runToolPool(calls, cfg.maxParallelTools ?? 10, runCall);
+    const limit = pLimit(Math.max(1, cfg.maxParallelTools ?? 10));
+    const outcomes = await Promise.all(calls.map((call) => limit(() => runCall(call))));
 
     const resultBlocks: ToolResultBlock[] = [];
     for (const { events, result } of outcomes) {
@@ -194,23 +196,4 @@ function lastAssistantText(messages: Message[]): string {
     }
   }
   return "";
-}
-
-/** Run `fn` over `calls` with at most `limit` in flight; results stay input-ordered. */
-async function runToolPool<R>(
-  calls: ToolCall[],
-  limit: number,
-  fn: (call: ToolCall) => Promise<R>,
-): Promise<R[]> {
-  const results = new Array<R>(calls.length);
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    while (next < calls.length) {
-      const i = next++;
-      results[i] = await fn(calls[i]!);
-    }
-  };
-  const workers = Math.max(1, Math.min(limit, calls.length));
-  await Promise.all(Array.from({ length: workers }, worker));
-  return results;
 }
