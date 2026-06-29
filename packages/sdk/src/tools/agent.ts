@@ -1,4 +1,5 @@
 import { randomBytes } from "node:crypto";
+import pLimit from "p-limit";
 import { z } from "zod";
 import { defineTool } from "@lite-agent/core";
 import type { Tool } from "@lite-agent/core";
@@ -74,24 +75,11 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn }): Tool {
         }
       };
 
-      const results = await runPool(tasks, MAX_CONCURRENCY, runOne);
+      const limit = pLimit(MAX_CONCURRENCY);
+      const results = await Promise.all(tasks.map((t) => limit(() => runOne(t))));
       return results
         .map((r, i) => `## subagent[${i}] ${tasks[i]!.subagent_type.replace(/[\r\n]+/g, " ")} (agentId: ${r.id})\n${r.out}`)
         .join("\n\n");
     },
   });
-}
-
-/** Run `fn` over `items` with at most `limit` in flight; results stay input-ordered. */
-async function runPool<T, R>(items: T[], limit: number, fn: (item: T) => Promise<R>): Promise<R[]> {
-  const results = new Array<R>(items.length);
-  let next = 0;
-  const worker = async (): Promise<void> => {
-    while (next < items.length) {
-      const i = next++;
-      results[i] = await fn(items[i]!);
-    }
-  };
-  await Promise.all(Array.from({ length: Math.min(limit, items.length) }, worker));
-  return results;
 }
