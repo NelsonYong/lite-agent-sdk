@@ -33,3 +33,5 @@ export { AgentLoader } from "./agents/loader";
 export { builtinAgents, GENERAL_PURPOSE } from "./agents/builtin";
 export type { AgentDefinition } from "./agents/types";
 export type { Spawn, SpawnOptions } from "./tools/agent";
+export { fileCheckpointer } from "./checkpoint";
+export type { FileCheckpointerOptions } from "./checkpoint";

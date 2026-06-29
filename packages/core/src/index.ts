@@ -5,6 +5,7 @@ export { nativeCodec } from "./codecs/native";
 export { defineTool, toToolSpec } from "./tools/define";
 export { fakeProvider } from "./testing/fakeProvider";
 export type { FakeTurn } from "./testing/fakeProvider";
+export { checkpointerConformance } from "./testing/checkpointerConformance";
 
 export { composeModelCall, composeToolCall, runLifecycle } from "./middleware";
 export type { AgentContext, ToolCallContext, Middleware, ModelCall, ToolExec } from "./middleware";
