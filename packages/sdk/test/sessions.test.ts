@@ -7,6 +7,7 @@ import { createLiteAgent } from "../src/createLiteAgent";
 import { jsonlStore } from "../src/store";
 
 const freshDir = () => mkdtempSync(join(tmpdir(), "lite-sessions-"));
+const freshWorkdir = () => mkdtempSync(join(tmpdir(), "lite-wd-"));
 const reply = (text: string) =>
   fakeProvider([{ text, message: { role: "assistant", content: [textBlock(text)] } }]);
 
@@ -33,14 +34,13 @@ test("resume(id) reconstructs an existing session's history", async () => {
 });
 
 test("clear() rotates to a new session and keeps the old transcript", async () => {
-  const dir = freshDir();
+  // Default persistence (fileCheckpointer): list/delete are first-class on the Checkpointer.
   const agent = createLiteAgent({
     model: fakeProvider([
       { text: "a", message: { role: "assistant", content: [textBlock("a")] } },
       { text: "b", message: { role: "assistant", content: [textBlock("b")] } },
     ]),
-    workdir: process.cwd(),
-    store: jsonlStore({ dir }),
+    workdir: freshWorkdir(),
     cleanup: false,
   });
   const id1 = agent.sessionId;
@@ -55,8 +55,8 @@ test("clear() rotates to a new session and keeps the old transcript", async () =
 });
 
 test("deleteSession removes a transcript from listSessions", async () => {
-  const dir = freshDir();
-  const agent = createLiteAgent({ model: reply("a"), workdir: process.cwd(), store: jsonlStore({ dir }), cleanup: false });
+  // Default persistence (fileCheckpointer): list/delete are first-class on the Checkpointer.
+  const agent = createLiteAgent({ model: reply("a"), workdir: freshWorkdir(), cleanup: false });
   const id = agent.sessionId;
   await agent.send([{ role: "user", content: "hi" }]);
   expect((await agent.listSessions()).map((s) => s.id)).toContain(id);
@@ -66,13 +66,16 @@ test("deleteSession removes a transcript from listSessions", async () => {
 
 test("session management throws when persistence is disabled", async () => {
   const agent = createLiteAgent({ model: reply("x"), workdir: process.cwd(), sessions: false, cleanup: false });
-  await expect(agent.listSessions()).rejects.toThrow(/session-capable store/);
-  await expect(agent.deleteSession("x")).rejects.toThrow(/session-capable store/);
+  await expect(agent.listSessions()).rejects.toThrow(/requires a checkpointer/);
+  await expect(agent.deleteSession("x")).rejects.toThrow(/requires a checkpointer/);
 });
 
-test("session management throws with a store lacking list/delete", async () => {
+test("a legacy store is adapted: listSessions returns [] (no enumeration) and delete no-ops", async () => {
+  // A bare Store routes through legacyStoreAdapter, whose list/delete are degenerate
+  // (it cannot enumerate) — so session management resolves degraded instead of throwing.
   const agent = createLiteAgent({ model: reply("x"), workdir: process.cwd(), store: memoryStore(), cleanup: false });
-  await expect(agent.listSessions()).rejects.toThrow(/session-capable store/);
+  expect(await agent.listSessions()).toEqual([]);
+  await expect(agent.deleteSession("x")).resolves.toBeUndefined();
 });
 
 test("a fresh agent over the same sessions dir does not resume a prior agent's session", async () => {

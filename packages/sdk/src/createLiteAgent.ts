@@ -5,12 +5,14 @@ import {
   compaction,
   reactiveCompaction,
   defaultCompactor,
+  legacyStoreAdapter,
   AgentError,
 } from "@lite-agent/core";
 import type {
   Agent,
   AgentEvent,
   ApprovalHandler,
+  Checkpointer,
   Compactor,
   InputHandler,
   Message,
@@ -31,8 +33,9 @@ import { SkillLoader } from "./skills/loader";
 import { loadSkillTool } from "./skills/loadSkillTool";
 import { buildSystemPrompt } from "./system";
 import { resolveProjectPaths } from "./paths";
-import { jsonlStore, newSessionId, isSessionStore } from "./store";
+import { newSessionId } from "./store";
 import type { SessionInfo } from "./store";
+import { fileCheckpointer } from "./checkpoint";
 import { fileSpillStore, readSpilledTool } from "./spill";
 import { sweepStale } from "./cleanup";
 import { fileTaskStore } from "./tasks/store";
@@ -73,10 +76,12 @@ export interface CreateLiteAgentConfig {
   maxParallelTools?: number;
   use?: Middleware[];
   sandbox?: Sandbox;
+  /** Event-sourced persistence backend. Default: fileCheckpointer under the project's sessions dir. Overrides `store`. */
+  checkpointer?: Checkpointer;
   store?: Store;
   /** Override the global home (default `$LITE_AGENT_HOME` || `~/.lite-agent`). */
   home?: string;
-  /** Persist transcripts under the project's sessions dir. Default true. Ignored when `store` is set. */
+  /** Persist sessions under the project's sessions dir (default fileCheckpointer). Default true. Ignored when `checkpointer`/`store` is set. */
   sessions?: boolean;
   /** Spill oversized tool_results to disk + register `read_spilled`. Default true. */
   spill?: boolean | { budgetBytes?: number };
@@ -187,6 +192,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
           onApproval: undefined, // don't share the interactive approval handler (parallel-unsafe)
           onAskUser: undefined, // subagents run non-interactively (no ask_user prompts)
           outputSchema: undefined, // subagents return their answer as text, not via final_answer
+          checkpointer: undefined, // child rebuilds its own fileCheckpointer from the shared sessions dir (keyed by its sessionId)
         });
         const r = await child.send([{ role: "user", content: prompt }], { signal, sessionId });
         return r.text;
@@ -243,9 +249,15 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
           budgetBytes: typeof cfg.spill === "object" ? cfg.spill.budgetBytes : undefined,
         });
 
-  // Sessions: explicit store wins; else default jsonlStore unless sessions:false.
-  const store =
-    cfg.store ?? (cfg.sessions === false ? undefined : jsonlStore({ dir: paths.sessionsDir }));
+  // Sessions: explicit checkpointer wins; else a legacy `store` is adapted; else the
+  // default event-sourced fileCheckpointer, unless sessions:false disables persistence.
+  const checkpointer: Checkpointer | undefined =
+    cfg.checkpointer ??
+    (cfg.store
+      ? legacyStoreAdapter(cfg.store)
+      : cfg.sessions === false
+        ? undefined
+        : fileCheckpointer({ dir: paths.sessionsDir }));
 
   const use: Middleware[] = [
     // proactive compaction (beforeModel) + reactive overflow net (wrapModelCall)
@@ -270,15 +282,16 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     seed: cfg.seed,
     maxParallelTools: cfg.maxParallelTools,
     sandbox: cfg.sandbox,
-    store,
+    checkpointer,
     input: cfg.onAskUser,
   });
 
   // Stateful session ownership lives here (sdk), not in the primitive core agent.
   let currentSessionId = newSessionId();
-  const sessionStore = isSessionStore(store) ? store : undefined;
-  const noSessionStore = (): Promise<never> =>
-    Promise.reject(new AgentError("session management requires a session-capable store"));
+  const noSessions = (): Promise<never> =>
+    Promise.reject(
+      new AgentError("session management requires a checkpointer (it is disabled when sessions:false)"),
+    );
 
   // Drive the core run, then (when outputSchema is set) attach the captured answer.
   const run = (input: string | Message[], opts?: RunOptions): AsyncGenerator<AgentEvent, LiteAgentResult> => {
@@ -315,7 +328,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
       currentSessionId = newSessionId();
       return currentSessionId;
     },
-    deleteSession: (id: string) => sessionStore ? sessionStore.delete(id) : noSessionStore(),
-    listSessions: () => sessionStore ? sessionStore.list() : noSessionStore(),
+    deleteSession: (id: string) => (checkpointer ? checkpointer.delete(id) : noSessions()),
+    listSessions: () => (checkpointer ? checkpointer.list() : noSessions()),
   };
 }

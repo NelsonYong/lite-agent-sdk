@@ -9,25 +9,14 @@ import {
 } from "node:fs";
 import { join } from "node:path";
 import { randomBytes } from "node:crypto";
-import type { Store, Message } from "@lite-agent/core";
+import type { Store, Message, SessionInfo } from "@lite-agent/core";
 
 export interface JsonlStoreOptions {
   /** Directory holding one `<sessionId>.jsonl` transcript per session. */
   dir: string;
 }
 
-/** Lightweight metadata for one persisted session. */
-export interface SessionInfo {
-  /**
-   * The on-disk session id (the `.jsonl` filename stem). For SDK-generated ids
-   * (`newSessionId`, subagent handles) this equals the original id, so it
-   * round-trips through `resume`/`delete`. A caller-supplied id containing
-   * characters outside `[a-zA-Z0-9_-]` is sanitized on save, so the value here
-   * is that sanitized form, not the raw id originally passed in.
-   */
-  id: string;
-  mtime: number; // fs mtime in ms since epoch
-}
+export type { SessionInfo };
 
 /** A Store that can also enumerate and delete its sessions. */
 export interface SessionStore extends Store {

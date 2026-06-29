@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, statSync, rmSync } from "node:fs";
+import { existsSync, readdirSync, statSync, rmSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { liteAgentHome } from "./paths";
 
@@ -23,6 +23,22 @@ export function sweepStale(opts: { home?: string; maxAgeDays?: number } = {}): v
         for (const name of readdirSync(dir)) {
           const fp = join(dir, name);
           try {
+            // Legacy whole-array transcripts (pre-event-sourcing) are not migrated:
+            // a sessions `.jsonl` whose first line isn't a `{seq:number}` event is
+            // discarded regardless of age.
+            if (sub === "sessions" && name.endsWith(".jsonl")) {
+              const first = readFileSync(fp, "utf8").split("\n").find((l) => l.trim() !== "");
+              let legacy = false;
+              if (first) {
+                try {
+                  const o = JSON.parse(first) as { seq?: unknown };
+                  legacy = typeof o?.seq !== "number";
+                } catch {
+                  legacy = true;
+                }
+              }
+              if (legacy) { rmSync(fp); continue; }
+            }
             if (statSync(fp).mtimeMs < cutoff) rmSync(fp);
           } catch {
             /* skip a file that vanished or can't be stat'd */
