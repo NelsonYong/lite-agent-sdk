@@ -75,3 +75,21 @@ test("uses provided maxTokens and omits tools/system when absent", () => {
   expect(p.tools).toBeUndefined();
   expect(p.system).toBeUndefined();
 });
+
+test("forwards temperature/top_p, maps tool_choice variants, ignores unsupported seed", () => {
+  const base: ModelRequest = {
+    model: "m",
+    messages: [{ role: "user", content: "hi" }],
+    tools: [{ name: "t", description: "d", parameters: { type: "object", properties: {} } }],
+  };
+  const p = toAnthropicParams({ ...base, temperature: 0.3, topP: 0.8, seed: 7, toolChoice: "required" });
+  expect(p.temperature).toBe(0.3);
+  expect(p.top_p).toBe(0.8);
+  expect((p as { seed?: number }).seed).toBeUndefined(); // Anthropic has no seed
+  expect(p.tool_choice).toEqual({ type: "any" });
+  expect(toAnthropicParams({ ...base, toolChoice: "auto" }).tool_choice).toEqual({ type: "auto" });
+  expect(toAnthropicParams({ ...base, toolChoice: "none" }).tool_choice).toEqual({ type: "none" });
+  expect(toAnthropicParams({ ...base, toolChoice: { tool: "t" } }).tool_choice).toEqual({ type: "tool", name: "t" });
+  // dropped when there are no tools
+  expect(toAnthropicParams({ model: "m", messages: [{ role: "user", content: "hi" }], toolChoice: "required" }).tool_choice).toBeUndefined();
+});

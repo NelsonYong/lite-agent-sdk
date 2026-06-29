@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ModelProvider, Tool, ToolCallCodec, Sandbox, InputHandler, Store } from "./strategies";
+import type { ToolChoice } from "./types";
 import { noopSandbox } from "./sandbox";
 import type { Middleware } from "./middleware";
 import type { Message } from "./types";
@@ -16,6 +17,10 @@ export interface CreateAgentConfig {
   system?: string;
   maxTurns?: number;
   maxTokens?: number;
+  temperature?: number;
+  topP?: number;
+  toolChoice?: ToolChoice;
+  seed?: number;
   sandbox?: Sandbox;
   input?: InputHandler;
   store?: Store;
@@ -40,6 +45,10 @@ export function createAgent(cfg: CreateAgentConfig): Agent {
     system: cfg.system,
     maxTurns: cfg.maxTurns ?? 50,
     maxTokens: cfg.maxTokens,
+    temperature: cfg.temperature,
+    topP: cfg.topP,
+    toolChoice: cfg.toolChoice,
+    seed: cfg.seed,
     sandbox: cfg.sandbox ?? noopSandbox(),
     input: cfg.input,
     store: cfg.store,

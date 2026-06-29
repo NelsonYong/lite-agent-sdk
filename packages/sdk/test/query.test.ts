@@ -85,6 +85,27 @@ test("query forwards an explicit maxParallelTools and the kernel honors it as a 
   expect(maxInFlight).toBe(2);
 });
 
+test("query threads model controls end-to-end into the provider request", async () => {
+  let captured: Record<string, unknown> | undefined;
+  const capturing = {
+    id: "cap",
+    async *stream(req: Record<string, unknown>) {
+      captured = req;
+      yield { type: "message_done", message: { role: "assistant", content: [textBlock("ok")] }, usage: { inputTokens: 0, outputTokens: 0 } };
+    },
+  };
+  const gen = query({
+    prompt: "hi", model: capturing as never, cwd: mkdtempSync(join(tmpdir(), "ctl-")),
+    sessions: false, temperature: 0.42, topP: 0.7, seed: 9, toolChoice: "auto",
+  });
+  let r = await gen.next();
+  while (!r.done) r = await gen.next();
+  expect(captured?.temperature).toBe(0.42);
+  expect(captured?.topP).toBe(0.7);
+  expect(captured?.seed).toBe(9);
+  expect(captured?.toolChoice).toBe("auto");
+});
+
 test("query forwards maxParallelTools: 1 — tool calls run sequentially", async () => {
   let inFlight = 0;
   let maxInFlight = 0;

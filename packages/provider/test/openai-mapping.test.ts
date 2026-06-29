@@ -37,3 +37,18 @@ test("maps tools and maxTokens/stop, drops $schema", () => {
   expect(p.stop).toEqual(["X"]);
   expect(p.tools).toEqual([{ type: "function", function: { name: "t", description: "d", parameters: { type: "object", properties: {} } } }]);
 });
+
+test("forwards temperature/top_p/seed and maps tool_choice (only when tools present)", () => {
+  const withTool = { model: "m", messages: [],
+    tools: [{ name: "t", description: "d", parameters: { type: "object", properties: {} } }] };
+  const p = toOpenAIParams({ ...withTool, temperature: 0.2, topP: 0.9, seed: 42, toolChoice: "required" as const });
+  expect(p.temperature).toBe(0.2);
+  expect(p.top_p).toBe(0.9);
+  expect(p.seed).toBe(42);
+  expect(p.tool_choice).toBe("required");
+  // a specific tool by name
+  expect(toOpenAIParams({ ...withTool, toolChoice: { tool: "t" } }).tool_choice)
+    .toEqual({ type: "function", function: { name: "t" } });
+  // tool_choice is dropped when there are no tools (OpenAI would 400 otherwise)
+  expect(toOpenAIParams({ model: "m", messages: [], toolChoice: "required" as const }).tool_choice).toBeUndefined();
+});

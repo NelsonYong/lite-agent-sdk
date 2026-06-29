@@ -3,6 +3,7 @@ import type {
   ContentBlock,
   Message,
   ModelRequest,
+  ToolChoice,
   ToolSpec,
 } from "@lite-agent/core";
 
@@ -81,6 +82,20 @@ export function toOpenAIParams(
   };
   if (req.maxTokens) params.max_tokens = req.maxTokens;
   if (req.stopSequences) params.stop = req.stopSequences;
-  if (req.tools && req.tools.length) params.tools = req.tools.map(toChatTool);
+  if (req.temperature !== undefined) params.temperature = req.temperature;
+  if (req.topP !== undefined) params.top_p = req.topP;
+  if (req.seed !== undefined) params.seed = req.seed;
+  if (req.tools && req.tools.length) {
+    params.tools = req.tools.map(toChatTool);
+    // tool_choice is only valid alongside tools; omit it otherwise (OpenAI 400s).
+    if (req.toolChoice !== undefined) params.tool_choice = toOpenAIToolChoice(req.toolChoice);
+  }
   return params;
+}
+
+function toOpenAIToolChoice(
+  tc: ToolChoice,
+): OpenAI.Chat.Completions.ChatCompletionToolChoiceOption {
+  if (tc === "auto" || tc === "none" || tc === "required") return tc;
+  return { type: "function", function: { name: tc.tool } };
 }

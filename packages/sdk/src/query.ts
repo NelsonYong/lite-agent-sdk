@@ -11,6 +11,7 @@ import type {
   Sandbox,
   Store,
   Tool,
+  ToolChoice,
 } from "@lite-agent/core";
 import { createLiteAgent } from "./createLiteAgent";
 
@@ -26,6 +27,10 @@ export interface QueryOptions {
   disallowedTools?: string[];
   maxTurns?: number;
   maxTokens?: number;
+  temperature?: number;
+  topP?: number;
+  toolChoice?: ToolChoice;
+  seed?: number;
   maxParallelTools?: number;
   use?: Middleware[];
   signal?: AbortSignal;
@@ -61,6 +66,10 @@ export function query(
     disallowedTools: opts.disallowedTools,
     maxTurns: opts.maxTurns,
     maxTokens: opts.maxTokens,
+    temperature: opts.temperature,
+    topP: opts.topP,
+    toolChoice: opts.toolChoice,
+    seed: opts.seed,
     maxParallelTools: opts.maxParallelTools,
     use: opts.use,
     sandbox: opts.sandbox,
