@@ -88,6 +88,11 @@ export function memoryCheckpointer(): Checkpointer {
  * custom Store keeps working. `append` folds the full state and re-saves it (the
  * original O(n) behavior — no per-event durability); `read` replays the saved
  * messages as synthetic `user`/`assistant` events. `head` is the message count.
+ * `list` and `delete` delegate to the wrapped store when it provides those methods,
+ * otherwise return []/no-op (a bare Store has no enumeration capability).
+ * Caveat: appends write the wrapped store's legacy (no-`seq`) format; if that store
+ * points under the swept `sessions/` tree, the cleanup sweeper will discard those
+ * files as legacy.
  */
 export function legacyStoreAdapter(store: Store): Checkpointer {
   const eventsOf = (messages: Message[]): SessionEvent[] =>
@@ -119,10 +124,12 @@ export function legacyStoreAdapter(store: Store): Checkpointer {
       return ((await store.load(sessionId)) ?? []).length;
     },
     async list() {
-      return [];
+      const s = store as Partial<{ list(): Promise<SessionInfo[]> }>;
+      return typeof s.list === "function" ? s.list() : [];
     },
-    async delete() {
-      /* a bare Store cannot delete; no-op */
+    async delete(sessionId) {
+      const s = store as Partial<{ delete(id: string): Promise<void> }>;
+      if (typeof s.delete === "function") await s.delete(sessionId);
     },
   };
 }

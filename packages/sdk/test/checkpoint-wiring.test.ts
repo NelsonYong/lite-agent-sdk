@@ -13,7 +13,7 @@ const drainRun = async (agent: ReturnType<typeof createLiteAgent>, input: string
   while (!g.done) g = await gen.next();
 };
 
-test("default persistence writes an event-format log and resumes", async () => {
+test("default persistence writes an event-format log", async () => {
   const w = wd();
   const home = mkdtempSync(join(tmpdir(), "home-"));
   const fp = fakeProvider([{ text: "hi", message: { role: "assistant", content: [textBlock("hi")] } }]);

@@ -99,3 +99,18 @@ test("resume() to an unknown id starts an empty session (no carryover)", async (
   expect(r.messages).not.toContainEqual({ role: "user", content: "first" });
   expect(r.messages).toContainEqual({ role: "user", content: "second" });
 });
+
+test("an injected session-capable store still drives listSessions/deleteSession", async () => {
+  const storeDir = mkdtempSync(join(tmpdir(), "ls-store-"));
+  const home = mkdtempSync(join(tmpdir(), "ls-home-"));
+  const workdir = mkdtempSync(join(tmpdir(), "ls-wd-"));
+  const fp = fakeProvider([{ text: "ok", message: { role: "assistant", content: [textBlock("ok")] } }]);
+  const agent = createLiteAgent({ model: fp, workdir, home, cleanup: false, store: jsonlStore({ dir: storeDir }) });
+  const sid = agent.sessionId;
+  const gen = agent.run("hi");
+  let g = await gen.next();
+  while (!g.done) g = await gen.next();
+  expect((await agent.listSessions()).some((s) => s.id === sid)).toBe(true);
+  await agent.deleteSession(sid);
+  expect((await agent.listSessions()).some((s) => s.id === sid)).toBe(false);
+});
