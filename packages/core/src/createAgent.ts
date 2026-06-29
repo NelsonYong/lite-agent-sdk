@@ -7,6 +7,8 @@ import type { Message } from "./types";
 import type { AgentEvent, RunResult } from "./events";
 import { runKernel } from "./kernel";
 import type { KernelConfig } from "./kernel";
+import type { Checkpointer } from "./checkpoint";
+import { legacyStoreAdapter } from "./checkpoint";
 
 export interface CreateAgentConfig {
   model: ModelProvider;
@@ -23,6 +25,8 @@ export interface CreateAgentConfig {
   seed?: number;
   sandbox?: Sandbox;
   input?: InputHandler;
+  checkpointer?: Checkpointer;
+  /** @deprecated pass `checkpointer`. A legacy Store is adapted automatically. */
   store?: Store;
   /** Max tool calls run concurrently per turn (default 10; 1 = sequential). */
   maxParallelTools?: number;
@@ -51,7 +55,7 @@ export function createAgent(cfg: CreateAgentConfig): Agent {
     seed: cfg.seed,
     sandbox: cfg.sandbox ?? noopSandbox(),
     input: cfg.input,
-    store: cfg.store,
+    checkpointer: cfg.checkpointer ?? (cfg.store ? legacyStoreAdapter(cfg.store) : undefined),
     maxParallelTools: cfg.maxParallelTools,
   };
 

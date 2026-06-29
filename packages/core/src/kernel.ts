@@ -1,4 +1,4 @@
-import type { ModelProvider, ToolCallCodec, Tool, Sandbox, InputHandler, Store } from "./strategies";
+import type { ModelProvider, ToolCallCodec, Tool, Sandbox, InputHandler } from "./strategies";
 import type { AssistantMessage, Message, ToolCall, ToolChoice, ToolResult, ToolResultBlock, Usage } from "./types";
 import { isTextBlock, toolResultBlock } from "./types";
 import type { AgentEvent, RunResult } from "./events";
@@ -6,6 +6,8 @@ import { ProviderError } from "./events";
 import { composeModelCall, composeToolCall, runLifecycle } from "./middleware";
 import type { AgentContext, Middleware, ToolCallContext } from "./middleware";
 import { toToolSpec } from "./tools/define";
+import type { Checkpointer, SessionEvent, StoredEvent } from "./checkpoint";
+import { foldEvents } from "./checkpoint";
 
 export interface KernelConfig {
   provider: ModelProvider;
@@ -22,7 +24,7 @@ export interface KernelConfig {
   seed?: number;
   sandbox: Sandbox;
   input?: InputHandler;
-  store?: Store;
+  checkpointer?: Checkpointer;
   /** Max tool calls run concurrently within one assistant turn. Default 10; 1 = sequential. */
   maxParallelTools?: number;
 }
@@ -33,12 +35,24 @@ export async function* runKernel(
   signal: AbortSignal,
   sessionId: string,
 ): AsyncGenerator<AgentEvent, RunResult> {
-  let messages: Message[] = typeof input === "string" ? [{ role: "user", content: input }] : [...input];
-  if (cfg.store) {
-    const saved = await cfg.store.load(sessionId);
-    if (saved) messages = [...saved, ...messages];
+  const inputMessages: Message[] = typeof input === "string" ? [{ role: "user", content: input }] : [...input];
+  let messages: Message[] = inputMessages;
+  const cp = cfg.checkpointer;
+  let head = 0;
+  if (cp) {
+    const stored: StoredEvent[] = [];
+    for await (const e of cp.read(sessionId)) stored.push(e);
+    messages = [...foldEvents(stored.map((s) => s.event)), ...inputMessages];
+    head = stored.length ? stored[stored.length - 1]!.seq : 0;
   }
-  const persist = async () => { if (cfg.store) await cfg.store.save(sessionId, messages); };
+  // Serialize appends so concurrent in-turn tool_result appends can't race `head`.
+  let chain: Promise<void> = Promise.resolve();
+  const append = (...evs: SessionEvent[]): Promise<void> => {
+    if (!cp || evs.length === 0) return Promise.resolve();
+    const p = chain.then(async () => { head = await cp.append(sessionId, evs, head); });
+    chain = p.then(() => undefined, () => undefined);
+    return p;
+  };
   const queue: AgentEvent[] = [];
   const emit = (ev: AgentEvent) => { queue.push(ev); };
   const toolMap = new Map(cfg.tools.map((t) => [t.name, t]));
@@ -50,6 +64,8 @@ export async function* runKernel(
     while (queue.length) yield queue.shift()!;
   }
   const mkCtx = (turn: number): AgentContext => ({ sessionId, messages, turn, signal, emit, state });
+
+  await append(...inputMessages.map((m): SessionEvent => ({ type: "user", message: m })));
 
   await runLifecycle(cfg.middleware, "beforeAgent", mkCtx(0));
   yield* drain();
@@ -105,6 +121,7 @@ export async function* runKernel(
 
     ctx.messages.push(assistant);
     yield { type: "message", message: assistant };
+    await append({ type: "assistant", message: assistant });
 
     const { calls } = cfg.codec.decode(assistant);
     if (calls.length === 0) {
@@ -145,6 +162,7 @@ export async function* runKernel(
         // under concurrency. Convert to an error result so runCall never rejects.
         result = { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true };
       }
+      await append({ type: "tool_result", result: toolResultBlock(result.id, result.content, result.isError), turn });
       return { events, result };
     };
 
@@ -157,14 +175,12 @@ export async function* runKernel(
       yield { type: "tool_result", result };
     }
     ctx.messages.push({ role: "user", content: resultBlocks });
-    await persist();
     yield { type: "turn_end", turn, stopReason: "tool_use" };
   }
 
   await runLifecycle(cfg.middleware, "afterAgent", mkCtx(0));
   yield* drain();
 
-  await persist();
   const result: RunResult = { messages, text: lastAssistantText(messages), usage, stopReason };
   yield { type: "done", reason: stopReason, result };
   return result;
