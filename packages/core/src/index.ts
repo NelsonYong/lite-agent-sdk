@@ -37,4 +37,7 @@ export {
   AgentError, ProviderError, ToolError, CodecError, MaxTurnsError, AbortError,
 } from "./events";
 
+export { foldEvents } from "./checkpoint";
+export type { SessionEvent, StoredEvent, SessionInfo } from "./checkpoint";
+
 export * from "./types";
