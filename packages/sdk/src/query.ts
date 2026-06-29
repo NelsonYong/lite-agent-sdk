@@ -1,6 +1,7 @@
 import type {
   AgentEvent,
   ApprovalHandler,
+  Checkpointer,
   Compactor,
   InputHandler,
   Message,
@@ -38,6 +39,7 @@ export interface QueryOptions {
   signal?: AbortSignal;
   sessionId?: string;
   sandbox?: Sandbox;
+  checkpointer?: Checkpointer;
   store?: Store;
   compactor?: Compactor | false;
   home?: string;
@@ -76,6 +78,7 @@ export function query(
     maxParallelTools: opts.maxParallelTools,
     use: opts.use,
     sandbox: opts.sandbox,
+    checkpointer: opts.checkpointer,
     store: opts.store,
     compactor: opts.compactor,
     home: opts.home,
