@@ -96,14 +96,20 @@ export function legacyStoreAdapter(store: Store): Checkpointer {
         ? { type: "assistant", message: m as AssistantMessage }
         : { type: "user", message: m },
     );
+  // Track head per session so multiple appends within one run stay consistent even
+  // when the wrapped Store's `load` does not round-trip (e.g. a write-only stub).
+  const heads = new Map<string, number>();
   return {
     async append(sessionId, events, expectedHead) {
       const current = (await store.load(sessionId)) ?? [];
-      if (expectedHead !== undefined && expectedHead !== current.length)
-        throw new CheckpointConflictError(sessionId, expectedHead, current.length);
+      const head = heads.get(sessionId) ?? current.length;
+      if (expectedHead !== undefined && expectedHead !== head)
+        throw new CheckpointConflictError(sessionId, expectedHead, head);
       const merged = [...current, ...foldEvents(events)];
       await store.save(sessionId, merged);
-      return merged.length;
+      const newHead = head + (merged.length - current.length);
+      heads.set(sessionId, newHead);
+      return newHead;
     },
     async *read(sessionId) {
       const messages = (await store.load(sessionId)) ?? [];

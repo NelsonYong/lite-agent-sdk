@@ -11,8 +11,8 @@ import type { Middleware } from "../src/middleware";
 import type { Message, ToolResultBlock } from "../src/types";
 import type { ModelProvider } from "../src/strategies";
 import { noopSandbox } from "../src/sandbox";
-import { memoryStore } from "../src/store";
-import type { Store } from "../src/strategies";
+import { memoryCheckpointer, foldEvents } from "../src/checkpoint";
+import type { Checkpointer } from "../src/checkpoint";
 
 function baseCfg(over: Partial<KernelConfig>): KernelConfig {
   return { provider: fakeProvider([]), codec: nativeCodec(), tools: [], middleware: [], model: "fake", maxTurns: 10, sandbox: noopSandbox(), ...over };
@@ -129,42 +129,49 @@ test("a beforeModel middleware reassigning ctx.messages persists across turns", 
   expect(result.text).toBe("done");
 });
 
-test("kernel resumes saved history from the store ahead of the new input", async () => {
-  const store = memoryStore();
-  await store.save("s1", [
-    { role: "user", content: "earlier" },
-    { role: "assistant", content: [textBlock("ok")] },
+test("kernel resumes saved history from the checkpointer ahead of the new input", async () => {
+  const cp = memoryCheckpointer();
+  await cp.append("s1", [
+    { type: "user", message: { role: "user", content: "earlier" } },
+    { type: "assistant", message: { role: "assistant", content: [textBlock("ok")] } },
   ]);
   const provider = fakeProvider([{ text: "hi", message: { role: "assistant", content: [textBlock("hi")] } }]);
   const { result } = await drain(
-    runKernel(baseCfg({ provider, store }), "next", new AbortController().signal, "s1"),
+    runKernel(baseCfg({ provider, checkpointer: cp }), "next", new AbortController().signal, "s1"),
   );
   expect(result.messages[0]).toEqual({ role: "user", content: "earlier" });
   expect(result.messages).toContainEqual({ role: "user", content: "next" });
 });
 
-test("kernel saves the transcript to the store after the run", async () => {
-  const store = memoryStore();
+test("kernel persists the transcript to the checkpointer after the run", async () => {
+  const cp = memoryCheckpointer();
   const provider = fakeProvider([{ text: "hi", message: { role: "assistant", content: [textBlock("hi")] } }]);
-  await drain(runKernel(baseCfg({ provider, store }), "hello", new AbortController().signal, "s1"));
-  const saved = await store.load("s1");
-  expect(saved).not.toBeNull();
-  expect(saved).toContainEqual({ role: "user", content: "hello" });
-  expect(saved!.some((m) => m.role === "assistant")).toBe(true);
+  await drain(runKernel(baseCfg({ provider, checkpointer: cp }), "hello", new AbortController().signal, "s1"));
+  const events = [];
+  for await (const e of cp.read("s1")) events.push(e.event);
+  const folded = foldEvents(events);
+  expect(folded).toContainEqual({ role: "user", content: "hello" });
+  expect(folded.some((m) => m.role === "assistant")).toBe(true);
 });
 
-test("kernel persists after each turn so an interrupted run is recoverable", async () => {
-  const base = memoryStore();
-  let saves = 0;
-  const store: Store = { load: base.load, save: async (id, m) => { saves++; return base.save(id, m); } };
+test("kernel appends each event so an interrupted run is recoverable", async () => {
+  const cp = memoryCheckpointer();
+  let appends = 0;
+  const counting: Checkpointer = {
+    ...cp,
+    append: (id, evs, expected) => { appends++; return cp.append(id, evs, expected); },
+  };
   const echo = defineTool({ name: "echo", description: "e", schema: z.object({}), execute: () => "r" });
   const provider = fakeProvider([
     { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "echo", input: {} }] } },
     { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
   ]);
-  await drain(runKernel(baseCfg({ provider, tools: [echo], store }), "hi", new AbortController().signal, "s1"));
-  // two turns → saved at least twice; mid-run progress is durable, not end-only
-  expect(saves).toBeGreaterThanOrEqual(2);
+  await drain(runKernel(baseCfg({ provider, tools: [echo], checkpointer: counting }), "hi", new AbortController().signal, "s1"));
+  // user + assistant(turn1) + tool_result + assistant(turn2): per-event durability, not end-only
+  expect(appends).toBeGreaterThanOrEqual(3);
+  const types = [];
+  for await (const e of cp.read("s1")) types.push(e.event.type);
+  expect(types).toContain("tool_result");
 });
 
 test("the base model call re-encodes from current ctx.messages on each attempt", async () => {
