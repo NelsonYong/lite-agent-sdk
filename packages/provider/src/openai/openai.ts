@@ -22,6 +22,12 @@ export interface OpenAIProviderOptions {
   apiKey?: string;
   baseURL?: string;
   client?: OpenAIClientLike;
+  /**
+   * The OpenAI SDK's own internal retry count. Defaults to 0 so retry policy is
+   * owned by the `retry()` middleware (otherwise the two compound). Set this to
+   * restore SDK-level retries.
+   */
+  maxRetries?: number;
 }
 
 function toProviderError(e: unknown): ProviderError {
@@ -40,6 +46,7 @@ export function openai(opts: OpenAIProviderOptions = {}): ModelProvider {
     (new OpenAI({
       apiKey: opts.apiKey ?? process.env["OPENAI_API_KEY"],
       baseURL: opts.baseURL ?? process.env["OPENAI_BASE_URL"],
+      maxRetries: opts.maxRetries ?? 0,
     }) as unknown as OpenAIClientLike);
 
   return {
