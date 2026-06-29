@@ -78,3 +78,38 @@ test("retry does not re-run once chunks have already streamed", async () => {
   ).rejects.toThrow();
   expect(attempts).toBe(1);
 });
+
+test("retry stops once the run is aborted (no further attempts)", async () => {
+  const ac = new AbortController();
+  let attempts = 0;
+  const failThenAbort: ModelProvider = {
+    id: "abort",
+    async *stream() {
+      attempts++;
+      ac.abort(); // abort before the retry decision is made
+      throw new ProviderError("503", 503);
+    },
+  };
+  await expect(
+    run(runKernel(baseCfg({ provider: failThenAbort, middleware: [retry({ maxRetries: 3, backoff: () => 0 })] }), "hi", ac.signal, "s1")),
+  ).rejects.toThrow();
+  expect(attempts).toBe(1); // would be 4 without abort-awareness
+});
+
+test("retry emits a non-fatal error event for each retried failure", async () => {
+  let attempts = 0;
+  const flaky: ModelProvider = {
+    id: "flaky",
+    async *stream() {
+      attempts++;
+      if (attempts === 1) throw new ProviderError("503", 503);
+      yield ok("recovered");
+    },
+  };
+  const events: AgentEvent[] = [];
+  const gen = runKernel(baseCfg({ provider: flaky, middleware: [retry({ maxRetries: 2, backoff: () => 0 })] }), "hi", new AbortController().signal, "s1");
+  let r = await gen.next();
+  while (!r.done) { events.push(r.value); r = await gen.next(); }
+  const nonFatal = events.filter((e) => e.type === "error" && e.fatal === false);
+  expect(nonFatal).toHaveLength(1);
+});
