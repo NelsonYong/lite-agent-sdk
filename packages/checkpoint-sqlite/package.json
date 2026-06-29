@@ -1,6 +1,6 @@
 {
   "name": "@lite-agent/checkpoint-sqlite",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "description": "SQLite (WAL) Checkpointer backend for @lite-agent/core — single-host multi-process event-sourced persistence.",
   "license": "ISC",
   "type": "module",
@@ -13,15 +13,28 @@
     }
   },
   "sideEffects": false,
-  "files": ["dist"],
-  "engines": { "node": ">=20" },
-  "keywords": ["agent", "ai", "llm", "checkpoint", "sqlite", "persistence"],
+  "files": [
+    "dist"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "keywords": [
+    "agent",
+    "ai",
+    "llm",
+    "checkpoint",
+    "sqlite",
+    "persistence"
+  ],
   "repository": {
     "type": "git",
     "url": "git+https://github.com/NelsonYong/lite-agent.git",
     "directory": "packages/checkpoint-sqlite"
   },
-  "publishConfig": { "access": "public" },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean --tsconfig tsconfig.build.json",
     "test": "vitest run",
