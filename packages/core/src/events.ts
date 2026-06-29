@@ -28,6 +28,12 @@ export class MaxTurnsError extends AgentError {
 export class AbortError extends AgentError {
   constructor(message = "aborted") { super(message); this.name = "AbortError"; }
 }
+export class CheckpointConflictError extends AgentError {
+  constructor(readonly sessionId: string, readonly expected: number, readonly actual: number) {
+    super(`checkpoint conflict on '${sessionId}': expected head ${expected}, found ${actual}`);
+    this.name = "CheckpointConflictError";
+  }
+}
 
 export type AgentEvent =
   | { type: "turn_start"; turn: number }

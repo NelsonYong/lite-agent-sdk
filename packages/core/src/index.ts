@@ -34,10 +34,10 @@ export type {
 
 export type { AgentEvent, RunResult } from "./events";
 export {
-  AgentError, ProviderError, ToolError, CodecError, MaxTurnsError, AbortError,
+  AgentError, ProviderError, ToolError, CodecError, MaxTurnsError, AbortError, CheckpointConflictError,
 } from "./events";
 
-export { foldEvents } from "./checkpoint";
-export type { SessionEvent, StoredEvent, SessionInfo } from "./checkpoint";
+export { foldEvents, memoryCheckpointer, storeEvents } from "./checkpoint";
+export type { SessionEvent, StoredEvent, SessionInfo, Checkpointer } from "./checkpoint";
 
 export * from "./types";
