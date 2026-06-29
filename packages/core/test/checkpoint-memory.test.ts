@@ -1,5 +1,6 @@
 import { expect, test } from "vitest";
 import { memoryCheckpointer } from "../src/checkpoint";
+import { checkpointerConformance } from "../src/testing/checkpointerConformance";
 import { CheckpointConflictError } from "../src/events";
 
 const userEvt = (t: string) => ({ type: "user" as const, message: { role: "user" as const, content: t } });
@@ -42,3 +43,11 @@ test("list returns appended sessions; delete removes a log", async () => {
   expect((await cp.list()).map((i) => i.id)).toEqual(["s2"]);
   expect(await cp.head("s1")).toBe(0);
 });
+
+// Backend parity: memoryCheckpointer must satisfy the same shared contract as the
+// file and sqlite backends (which already run this suite in their own packages).
+for (const c of checkpointerConformance) {
+  test(`memoryCheckpointer conformance: ${c.name}`, async () => {
+    await c.run(() => memoryCheckpointer());
+  });
+}
