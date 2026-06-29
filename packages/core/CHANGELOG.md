@@ -1,5 +1,15 @@
 # @lite-agent/core
 
+## 0.5.1
+
+### Patch Changes
+
+- Checkpoint follow-ups: run `memoryCheckpointer` through the shared
+  `checkpointerConformance` suite for backend parity, and make
+  `legacyStoreAdapter.head()` consistent with `append` by reading the per-session
+  head cache (behavior is unchanged for round-tripping stores). Also adds a
+  multi-client optimistic-concurrency test for the SQLite backend.
+
 ## 0.5.0
 
 ### Minor Changes
