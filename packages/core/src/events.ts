@@ -35,7 +35,7 @@ export class CheckpointConflictError extends AgentError {
   }
 }
 
-export type AgentEvent =
+type AgentEventBody =
   | { type: "turn_start"; turn: number }
   | { type: "text_delta"; text: string }
   | { type: "message"; message: AssistantMessage }
@@ -49,3 +49,6 @@ export type AgentEvent =
   | { type: "turn_end"; turn: number; stopReason: StopReason }
   | { type: "error"; error: AgentError; fatal: boolean }
   | { type: "done"; reason: "stop" | "aborted" | "max_turns"; result: RunResult };
+
+/** `agentId` is set on events forwarded from a subagent; undefined for the main agent. */
+export type AgentEvent = { agentId?: string } & AgentEventBody;
