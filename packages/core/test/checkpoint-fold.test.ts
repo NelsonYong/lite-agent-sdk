@@ -33,3 +33,15 @@ test("foldEvents flushes a trailing tool_result group", () => {
 test("foldEvents on an empty log is an empty array", () => {
   expect(foldEvents([])).toEqual([]);
 });
+
+test("foldEvents skips file_snapshot sidecar events", () => {
+  const events: SessionEvent[] = [
+    { type: "user", message: { role: "user", content: "hi" } },
+    { type: "file_snapshot", path: "a.txt", before: null, turn: 1 },
+    { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "ok" }] } },
+  ];
+  expect(foldEvents(events)).toEqual([
+    { role: "user", content: "hi" },
+    { role: "assistant", content: [{ type: "text", text: "ok" }] },
+  ]);
+});
