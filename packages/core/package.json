@@ -1,6 +1,6 @@
 {
   "name": "@lite-agent/core",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Pluggable, event-driven agent core: kernel, strategy interfaces, middleware pipeline, and normalized types.",
   "license": "ISC",
   "type": "module",
