@@ -44,6 +44,20 @@ test("list returns appended sessions; delete removes a log", async () => {
   expect(await cp.head("s1")).toBe(0);
 });
 
+test("memoryCheckpointer.truncate drops events past toSeq", async () => {
+  const cp = memoryCheckpointer();
+  await cp.append("s", [
+    { type: "user", message: { role: "user", content: "a" } },
+    { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "b" }] } },
+    { type: "user", message: { role: "user", content: "c" } },
+  ]);
+  await cp.truncate!("s", 2);
+  const seen: number[] = [];
+  for await (const e of cp.read("s")) seen.push(e.seq);
+  expect(seen).toEqual([1, 2]);
+  expect(await cp.head("s")).toBe(2);
+});
+
 // Backend parity: memoryCheckpointer must satisfy the same shared contract as the
 // file and sqlite backends (which already run this suite in their own packages).
 for (const c of checkpointerConformance) {

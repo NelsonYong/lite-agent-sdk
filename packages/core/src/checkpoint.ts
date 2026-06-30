@@ -37,6 +37,8 @@ export interface Checkpointer {
   list(): Promise<SessionInfo[]>;
   /** Delete a session's entire log. */
   delete(sessionId: string): Promise<void>;
+  /** Drop every event with seq > toSeq. Optional: backends that cannot truncate omit it. */
+  truncate?(sessionId: string, toSeq: number): Promise<void>;
 }
 
 /** Build StoredEvents for `events` starting after `fromSeq`. */
@@ -80,6 +82,12 @@ export function memoryCheckpointer(): Checkpointer {
     async delete(sessionId) {
       logs.delete(sessionId);
       updated.delete(sessionId);
+    },
+    async truncate(sessionId, toSeq) {
+      const log = logs.get(sessionId);
+      if (!log) return;
+      logs.set(sessionId, log.filter((e) => e.seq <= toSeq));
+      updated.set(sessionId, Date.now());
     },
   };
 }
