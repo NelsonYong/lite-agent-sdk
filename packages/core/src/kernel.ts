@@ -83,6 +83,13 @@ export async function* runKernel(
     const ctx = mkCtx(turn);
     yield { type: "turn_start", turn };
 
+    const steers = cfg.steer?.takeSteers() ?? [];
+    if (steers.length) {
+      ctx.messages.push(...steers);
+      for (const m of steers) await append({ type: "user", message: m });
+      yield { type: "steer", messages: steers };
+    }
+
     await runLifecycle(cfg.middleware, "beforeModel", ctx);
     yield* drain();
     messages = ctx.messages;
@@ -130,6 +137,14 @@ export async function* runKernel(
 
     const { calls } = cfg.codec.decode(assistant);
     if (calls.length === 0) {
+      const followUps = cfg.steer?.takeFollowUps() ?? [];
+      if (followUps.length) {
+        yield { type: "turn_end", turn, stopReason: "stop" };
+        ctx.messages.push(...followUps);
+        for (const m of followUps) await append({ type: "user", message: m });
+        yield { type: "steer", messages: followUps };
+        continue; // resurrect: keep looping instead of stopping
+      }
       yield { type: "turn_end", turn, stopReason: "stop" };
       stopReason = "stop";
       break;
