@@ -10,6 +10,7 @@ import { channel } from "./channel";
 import { toToolSpec } from "./tools/define";
 import type { Checkpointer, SessionEvent, StoredEvent } from "./checkpoint";
 import { foldEvents } from "./checkpoint";
+import type { SteerController } from "./steer";
 
 export interface KernelConfig {
   provider: ModelProvider;
@@ -29,6 +30,8 @@ export interface KernelConfig {
   checkpointer?: Checkpointer;
   /** Max tool calls run concurrently within one assistant turn. Default 10; 1 = sequential. */
   maxParallelTools?: number;
+  /** Optional turn-boundary steering queues (steer/followUp). */
+  steer?: SteerController;
 }
 
 export async function* runKernel(
