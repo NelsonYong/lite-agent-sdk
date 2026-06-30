@@ -21,3 +21,20 @@ test("fileCheckpointer survives a fresh instance over the same dir (durable)", a
   for await (const e of b.read("s")) seen.push(e.seq);
   expect(seen).toEqual([1]);
 });
+
+test("fileCheckpointer.truncate rewrites the log up to toSeq", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "cp-"));
+  const cp = fileCheckpointer({ dir });
+  await cp.append("s", [
+    { type: "user", message: { role: "user", content: "a" } },
+    { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "b" }] } },
+    { type: "user", message: { role: "user", content: "c" } },
+  ]);
+  await cp.truncate!("s", 2);
+  const seen: number[] = [];
+  for await (const e of cp.read("s")) seen.push(e.seq);
+  expect(seen).toEqual([1, 2]);
+  expect(await cp.head("s")).toBe(2);
+  // a fresh instance (cold head cache) must agree
+  expect(await fileCheckpointer({ dir }).head("s")).toBe(2);
+});

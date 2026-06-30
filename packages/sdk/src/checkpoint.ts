@@ -1,4 +1,4 @@
-import { mkdirSync, readFileSync, existsSync, appendFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import { mkdirSync, readFileSync, existsSync, appendFileSync, writeFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import type { Checkpointer, SessionEvent, StoredEvent, SessionInfo } from "@lite-agent/core";
 import { storeEvents, CheckpointConflictError } from "@lite-agent/core";
@@ -64,6 +64,15 @@ export function fileCheckpointer(opts: FileCheckpointerOptions): Checkpointer {
       const file = fileFor(sessionId);
       if (existsSync(file)) unlinkSync(file);
       heads.delete(sessionId);
+    },
+    async truncate(sessionId, toSeq) {
+      const kept = linesOf(sessionId).filter((e) => e.seq <= toSeq);
+      mkdirSync(opts.dir, { recursive: true });
+      writeFileSync(
+        fileFor(sessionId),
+        kept.length ? kept.map((e) => JSON.stringify(e)).join("\n") + "\n" : "",
+      );
+      heads.set(sessionId, kept.length ? kept[kept.length - 1]!.seq : 0);
     },
   };
 }
