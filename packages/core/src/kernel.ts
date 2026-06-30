@@ -6,6 +6,7 @@ import type { AgentEvent, RunResult } from "./events";
 import { ProviderError } from "./events";
 import { composeModelCall, composeToolCall, runLifecycle } from "./middleware";
 import type { AgentContext, Middleware, ToolCallContext } from "./middleware";
+import { channel } from "./channel";
 import { toToolSpec } from "./tools/define";
 import type { Checkpointer, SessionEvent, StoredEvent } from "./checkpoint";
 import { foldEvents } from "./checkpoint";
@@ -134,14 +135,15 @@ export async function* runKernel(
     // All calls of this turn are now in flight: announce them up front, in input order.
     for (const call of calls) yield { type: "tool_use", call };
 
-    // Each call runs with an ISOLATED emit buffer so a sibling's events (approval_*,
-    // tool emits) don't interleave non-deterministically. Buffers flush in input order
-    // after the pool drains, so the event stream stays deterministic.
-    const runCall = async (
-      call: ToolCall,
-    ): Promise<{ events: AgentEvent[]; result: ToolResult }> => {
-      const events: AgentEvent[] = [];
-      const callEmit = (ev: AgentEvent) => { events.push(ev); };
+    // Tool-phase events stream LIVE into a channel (completion order), so concurrent
+    // tools — and forwarded subagent events — surface in real time. The model-facing
+    // user message is still assembled from `results[i]` in INPUT order: event timing
+    // never changes what the model sees.
+    const ch = channel<AgentEvent>();
+    const results = new Array<ToolResult>(calls.length);
+
+    const runCall = async (call: ToolCall, i: number): Promise<void> => {
+      const callEmit = (ev: AgentEvent) => { ch.push(ev); };
       const tctx: ToolCallContext = { ...ctx, call, emit: callEmit };
       const tool = toolMap.get(call.name);
       const baseExec = async (): Promise<ToolResult> => {
@@ -158,24 +160,22 @@ export async function* runKernel(
       try {
         result = await composeToolCall(cfg.middleware, tctx, baseExec)();
       } catch (e) {
-        // A wrapToolCall middleware that throws (rather than returning an isError
-        // result) must not strand sibling calls or surface as an unhandled rejection
-        // under concurrency. Convert to an error result so runCall never rejects.
         result = { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true };
       }
       await append({ type: "tool_result", result: toolResultBlock(result.id, result.content, result.isError), turn });
-      return { events, result };
+      results[i] = result;
+      ch.push({ type: "tool_result", result });
     };
 
     const limit = pLimit(Math.max(1, cfg.maxParallelTools ?? 10));
-    const outcomes = await Promise.all(calls.map((call) => limit(() => runCall(call))));
+    const pool = Promise.all(calls.map((call, i) => limit(() => runCall(call, i))));
+    pool.then(() => ch.end(), (e) => ch.end(e as Error));
+    for await (const ev of ch) yield ev;
+    await pool;
 
-    const resultBlocks: ToolResultBlock[] = [];
-    for (const { events, result } of outcomes) {
-      for (const ev of events) yield ev;
-      resultBlocks.push(toolResultBlock(result.id, result.content, result.isError));
-      yield { type: "tool_result", result };
-    }
+    const resultBlocks: ToolResultBlock[] = results.map((r) =>
+      toolResultBlock(r.id, r.content, r.isError),
+    );
     ctx.messages.push({ role: "user", content: resultBlocks });
     yield { type: "turn_end", turn, stopReason: "tool_use" };
   }
