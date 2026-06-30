@@ -45,3 +45,16 @@ test("foldEvents skips file_snapshot sidecar events", () => {
     { role: "assistant", content: [{ type: "text", text: "ok" }] },
   ]);
 });
+
+test("foldEvents uses the latest summary as the base, then appends later events", () => {
+  const events: SessionEvent[] = [
+    { type: "user", message: { role: "user", content: "old-1" } },
+    { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "old-2" }] } },
+    { type: "summary", messages: [{ role: "user", content: "SUMMARY" }], throughSeq: 2, before: 100, after: 5 },
+    { type: "user", message: { role: "user", content: "new-3" } },
+  ];
+  expect(foldEvents(events)).toEqual([
+    { role: "user", content: "SUMMARY" },
+    { role: "user", content: "new-3" },
+  ]);
+});
