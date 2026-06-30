@@ -27,6 +27,8 @@ import type {
   ToolChoice,
 } from "@lite-agent/core";
 import type { ZodType } from "zod";
+import { existsSync, writeFileSync, unlinkSync } from "node:fs";
+import { makeSafePath } from "./tools/file";
 import { tool } from "./tool";
 import { defaultTools, askUserTool } from "./tools";
 import { SkillLoader } from "./skills/loader";
@@ -120,6 +122,11 @@ export interface LiteAgent extends Agent {
   deleteSession(id: string): Promise<void>;
   /** List persisted sessions (id + mtime, most-recent first). Requires a session-capable store. */
   listSessions(): Promise<SessionInfo[]>;
+  /** List the rewind anchors (one per user prompt) for a session, oldest-first. */
+  listCheckpoints(id: string): Promise<{ seq: number; prompt: string; ts: string }[]>;
+  /** Roll a session back to checkpoint `toSeq`: revert files snapshotted after it and/or
+   *  truncate the conversation. Both default true. Sets the current session to `id`. */
+  restore(id: string, toSeq: number, opts?: { conversation?: boolean; files?: boolean }): Promise<void>;
 }
 
 export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
@@ -332,5 +339,41 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     },
     deleteSession: (id: string) => (checkpointer ? checkpointer.delete(id) : noSessions()),
     listSessions: () => (checkpointer ? checkpointer.list() : noSessions()),
+    listCheckpoints: async (id: string) => {
+      if (!checkpointer) return noSessions();
+      const out: { seq: number; prompt: string; ts: string }[] = [];
+      for await (const e of checkpointer.read(id)) {
+        if (e.event.type === "user" && typeof e.event.message.content === "string") {
+          out.push({ seq: e.seq, prompt: e.event.message.content, ts: e.ts });
+        }
+      }
+      return out;
+    },
+    restore: async (id: string, toSeq: number, opts?: { conversation?: boolean; files?: boolean }) => {
+      if (!checkpointer) return noSessions();
+      const files = opts?.files ?? true;
+      const conversation = opts?.conversation ?? true;
+      if (files) {
+        const safe = makeSafePath(cfg.workdir);
+        const earliest = new Map<string, { before: string | null; truncated?: boolean }>();
+        for await (const e of checkpointer.read(id, { sinceSeq: toSeq })) {
+          if (e.event.type === "file_snapshot" && !earliest.has(e.event.path)) {
+            earliest.set(e.event.path, { before: e.event.before, truncated: e.event.truncated });
+          }
+        }
+        for (const [path, snap] of earliest) {
+          if (snap.truncated) continue;
+          const fp = safe(path);
+          if (snap.before === null) { if (existsSync(fp)) unlinkSync(fp); }
+          else writeFileSync(fp, snap.before);
+        }
+      }
+      if (conversation) {
+        if (!checkpointer.truncate)
+          throw new AgentError("conversation restore requires a checkpointer that supports truncate");
+        await checkpointer.truncate(id, toSeq);
+      }
+      currentSessionId = id;
+    },
   };
 }
