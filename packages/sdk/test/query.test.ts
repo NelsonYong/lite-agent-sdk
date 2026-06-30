@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { fakeProvider, textBlock } from "@lite-agent/core";
+import { fakeProvider, textBlock, SteerController } from "@lite-agent/core";
 import { query } from "../src/query";
 import { tool } from "../src/tool";
 import { mkdtempSync, existsSync } from "node:fs";
@@ -128,4 +128,20 @@ test("query forwards maxParallelTools: 1 — tool calls run sequentially", async
   let r = await gen.next();
   while (!r.done) r = await gen.next();
   expect(maxInFlight).toBe(1);
+});
+
+test("query forwards a SteerController; followUp continues the run", async () => {
+  const cwd = mkdtempSync(join(tmpdir(), "q-steer-"));
+  const fp = fakeProvider([
+    { text: "first", message: { role: "assistant", content: [textBlock("first")] } },
+    { text: "second", message: { role: "assistant", content: [textBlock("second")] } },
+  ]);
+  const steer = new SteerController();
+  steer.followUp("keep going");
+  const gen = query({ prompt: "hi", model: fp, cwd, sessions: false, steer });
+  const types: string[] = [];
+  let r = await gen.next();
+  while (!r.done) { types.push(r.value.type); r = await gen.next(); }
+  // followUp resurrects the run for a second model turn → two turn_start events.
+  expect(types.filter((t) => t === "turn_start").length).toBe(2);
 });

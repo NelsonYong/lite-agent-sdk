@@ -10,6 +10,7 @@ import type {
   PermissionPolicy,
   Sandbox,
   Store,
+  SteerController,
   Tool,
   ToolChoice,
 } from "@lite-agent/core";
@@ -38,6 +39,7 @@ export interface QueryOptions {
   use?: Middleware[];
   signal?: AbortSignal;
   sessionId?: string;
+  steer?: SteerController;
   sandbox?: Sandbox;
   checkpointer?: Checkpointer;
   store?: Store;
@@ -97,5 +99,6 @@ export function query(
   return agent.run(opts.prompt, {
     signal: opts.signal,
     sessionId: opts.sessionId,
+    steer: opts.steer,
   });
 }
