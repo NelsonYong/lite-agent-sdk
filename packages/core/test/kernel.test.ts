@@ -251,7 +251,7 @@ test("multiple tool calls in one turn run concurrently", async () => {
   expect(maxInFlight).toBe(2);
 });
 
-test("tool_result events and result blocks stay in input order regardless of completion order", async () => {
+test("tool_result EVENTS stream in completion order; the model message stays input-ordered", async () => {
   const fast = defineTool({ name: "fast", description: "f", schema: z.object({}), execute: async () => "FAST" });
   const slow = defineTool({
     name: "slow", description: "s", schema: z.object({}),
@@ -259,18 +259,20 @@ test("tool_result events and result blocks stay in input order regardless of com
   });
   const provider = fakeProvider([
     { message: { role: "assistant", content: [
-      { type: "tool_call", id: "t1", name: "slow", input: {} }, // input order: slow first
-      { type: "tool_call", id: "t2", name: "fast", input: {} }, // but fast finishes first
+      { type: "tool_call", id: "t1", name: "slow", input: {} },
+      { type: "tool_call", id: "t2", name: "fast", input: {} },
     ] } },
     { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
   ]);
   const { events, result } = await drain(
     runKernel(baseCfg({ provider, tools: [slow, fast] }), "hi", new AbortController().signal, "s1"),
   );
+  // EVENT stream: completion order — fast emits its tool_result before slow.
   const contents = events
     .filter((e): e is Extract<AgentEvent, { type: "tool_result" }> => e.type === "tool_result")
     .map((e) => e.result.content);
-  expect(contents).toEqual(["SLOW", "FAST"]);
+  expect(contents).toEqual(["FAST", "SLOW"]);
+  // MODEL message: still input order (t1=slow, t2=fast), independent of completion timing.
   const userMsg = result.messages.find(
     (m) => m.role === "user" && Array.isArray(m.content) && (m.content as ToolResultBlock[]).every((b) => b.type === "tool_result"),
   );
@@ -328,15 +330,17 @@ test("a wrapToolCall middleware that throws yields an error result without stran
   const results = events
     .filter((e): e is Extract<AgentEvent, { type: "tool_result" }> => e.type === "tool_result")
     .map((e) => e.result);
-  expect(results.map((r) => r.id)).toEqual(["t1", "t2"]); // both ran, in input order
-  expect(results[0]).toMatchObject({ content: "OK" });    // sibling unaffected by the throw
-  expect(results[1]).toMatchObject({ isError: true });    // throw → error result
-  expect(results[1]!.content).toContain("kaboom");
+  // both siblings produced a result; events are completion-ordered, so look up by id:
+  expect(results.map((r) => r.id).sort()).toEqual(["t1", "t2"]);
+  const okRes = results.find((r) => r.id === "t1")!;
+  const boomRes = results.find((r) => r.id === "t2")!;
+  expect(okRes).toMatchObject({ content: "OK" });         // sibling unaffected by the throw
+  expect(boomRes).toMatchObject({ isError: true });       // throw → error result
+  expect(boomRes.content).toContain("kaboom");
   expect(result.stopReason).toBe("stop");                 // run completed cleanly, no rejection
 });
 
-test("each call's emitted events flush in input order, grouped with its result", async () => {
-  // slow is input-index 0 but finishes LAST; fast is index 1 but finishes first.
+test("a call's emitted events interleave live in completion order, each grouped with its own result", async () => {
   const slow = defineTool({
     name: "slow", description: "s", schema: z.object({}),
     execute: async (_i, ctx) => {
@@ -362,12 +366,15 @@ test("each call's emitted events flush in input order, grouped with its result",
   const { events } = await drain(
     runKernel(baseCfg({ provider, tools: [slow, fast] }), "hi", new AbortController().signal, "s1"),
   );
-  // Keep only each call's emitted request and its result, in stream order.
   const rel = events.filter((e) => e.type === "input_request" || e.type === "tool_result");
-  // slow (index 0) flushes entirely BEFORE fast (index 1) despite fast finishing first:
-  expect(rel.map((e) => e.type)).toEqual(["input_request", "tool_result", "input_request", "tool_result"]);
-  const ids = rel.map((e) =>
-    e.type === "tool_result" ? e.result.id : (e as Extract<AgentEvent, { type: "input_request" }>).call.id,
-  );
-  expect(ids).toEqual(["t1", "t1", "t2", "t2"]);
+  // fast finishes first → its result precedes slow's result (completion order):
+  const fastResultIdx = rel.findIndex((e) => e.type === "tool_result" && e.result.id === "t2");
+  const slowResultIdx = rel.findIndex((e) => e.type === "tool_result" && e.result.id === "t1");
+  expect(fastResultIdx).toBeLessThan(slowResultIdx);
+  // each call's own input_request precedes its own tool_result:
+  const idOf = (e: AgentEvent) => e.type === "tool_result" ? e.result.id : (e as Extract<AgentEvent, { type: "input_request" }>).call.id;
+  const firstReq = (id: string) => rel.findIndex((e) => e.type === "input_request" && idOf(e) === id);
+  const res = (id: string) => rel.findIndex((e) => e.type === "tool_result" && idOf(e) === id);
+  expect(firstReq("t2")).toBeLessThan(res("t2"));
+  expect(firstReq("t1")).toBeLessThan(res("t1"));
 });
