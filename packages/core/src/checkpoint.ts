@@ -7,7 +7,8 @@ export type SessionEvent =
   | { type: "user"; message: Message }
   | { type: "assistant"; message: AssistantMessage }
   | { type: "tool_result"; result: ToolResultBlock; turn: number }
-  | { type: "file_snapshot"; path: string; before: string | null; truncated?: boolean; turn: number };
+  | { type: "file_snapshot"; path: string; before: string | null; truncated?: boolean; turn: number }
+  | { type: "summary"; messages: Message[]; throughSeq: number; before: number; after: number };
 
 /** A SessionEvent as stored, with its monotonic seq and parent link. */
 export type StoredEvent = {
@@ -159,6 +160,7 @@ export function foldEvents(events: SessionEvent[]): Message[] {
     switch (ev.type) {
       case "tool_result": pending.push(ev.result); break;
       case "user": case "assistant": flush(); messages.push(ev.message); break;
+      case "summary": pending = []; messages = [...ev.messages]; break;
       // file_snapshot (and future sidecar events): not part of model context
     }
   }
