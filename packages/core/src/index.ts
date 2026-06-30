@@ -24,6 +24,7 @@ export type {
   ReactiveCompactionOptions, ReactiveTrimOptions, LlmCompactorOptions,
   SpillStore, ToolResultBudgetOptions,
 } from "./compaction";
+export { SteerController } from "./steer";
 export { policy, permission } from "./permission";
 export type { PolicyOptions } from "./permission";
 export type {
