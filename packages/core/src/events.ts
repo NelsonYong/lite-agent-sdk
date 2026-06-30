@@ -45,7 +45,7 @@ type AgentEventBody =
   | { type: "input_request"; call: ToolCall; question: UserQuestion }
   | { type: "input_resolved"; id: string; answer: UserAnswer }
   | { type: "tool_result"; result: ToolResult }
-  | { type: "compaction"; kind: "micro" | "auto"; before: number; after: number }
+  | { type: "compaction"; kind: "micro" | "auto" | "manual"; before: number; after: number; phase?: "start" | "done" }
   | { type: "steer"; messages: Message[] }
   | { type: "turn_end"; turn: number; stopReason: StopReason }
   | { type: "error"; error: AgentError; fatal: boolean }
