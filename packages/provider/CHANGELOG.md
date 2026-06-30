@@ -1,5 +1,14 @@
 # @lite-agent/provider
 
+## 0.6.0
+
+### Patch Changes
+
+- Updated dependencies [a2d41fd]
+- Updated dependencies [d39189e]
+- Updated dependencies [33d9c4e]
+  - @lite-agent/core@0.6.0
+
 ## 0.5.2
 
 ### Patch Changes
