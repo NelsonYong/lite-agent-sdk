@@ -26,6 +26,21 @@ test("read/write/edit operate within the workspace", async () => {
   expect(readFileSync(join(dir, "a.txt"), "utf8")).toBe("bye");
 });
 
+test("write_file/edit_file record pre-mutation snapshots", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "la-snap-"));
+  const [, write, edit] = fileTools(dir);
+  const snaps: { p: string; b: string | null; t?: boolean }[] = [];
+  const snapCtx: ToolContext = { ...ctx, recordSnapshot: (p, b, t) => snaps.push({ p, b, t }) };
+
+  await write!.execute({ path: "n.txt", content: "v1" }, snapCtx); // new file → before null
+  await edit!.execute({ path: "n.txt", old_text: "v1", new_text: "v2" }, snapCtx); // → before "v1"
+
+  expect(snaps).toEqual([
+    { p: "n.txt", b: null, t: undefined },
+    { p: "n.txt", b: "v1", t: undefined },
+  ]);
+});
+
 test("safePath blocks escaping the workspace", () => {
   const safe = makeSafePath("/tmp/work");
   expect(() => safe("../etc/passwd")).toThrow(/escapes workspace/);
