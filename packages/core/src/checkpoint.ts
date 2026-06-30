@@ -6,7 +6,8 @@ import { CheckpointConflictError } from "./events";
 export type SessionEvent =
   | { type: "user"; message: Message }
   | { type: "assistant"; message: AssistantMessage }
-  | { type: "tool_result"; result: ToolResultBlock; turn: number };
+  | { type: "tool_result"; result: ToolResultBlock; turn: number }
+  | { type: "file_snapshot"; path: string; before: string | null; truncated?: boolean; turn: number };
 
 /** A SessionEvent as stored, with its monotonic seq and parent link. */
 export type StoredEvent = {
@@ -141,21 +142,17 @@ export function legacyStoreAdapter(store: Store): Checkpointer {
  * reproducing the kernel's turn shape (one user message per turn's results).
  */
 export function foldEvents(events: SessionEvent[]): Message[] {
-  const messages: Message[] = [];
+  let messages: Message[] = [];
   let pending: ToolResultBlock[] = [];
   const flush = () => {
-    if (pending.length) {
-      messages.push({ role: "user", content: pending });
-      pending = [];
-    }
+    if (pending.length) { messages.push({ role: "user", content: pending }); pending = []; }
   };
   for (const ev of events) {
-    if (ev.type === "tool_result") {
-      pending.push(ev.result);
-      continue;
+    switch (ev.type) {
+      case "tool_result": pending.push(ev.result); break;
+      case "user": case "assistant": flush(); messages.push(ev.message); break;
+      // file_snapshot (and future sidecar events): not part of model context
     }
-    flush();
-    messages.push(ev.message);
   }
   flush();
   return messages;
