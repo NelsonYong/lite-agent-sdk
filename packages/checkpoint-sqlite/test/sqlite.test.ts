@@ -41,3 +41,18 @@ test("two clients on one DB file see each other's writes (optimistic concurrency
   a.close();
   b.close();
 });
+
+test("truncate drops events past toSeq and resets head", async () => {
+  const cp = sqliteCheckpointer({ file: dbFile() });
+  await cp.append("s", [
+    { type: "user", message: { role: "user", content: "a" } },
+    { type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "b" }] } },
+    { type: "user", message: { role: "user", content: "c" } },
+  ]);
+  await cp.truncate!("s", 2);
+  const seen: number[] = [];
+  for await (const e of cp.read("s")) seen.push(e.seq);
+  expect(seen).toEqual([1, 2]);
+  expect(await cp.head("s")).toBe(2);
+  cp.close();
+});

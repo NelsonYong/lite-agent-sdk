@@ -48,6 +48,13 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): SqliteCheck
     return seq;
   });
 
+  const truncateTxn = db.transaction((id: string, toSeq: number) => {
+    db.prepare("DELETE FROM events WHERE session_id = ? AND seq > ?").run(id, toSeq);
+    const row = db.prepare("SELECT MAX(seq) AS m FROM events WHERE session_id = ?").get(id) as { m: number | null };
+    const newHead = row.m ?? 0;
+    db.prepare("UPDATE sessions SET head = ?, updated = ? WHERE id = ?").run(newHead, new Date().toISOString(), id);
+  });
+
   return {
     async append(sessionId, events, expectedHead) {
       // BEGIN IMMEDIATE (spec §6): take the write lock up front so a competing
@@ -76,6 +83,9 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): SqliteCheck
     async delete(sessionId) {
       db.prepare("DELETE FROM events WHERE session_id = ?").run(sessionId);
       db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
+    },
+    async truncate(sessionId, toSeq) {
+      truncateTxn.immediate(sessionId, toSeq);
     },
     close() {
       db.close();
