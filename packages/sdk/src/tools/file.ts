@@ -1,10 +1,11 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { z } from "zod";
 import { defineTool } from "@lite-agent/core";
 import type { Tool } from "@lite-agent/core";
 
 const MAX_BYTES = 50_000;
+const MAX_SNAPSHOT_BYTES = 1_000_000;
 
 export function makeSafePath(workdir: string): (p: string) => string {
   const root = resolve(workdir);
@@ -44,8 +45,13 @@ export function fileTools(workdir: string): Tool[] {
     description:
       "Create or overwrite a file. `path` is relative to the workspace root (an absolute path inside the workspace also works); parent directories are created automatically. Prefer this over shell redirection in bash.",
     schema: z.object({ path: z.string(), content: z.string() }),
-    execute: ({ path, content }) => {
+    execute: ({ path, content }, ctx) => {
       const fp = safePath(path);
+      if (ctx.recordSnapshot) {
+        if (!existsSync(fp)) ctx.recordSnapshot(path, null);
+        else if (statSync(fp).size > MAX_SNAPSHOT_BYTES) ctx.recordSnapshot(path, null, true);
+        else ctx.recordSnapshot(path, readFileSync(fp, "utf8"));
+      }
       mkdirSync(dirname(fp), { recursive: true });
       writeFileSync(fp, content);
       return `Wrote ${content.length} bytes to ${path}`;
@@ -61,11 +67,15 @@ export function fileTools(workdir: string): Tool[] {
       old_text: z.string(),
       new_text: z.string(),
     }),
-    execute: ({ path, old_text, new_text }) => {
+    execute: ({ path, old_text, new_text }, ctx) => {
       const fp = safePath(path);
       const content = readFileSync(fp, "utf8");
       if (!content.includes(old_text))
         return `Error: Text not found in ${path}`;
+      if (ctx.recordSnapshot) {
+        if (Buffer.byteLength(content) > MAX_SNAPSHOT_BYTES) ctx.recordSnapshot(path, null, true);
+        else ctx.recordSnapshot(path, content);
+      }
       writeFileSync(fp, content.replace(old_text, new_text));
       return `Edited ${path}`;
     },
