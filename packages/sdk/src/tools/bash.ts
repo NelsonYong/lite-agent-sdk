@@ -8,7 +8,8 @@ const DANGEROUS = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"];
 export function bashTool(workdir: string): Tool {
   return defineTool({
     name: "bash",
-    description: "Run a shell command.",
+    description:
+      "Run a shell command in the workspace — builds, tests, git, package managers, and searching or listing files (grep, find, ls). IMPORTANT: to read a file's contents, use the dedicated read_file tool instead of cat/head/tail; it is the preferred way and keeps whole files out of the shell output.",
     schema: z.object({ command: z.string() }),
     execute: async ({ command }, ctx) => {
       if (DANGEROUS.some((d) => command.includes(d)))

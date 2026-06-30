@@ -22,7 +22,8 @@ export function fileTools(workdir: string): Tool[] {
 
   const readFile = defineTool({
     name: "read_file",
-    description: "Read file contents.",
+    description:
+      "Read a file's contents. `path` is relative to the workspace root (an absolute path inside the workspace also works). Pass the optional `limit` to cap how many lines are returned for large files. Prefer this over running cat/head/tail in bash.",
     schema: z.object({ path: z.string(), limit: z.number().int().optional() }),
     execute: ({ path, limit }) => {
       const lines = readFileSync(safePath(path), "utf8").split("\n");
@@ -40,7 +41,8 @@ export function fileTools(workdir: string): Tool[] {
 
   const writeFile = defineTool({
     name: "write_file",
-    description: "Write content to a file.",
+    description:
+      "Create or overwrite a file. `path` is relative to the workspace root (an absolute path inside the workspace also works); parent directories are created automatically. Prefer this over shell redirection in bash.",
     schema: z.object({ path: z.string(), content: z.string() }),
     execute: ({ path, content }) => {
       const fp = safePath(path);
@@ -52,7 +54,8 @@ export function fileTools(workdir: string): Tool[] {
 
   const editFile = defineTool({
     name: "edit_file",
-    description: "Replace exact text in a file.",
+    description:
+      "Replace the first exact occurrence of `old_text` with `new_text` in a file. `path` is relative to the workspace root (an absolute path inside the workspace also works). Prefer this over editing files with sed/awk in bash.",
     schema: z.object({
       path: z.string(),
       old_text: z.string(),
