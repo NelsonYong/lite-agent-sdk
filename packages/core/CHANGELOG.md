@@ -1,5 +1,16 @@
 # @lite-agent/core
 
+## 0.6.0
+
+### Minor Changes
+
+- d39189e: Stream tool-phase events to consumers in real time (completion order) via an internal push channel, instead of buffering them until the tool pool drains. Subagent events are now forwarded live to the parent event stream, tagged with an optional `agentId` so UIs can route concurrent subagents to their own lanes. The model-facing context is unchanged: tool_result blocks are still assembled in input order and id-matched. Additive — consumers that ignore `agentId` and don't depend on concurrent-tool event ordering are unaffected.
+- 33d9c4e: Add turn-boundary steering: a `SteerController` (mirroring `AbortController`) with `steer(msg)` to inject input before the next model turn and `followUp(msg)` to continue a run that would otherwise stop. Pass it via `run`/`query` options (`{ steer }`). Injections surface as an additive `steer` event. No interruption of in-flight model streams. Purely additive — runs without a controller are unchanged.
+
+### Patch Changes
+
+- a2d41fd: Replace hand-rolled internals with maintained libraries: the two concurrency worker-pools (kernel tool pool, Agent subagent pool) now use `p-limit`, and the permission tool-name matcher uses `picomatch` instead of a hand-rolled glob→regexp. Behavior is unchanged for existing tool-name patterns; the permission matcher additionally supports brace (`{a,b}`) and character-class (`[…]`) globs.
+
 ## 0.5.2
 
 ## 0.5.1
