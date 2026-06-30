@@ -1,6 +1,6 @@
 {
   "name": "@lite-agent/checkpoint-sqlite",
-  "version": "0.6.2",
+  "version": "0.7.0",
   "description": "SQLite (WAL) Checkpointer backend for @lite-agent/core — single-host multi-process event-sourced persistence.",
   "license": "ISC",
   "type": "module",

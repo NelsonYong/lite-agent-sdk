@@ -1,6 +1,6 @@
 {
   "name": "@lite-agent/sandbox-anthropic",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "OS-level Sandbox adapter for @lite-agent/core over @anthropic-ai/sandbox-runtime (Seatbelt / bubblewrap).",
   "license": "ISC",
   "type": "module",
