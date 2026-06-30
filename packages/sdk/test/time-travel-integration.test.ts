@@ -103,3 +103,29 @@ test("restore picks the earliest snapshot per path across multiple edits", async
   await agent.restore("s1", 0, { files: true, conversation: false });
   expect(existsSync(join(dir, "f.txt"))).toBe(false);
 });
+
+test("listCheckpoints -> restore lands cleanly before the chosen prompt (no dangling turn)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "tt-d-"));
+  const cp = memoryCheckpointer();
+  const { provider, seen } = recording([
+    { text: "a1", message: { role: "assistant", content: [textBlock("a1")] } },
+    { text: "a2", message: { role: "assistant", content: [textBlock("a2")] } },
+    { text: "a3", message: { role: "assistant", content: [textBlock("a3")] } },
+  ]);
+  const agent = createLiteAgent({ model: provider, workdir: dir, checkpointer: cp });
+  const id = agent.sessionId;
+  await agent.send("first"); // user(1), assistant a1(2)
+  await agent.send("second"); // user(3), assistant a2(4)
+
+  // Rewind to the "second" prompt by feeding its checkpoint seq straight to restore.
+  const cps = await agent.listCheckpoints(id);
+  const target = cps.find((c) => c.prompt === "second")!;
+  await agent.restore(id, target.seq, { conversation: true, files: false });
+  await agent.send("redo");
+
+  // The redo model call must see [first, a1, redo] — the "second" prompt is fully undone,
+  // no dangling unanswered prompt and no two consecutive user messages.
+  const last = seen[seen.length - 1]!;
+  const shape = last.map((m) => (typeof m.content === "string" ? m.content : "[assistant]"));
+  expect(shape).toEqual(["first", "[assistant]", "redo"]);
+});

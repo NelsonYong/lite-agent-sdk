@@ -66,6 +66,7 @@ export function fileCheckpointer(opts: FileCheckpointerOptions): Checkpointer {
       heads.delete(sessionId);
     },
     async truncate(sessionId, toSeq) {
+      if (!existsSync(fileFor(sessionId))) return; // unknown session: no-op (don't create a phantom file)
       const kept = linesOf(sessionId).filter((e) => e.seq <= toSeq);
       mkdirSync(opts.dir, { recursive: true });
       writeFileSync(

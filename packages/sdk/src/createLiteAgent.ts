@@ -29,7 +29,8 @@ import type {
   ToolChoice,
 } from "@lite-agent/core";
 import type { ZodType } from "zod";
-import { existsSync, writeFileSync, unlinkSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
+import { dirname } from "node:path";
 import { makeSafePath } from "./tools/file";
 import { tool } from "./tool";
 import { defaultTools, askUserTool } from "./tools";
@@ -124,10 +125,14 @@ export interface LiteAgent extends Agent {
   deleteSession(id: string): Promise<void>;
   /** List persisted sessions (id + mtime, most-recent first). Requires a session-capable store. */
   listSessions(): Promise<SessionInfo[]>;
-  /** List the rewind anchors (one per user prompt) for a session, oldest-first. */
+  /** List the rewind anchors (one per user prompt) for a session, oldest-first. Each entry's
+   *  `seq` is the value to pass to `restore` to roll back to just BEFORE that prompt (so the
+   *  prompt and everything after it are undone) — pass it straight through: `restore(id, cp.seq)`. */
   listCheckpoints(id: string): Promise<{ seq: number; prompt: string; ts: string }[]>;
-  /** Roll a session back to checkpoint `toSeq`: revert files snapshotted after it and/or
-   *  truncate the conversation. Both default true. Sets the current session to `id`. */
+  /** Roll a session back to the state right after event `toSeq`: revert files snapshotted after
+   *  it (`files`) and/or truncate the conversation to it (`conversation`). Both default true.
+   *  Sets the current session to `id`. Conversation rollback needs an event-sourced checkpointer
+   *  with `truncate` (the default file/sqlite backends; a legacy `store` cannot). */
   restore(id: string, toSeq: number, opts?: { conversation?: boolean; files?: boolean }): Promise<void>;
   /** Manually compact the current session: compress the conversation, persist the result,
    *  emit progress + a completion notification, then stop. No model answer is produced. */
@@ -349,7 +354,9 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
       const out: { seq: number; prompt: string; ts: string }[] = [];
       for await (const e of checkpointer.read(id)) {
         if (e.event.type === "user" && typeof e.event.message.content === "string") {
-          out.push({ seq: e.seq, prompt: e.event.message.content, ts: e.ts });
+          // `seq - 1` = the restore target that lands just BEFORE this prompt (undoing it
+          // and everything after), so `restore(id, cp.seq)` matches "rewind to this prompt".
+          out.push({ seq: e.seq - 1, prompt: e.event.message.content, ts: e.ts });
         }
       }
       return out;
@@ -370,7 +377,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
           if (snap.truncated) continue;
           const fp = safe(path);
           if (snap.before === null) { if (existsSync(fp)) unlinkSync(fp); }
-          else writeFileSync(fp, snap.before);
+          else { mkdirSync(dirname(fp), { recursive: true }); writeFileSync(fp, snap.before); }
         }
       }
       if (conversation) {
