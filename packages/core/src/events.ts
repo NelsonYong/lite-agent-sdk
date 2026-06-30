@@ -46,6 +46,7 @@ type AgentEventBody =
   | { type: "input_resolved"; id: string; answer: UserAnswer }
   | { type: "tool_result"; result: ToolResult }
   | { type: "compaction"; kind: "micro" | "auto"; before: number; after: number }
+  | { type: "steer"; messages: Message[] }
   | { type: "turn_end"; turn: number; stopReason: StopReason }
   | { type: "error"; error: AgentError; fatal: boolean }
   | { type: "done"; reason: "stop" | "aborted" | "max_turns"; result: RunResult };

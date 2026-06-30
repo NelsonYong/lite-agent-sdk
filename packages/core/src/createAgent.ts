@@ -9,6 +9,7 @@ import { runKernel } from "./kernel";
 import type { KernelConfig } from "./kernel";
 import type { Checkpointer } from "./checkpoint";
 import { legacyStoreAdapter } from "./checkpoint";
+import type { SteerController } from "./steer";
 
 export interface CreateAgentConfig {
   model: ModelProvider;
@@ -32,7 +33,7 @@ export interface CreateAgentConfig {
   maxParallelTools?: number;
 }
 
-export type RunOptions = { signal?: AbortSignal; sessionId?: string };
+export type RunOptions = { signal?: AbortSignal; sessionId?: string; steer?: SteerController };
 
 export interface Agent {
   run(input: string | Message[], opts?: RunOptions): AsyncGenerator<AgentEvent, RunResult>;
@@ -63,7 +64,7 @@ export function createAgent(cfg: CreateAgentConfig): Agent {
     run(input, opts) {
       const signal = opts?.signal ?? new AbortController().signal;
       const sessionId = opts?.sessionId ?? randomUUID();
-      return runKernel(kernelCfg, input, signal, sessionId);
+      return runKernel({ ...kernelCfg, steer: opts?.steer }, input, signal, sessionId);
     },
     async send(input, opts) {
       const gen = agent.run(input, opts);
