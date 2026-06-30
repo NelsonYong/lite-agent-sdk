@@ -20,6 +20,10 @@ ${modelLine}
 - Prefer tools over prose.
 - Always work inside ${opts.workdir}; never access paths outside it.
 
+## Files
+- To read a file, use read_file (not cat/head/tail). To create or change files, use write_file / edit_file (not shell redirection or sed). File-tool paths are relative to ${opts.workdir}.
+- Use bash for running commands and for searching or listing files (grep, find, ls).
+
 ## Task Planning
 - For any task with 3+ steps, call TaskCreate to capture each step before executing.
 - Call TaskUpdate to set a task in_progress before starting it and completed only when fully done; use TaskList/TaskGet to review state.
