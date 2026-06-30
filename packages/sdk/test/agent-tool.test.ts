@@ -126,6 +126,26 @@ test("a failed subagent surfaces a tool_result with isError", async () => {
   expect(res.find((e) => e.result.name === "good")!.result.isError).toBeFalsy();
 });
 
+test("subagent events are forwarded live, tagged with the child agentId", async () => {
+  const events: AgentEvent[] = [];
+  const ectx: ToolContext = { ...ctx, emit: (e) => events.push(e) };
+  const spawn: Spawn = async (_def, _prompt, opts) => {
+    opts.onEvent?.({ type: "text_delta", text: "thinking" });
+    opts.onEvent?.({ type: "turn_end", turn: 1, stopReason: "stop" });
+    return "child done";
+  };
+  const tool = agentTool({ loader: loaderWith("worker"), spawn });
+  await tool.execute({ tasks: [{ subagent_type: "worker", prompt: "go" }] }, ectx);
+  const fromChild = events.filter((e) => e.agentId);
+  expect(fromChild.length).toBe(2);
+  expect(fromChild.every((e) => e.agentId!.startsWith("agent-worker-"))).toBe(true);
+  expect(fromChild.map((e) => e.type)).toEqual(["text_delta", "turn_end"]);
+  // the Agent tool's own bracketing tool_use/tool_result are NOT tagged:
+  const own = events.filter((e) => !e.agentId);
+  expect(own.some((e) => e.type === "tool_use")).toBe(true);
+  expect(own.some((e) => e.type === "tool_result")).toBe(true);
+});
+
 test("a subagent_type with newlines cannot inject a markdown heading into the output", async () => {
   const spawn: Spawn = async () => "ok";
   const tool = agentTool({ loader: loaderWith("known"), spawn });

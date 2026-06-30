@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import pLimit from "p-limit";
 import { z } from "zod";
 import { defineTool } from "@lite-agent/core";
-import type { Tool } from "@lite-agent/core";
+import type { Tool, AgentEvent } from "@lite-agent/core";
 import type { AgentLoader } from "../agents/loader";
 import type { AgentDefinition } from "../agents/types";
 
@@ -12,6 +12,8 @@ const MAX_CONCURRENCY = 5;
 export interface SpawnOptions {
   signal: AbortSignal;
   sessionId: string;
+  /** Live child event sink. The Agent tool stamps each event with the child agentId. */
+  onEvent?: (e: AgentEvent) => void;
 }
 export type Spawn = (
   def: AgentDefinition,
@@ -65,7 +67,11 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn }): Tool {
           : `agent-${sanitize(t.subagent_type)}-${shortId()}`;
         ctx.emit({ type: "tool_use", call: { id: sessionId, name, input: { prompt: t.prompt } } });
         try {
-          const out = await spawn(def, t.prompt, { signal: ctx.signal, sessionId });
+          const out = await spawn(def, t.prompt, {
+            signal: ctx.signal,
+            sessionId,
+            onEvent: (e) => ctx.emit({ ...e, agentId: sessionId }),
+          });
           ctx.emit({ type: "tool_result", result: { id: sessionId, name, content: out } });
           return { id: sessionId, out };
         } catch (e) {

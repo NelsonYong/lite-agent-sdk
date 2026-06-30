@@ -175,7 +175,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     );
     if (agentLoader.names().length > 0) {
       subagents = agentLoader.getDescriptions();
-      const spawn: Spawn = async (def, prompt, { signal, sessionId }) => {
+      const spawn: Spawn = async (def, prompt, { signal, sessionId, onEvent }) => {
         const child = createLiteAgent({
           // `tools`/`use` intentionally inherit: the child is a full lite-agent in the
           // same project, so an absent `def.tools` means "inherit the parent's tool set"
@@ -194,8 +194,10 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
           outputSchema: undefined, // subagents return their answer as text, not via final_answer
           checkpointer: undefined, // child rebuilds its own fileCheckpointer from the shared sessions dir (keyed by its sessionId)
         });
-        const r = await child.send([{ role: "user", content: prompt }], { signal, sessionId });
-        return r.text;
+        const gen = child.run([{ role: "user", content: prompt }], { signal, sessionId });
+        let r = await gen.next();
+        while (!r.done) { onEvent?.(r.value); r = await gen.next(); }
+        return r.value.text;
       };
       tools.push(agentTool({ loader: agentLoader, spawn }));
     }
