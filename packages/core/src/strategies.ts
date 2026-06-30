@@ -24,6 +24,9 @@ export interface ToolContext {
   readonly input?: InputHandler;
   readonly sandbox?: Sandbox;
   readonly call?: ToolCall;
+  /** Record a file's pre-mutation content into the session log (for restore). Provided by
+   *  the kernel only when a checkpointer is active; file-mutating tools call it before writing. */
+  recordSnapshot?(path: string, before: string | null, truncated?: boolean): void;
 }
 
 export interface Tool<I = unknown> {

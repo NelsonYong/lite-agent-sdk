@@ -162,13 +162,18 @@ export async function* runKernel(
 
     const runCall = async (call: ToolCall, i: number): Promise<void> => {
       const callEmit = (ev: AgentEvent) => { ch.push(ev); };
+      const recordSnapshot = cfg.checkpointer
+        ? (path: string, before: string | null, truncated?: boolean) => {
+            void append({ type: "file_snapshot", path, before, truncated, turn });
+          }
+        : undefined;
       const tctx: ToolCallContext = { ...ctx, call, emit: callEmit };
       const tool = toolMap.get(call.name);
       const baseExec = async (): Promise<ToolResult> => {
         if (!tool) return { id: call.id, name: call.name, content: `Error: unknown tool '${call.name}'`, isError: true };
         try {
           const parsed = tool.schema.parse(call.input);
-          const out = await tool.execute(parsed, { sessionId, signal, emit: callEmit, sandbox: cfg.sandbox, input: cfg.input, call });
+          const out = await tool.execute(parsed, { sessionId, signal, emit: callEmit, sandbox: cfg.sandbox, input: cfg.input, call, recordSnapshot });
           return { id: call.id, name: call.name, content: String(out) };
         } catch (e) {
           return { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true };
