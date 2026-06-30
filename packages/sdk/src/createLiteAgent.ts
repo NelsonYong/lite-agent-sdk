@@ -6,6 +6,8 @@ import {
   reactiveCompaction,
   defaultCompactor,
   legacyStoreAdapter,
+  foldEvents,
+  estimateTokens,
   AgentError,
 } from "@lite-agent/core";
 import type {
@@ -127,6 +129,9 @@ export interface LiteAgent extends Agent {
   /** Roll a session back to checkpoint `toSeq`: revert files snapshotted after it and/or
    *  truncate the conversation. Both default true. Sets the current session to `id`. */
   restore(id: string, toSeq: number, opts?: { conversation?: boolean; files?: boolean }): Promise<void>;
+  /** Manually compact the current session: compress the conversation, persist the result,
+   *  emit progress + a completion notification, then stop. No model answer is produced. */
+  compact(): AsyncGenerator<AgentEvent, { before: number; after: number }>;
 }
 
 export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
@@ -374,6 +379,28 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
         await checkpointer.truncate(id, toSeq);
       }
       currentSessionId = id;
+    },
+    async *compact() {
+      if (!checkpointer) { await noSessions(); return { before: 0, after: 0 }; }
+      if (!compactor) throw new AgentError("compact requires a compactor (it is disabled when compactor:false)");
+      const id = currentSessionId;
+      const stored = [];
+      for await (const e of checkpointer.read(id)) stored.push(e);
+      const messages = foldEvents(stored.map((s) => s.event));
+      const before = estimateTokens(messages);
+      yield { type: "compaction", kind: "manual", phase: "start", before, after: before };
+      const result = await compactor.maybeCompact(messages, { inputTokens: 0, outputTokens: 0 });
+      const after = estimateTokens(result.messages);
+      if (result.messages !== messages) {
+        const head = stored.length ? stored[stored.length - 1]!.seq : 0;
+        await checkpointer.append(
+          id,
+          [{ type: "summary", messages: result.messages, throughSeq: head, before, after }],
+          head,
+        );
+      }
+      yield { type: "compaction", kind: "manual", phase: "done", before, after };
+      return { before, after };
     },
   };
 }
