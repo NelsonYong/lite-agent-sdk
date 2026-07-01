@@ -135,8 +135,10 @@ export interface LiteAgent extends Agent {
    *  with `truncate` (the default file/sqlite backends; a legacy `store` cannot). */
   restore(id: string, toSeq: number, opts?: { conversation?: boolean; files?: boolean }): Promise<void>;
   /** Manually compact the current session: compress the conversation, persist the result,
-   *  emit progress + a completion notification, then stop. No model answer is produced. */
-  compact(): AsyncGenerator<AgentEvent, { before: number; after: number }>;
+   *  emit progress + a completion notification, then stop. No model answer is produced.
+   *  Optional `instructions` steer this compaction (Claude Code's `/compact <instructions>`) —
+   *  passed to the compactor to bias what's preserved; only LLM-summary compactors act on it. */
+  compact(instructions?: string): AsyncGenerator<AgentEvent, { before: number; after: number }>;
 }
 
 export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
@@ -387,7 +389,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
       }
       currentSessionId = id;
     },
-    async *compact() {
+    async *compact(instructions) {
       if (!checkpointer) { await noSessions(); return { before: 0, after: 0 }; }
       if (!compactor) throw new AgentError("compact requires a compactor (it is disabled when compactor:false)");
       const id = currentSessionId;
@@ -396,7 +398,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
       const messages = foldEvents(stored.map((s) => s.event));
       const before = estimateTokens(messages);
       yield { type: "compaction", kind: "manual", phase: "start", before, after: before };
-      const result = await compactor.maybeCompact(messages, { inputTokens: 0, outputTokens: 0 });
+      const result = await compactor.maybeCompact(messages, { inputTokens: 0, outputTokens: 0 }, instructions);
       const after = estimateTokens(result.messages);
       if (result.messages !== messages) {
         const head = stored.length ? stored[stored.length - 1]!.seq : 0;

@@ -37,10 +37,13 @@ export function llmCompactor(opts: LlmCompactorOptions): Compactor {
   let failures = 0;
   let circuitOpen = false;
 
-  async function summarize(older: Message[]): Promise<string> {
+  async function summarize(older: Message[], instructions?: string): Promise<string> {
+    const system = instructions
+      ? `${summaryPrompt}\n\nAdditional user instructions for this summary (follow them closely):\n${instructions}`
+      : summaryPrompt;
     const req: ModelRequest = {
       model: opts.model,
-      system: summaryPrompt,
+      system,
       messages: [...older, { role: "user", content: "Summarize the conversation above as instructed." }],
     };
     let assistant: Message | undefined;
@@ -52,7 +55,7 @@ export function llmCompactor(opts: LlmCompactorOptions): Compactor {
   }
 
   return {
-    async maybeCompact(messages, usage) {
+    async maybeCompact(messages, usage, instructions) {
       const before = estimateTokens(messages);
       const baseResult = await base.maybeCompact(messages, usage);
       const msgs = baseResult.messages;
@@ -67,7 +70,7 @@ export function llmCompactor(opts: LlmCompactorOptions): Compactor {
       const recent = turns.slice(turns.length - keepRecentTurns).flat();
       const older = turns.slice(0, turns.length - keepRecentTurns).flat();
       try {
-        const summary = await summarize(older);
+        const summary = await summarize(older, instructions);
         failures = 0;
         const summaryMsg: Message = { role: "user", content: `[Summary of earlier conversation]\n${summary}` };
         const out = [summaryMsg, ...recent];
