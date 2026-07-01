@@ -8,7 +8,7 @@ import {
   unlinkSync,
 } from "node:fs";
 import { join } from "node:path";
-import { randomBytes } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import type { Store, Message, SessionInfo } from "@lite-agent/core";
 
 export interface JsonlStoreOptions {
@@ -63,9 +63,10 @@ export function jsonlStore(opts: JsonlStoreOptions): SessionStore {
   };
 }
 
-/** Unique, creation-sortable session id (replaces the old process-local counter). */
+/** Unique session id — a UUID v4 (Claude Code-style), e.g. `be63a577-971d-4a42-a8fe-a572b7246431`.
+ *  Replaces the old process-local counter. Session listing sorts by mtime, not by id. */
 export function newSessionId(): string {
-  return `s-${Date.now().toString(36)}-${randomBytes(3).toString("hex")}`;
+  return randomUUID();
 }
 
 /** True when a Store also supports session listing/deletion (e.g. jsonlStore). */

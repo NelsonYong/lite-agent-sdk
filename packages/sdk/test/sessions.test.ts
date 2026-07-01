@@ -17,7 +17,7 @@ test("each agent gets a unique, non-counter default session id", () => {
   const b = mk();
   expect(a.sessionId).not.toBe(b.sessionId);
   expect(a.sessionId).not.toMatch(/^s\d+$/); // not the old counter form
-  expect(a.sessionId).toMatch(/^s-[0-9a-z]+-[0-9a-f]{6}$/);
+  expect(a.sessionId).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 });
 
 test("resume(id) reconstructs an existing session's history", async () => {
