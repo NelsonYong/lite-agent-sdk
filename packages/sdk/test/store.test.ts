@@ -67,11 +67,11 @@ test("delete() removes a session file and is idempotent", async () => {
   await store.delete("gone"); // missing file → no throw
 });
 
-test("newSessionId() is unique and sortable-formatted", () => {
+test("newSessionId() is unique and a UUID v4", () => {
   const a = newSessionId();
   const b = newSessionId();
   expect(a).not.toBe(b);
-  expect(a).toMatch(/^s-[0-9a-z]+-[0-9a-f]{6}$/);
+  expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
 });
 
 test("isSessionStore distinguishes jsonlStore from a plain Store", () => {
