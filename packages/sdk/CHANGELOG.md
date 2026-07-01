@@ -1,5 +1,11 @@
 # lite-agent
 
+## 0.8.1
+
+### Patch Changes
+
+- `read_file` and `edit_file` now return an actionable error when a path doesn't exist, instead of a raw `ENOENT`. The message names the first path segment that is missing, lists the nearest existing directory, and — via a bounded workspace search — suggests same-named files elsewhere (e.g. asking for `extension/src/agent/forge-agent.ts` points you to `src/agent/forge-agent.ts`), so the model can correct a wrong path in one step. Path resolution is unchanged; `write_file` is unaffected (it still creates parent directories).
+
 ## 0.8.0
 
 ### Minor Changes

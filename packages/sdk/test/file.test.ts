@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolContext } from "@lite-agent/core";
@@ -39,6 +39,43 @@ test("write_file/edit_file record pre-mutation snapshots", async () => {
     { p: "n.txt", b: null, t: undefined },
     { p: "n.txt", b: "v1", t: undefined },
   ]);
+});
+
+test("read_file returns an actionable hint for a wrong path (not a raw ENOENT)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "la-hint-"));
+  mkdirSync(join(dir, "src", "agent"), { recursive: true });
+  writeFileSync(join(dir, "src", "agent", "forge-agent.ts"), "x");
+  mkdirSync(join(dir, "extension"), { recursive: true });
+  writeFileSync(join(dir, "extension", "package.json"), "{}");
+  const [read] = fileTools(dir);
+
+  // Model guessed a bogus `extension/` prefix; the real file is src/agent/forge-agent.ts.
+  // The tool throws synchronously; the try/catch handles both sync-throw and async-reject.
+  let msg = "";
+  try {
+    await read!.execute({ path: "extension/src/agent/forge-agent.ts" }, ctx);
+  } catch (e) {
+    msg = (e as Error).message;
+  }
+  expect(msg).toContain("File not found"); // actionable, not a raw ENOENT
+  expect(msg).toContain("extension/src"); // names the first path segment that doesn't exist
+  expect(msg).toContain("package.json"); // lists the nearest existing dir (extension/)
+  expect(msg).toContain("src/agent/forge-agent.ts"); // suggests the real location by basename
+});
+
+test("edit_file returns the same actionable hint for a missing file", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "la-hint2-"));
+  mkdirSync(join(dir, "src"), { recursive: true });
+  writeFileSync(join(dir, "src", "a.ts"), "hi");
+  const [, , edit] = fileTools(dir);
+  let msg = "";
+  try {
+    await edit!.execute({ path: "lib/a.ts", old_text: "hi", new_text: "yo" }, ctx);
+  } catch (e) {
+    msg = (e as Error).message;
+  }
+  expect(msg).toContain("File not found");
+  expect(msg).toContain("src/a.ts"); // suggests the real location
 });
 
 test("safePath blocks escaping the workspace", () => {
