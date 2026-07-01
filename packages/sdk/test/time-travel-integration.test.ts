@@ -3,7 +3,7 @@ import { mkdtempSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeProvider, textBlock, memoryCheckpointer } from "@lite-agent/core";
-import type { ModelProvider, Message, FakeTurn, CompactResult } from "@lite-agent/core";
+import type { ModelProvider, Message, FakeTurn, CompactResult, Usage } from "@lite-agent/core";
 import { createLiteAgent } from "../src/createLiteAgent";
 
 // A model provider that snapshots each call's messages (to assert what the model saw),
@@ -77,6 +77,26 @@ test("compact persists a summary that a subsequent run loads as the base", async
   expect(last[0]).toEqual({ role: "user", content: "SUMMARY" });
   expect(last.some((m) => m.content === "next")).toBe(true);
   expect(last.some((m) => m.content === "hello")).toBe(false); // compacted away from the model's view
+});
+
+test("compact forwards custom instructions to the compactor (Claude Code /compact <prompt>)", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "tt-e-"));
+  const cp = memoryCheckpointer();
+  const provider = fakeProvider([{ text: "a1", message: { role: "assistant", content: [textBlock("a1")] } }]);
+  let seen: string | undefined;
+  let active = false;
+  const compactor = {
+    async maybeCompact(messages: Message[], _usage: Usage, instructions?: string): Promise<CompactResult> {
+      if (!active) return { messages };
+      seen = instructions;
+      return { messages: [{ role: "user", content: "SUMMARY" } as Message] };
+    },
+  };
+  const agent = createLiteAgent({ model: provider, workdir: dir, checkpointer: cp, compactor });
+  await agent.send("hello");
+  active = true;
+  for await (const _ of agent.compact("focus on the auth flow")) { /* drain */ }
+  expect(seen).toBe("focus on the auth flow");
 });
 
 test("restore picks the earliest snapshot per path across multiple edits", async () => {

@@ -54,6 +54,17 @@ test("llmCompactor leaves it to the base when there are too few turns to summari
   expect(calls).toBe(0);
 });
 
+test("llmCompactor appends custom instructions to the summary prompt (append, not override)", async () => {
+  let seenSystem: string | undefined;
+  const provider: ModelProvider = { id: "s", async *stream(req) { seenSystem = req.system; yield done("CONDENSED"); } };
+  const c = llmCompactor({ provider, model: "m", tokenThreshold: 10, keepRecentTurns: 1, base: defaultCompactor({ maxMessages: 1000 }) });
+  const big = (i: number) => `result-${i}-`.repeat(50);
+  const msgs = [0, 1, 2, 3, 4].flatMap((i) => turn(`q${i}`, `c${i}`, big(i)));
+  await c.maybeCompact(msgs, ZERO, "Preserve every API endpoint name verbatim.");
+  expect(seenSystem).toContain("Preserve every API endpoint name verbatim."); // user's instruction is honored
+  expect(seenSystem).toContain("context-compaction assistant"); // ...appended to the default prompt, not replacing it
+});
+
 test("llmCompactor opens a circuit breaker after repeated LLM failures", async () => {
   let calls = 0;
   const provider: ModelProvider = { id: "f", async *stream() { calls++; throw new Error("llm down"); } };
