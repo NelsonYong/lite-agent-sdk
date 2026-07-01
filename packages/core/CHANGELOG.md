@@ -1,5 +1,11 @@
 # @lite-agent/core
 
+## 0.8.0
+
+### Minor Changes
+
+- afbb084: Support steering manual compaction with free-text instructions. `Compactor.maybeCompact(messages, usage, instructions?)` gains an optional instruction string; `llmCompactor` appends it to the summary prompt (append, not override) so a summary can be biased toward what matters. The parameter is optional, so existing `Compactor` implementations and automatic/proactive compaction are unaffected.
+
 ## 0.7.0
 
 ### Minor Changes
