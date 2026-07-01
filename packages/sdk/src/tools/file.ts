@@ -1,11 +1,13 @@
-import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { defineTool } from "@lite-agent/core";
 import type { Tool } from "@lite-agent/core";
 
 const MAX_BYTES = 50_000;
 const MAX_SNAPSHOT_BYTES = 1_000_000;
+
+const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "coverage", ".next", ".lite-agent"]);
 
 export function makeSafePath(workdir: string): (p: string) => string {
   const root = resolve(workdir);
@@ -18,7 +20,72 @@ export function makeSafePath(workdir: string): (p: string) => string {
   };
 }
 
+/** Bounded search for files named `base` under `root` — skips heavy/hidden dirs and
+ *  caps depth, matches, and total entries scanned so it stays cheap on large repos. */
+function findByBasename(root: string, base: string, cap = 5): string[] {
+  const out: string[] = [];
+  const stack: { dir: string; depth: number }[] = [{ dir: root, depth: 0 }];
+  let scanned = 0;
+  while (stack.length && out.length < cap && scanned < 20_000) {
+    const { dir, depth } = stack.pop()!;
+    let entries;
+    try { entries = readdirSync(dir, { withFileTypes: true }); } catch { continue; }
+    for (const e of entries) {
+      scanned++;
+      if (e.isDirectory()) {
+        if (depth < 8 && !e.name.startsWith(".") && !SKIP_DIRS.has(e.name))
+          stack.push({ dir: join(dir, e.name), depth: depth + 1 });
+      } else if (e.name === base) {
+        out.push(relative(root, join(dir, e.name)));
+        if (out.length >= cap) break;
+      }
+    }
+  }
+  return out;
+}
+
+/** Turn a bare ENOENT into an actionable message: name the first path segment that
+ *  doesn't exist, list the nearest existing directory, and suggest same-named files
+ *  elsewhere in the workspace — so the model can correct a wrong path in one step
+ *  instead of flailing. */
+function notFoundHint(root: string, requested: string, full: string): string {
+  const parts = relative(root, full).split(sep).filter(Boolean);
+  let existing = root;
+  let missing = full;
+  for (const part of parts) {
+    const candidate = join(existing, part);
+    if (existsSync(candidate)) existing = candidate;
+    else { missing = candidate; break; }
+  }
+  const missingRel = relative(root, missing) || requested;
+  const existingRel = relative(root, existing) || ".";
+  let listing: string[] = [];
+  try { listing = readdirSync(existing).filter((n) => !n.startsWith(".")).slice(0, 30); } catch { /* ignore */ }
+  const lines = [
+    `File not found: ${requested}`,
+    `Path "${missingRel}" does not exist. Nearest existing directory "${existingRel}" contains: ${listing.join(", ") || "(empty)"}.`,
+  ];
+  const base = parts[parts.length - 1];
+  if (base) {
+    const hits = findByBasename(root, base).filter((p) => p !== missingRel);
+    if (hits.length)
+      lines.push(`A file named "${base}" exists at: ${hits.join(", ")} (relative to the workspace root).`);
+  }
+  return lines.join("\n");
+}
+
+/** readFileSync, but ENOENT becomes the actionable hint. Other errors pass through. */
+function readOrHint(root: string, requested: string, full: string): string {
+  try {
+    return readFileSync(full, "utf8");
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new Error(notFoundHint(root, requested, full));
+    throw e;
+  }
+}
+
 export function fileTools(workdir: string): Tool[] {
+  const root = resolve(workdir);
   const safePath = makeSafePath(workdir);
 
   const readFile = defineTool({
@@ -27,7 +94,7 @@ export function fileTools(workdir: string): Tool[] {
       "Read a file's contents. `path` is relative to the workspace root (an absolute path inside the workspace also works). Pass the optional `limit` to cap how many lines are returned for large files. Prefer this over running cat/head/tail in bash.",
     schema: z.object({ path: z.string(), limit: z.number().int().optional() }),
     execute: ({ path, limit }) => {
-      const lines = readFileSync(safePath(path), "utf8").split("\n");
+      const lines = readOrHint(root, path, safePath(path)).split("\n");
       if (limit && limit < lines.length) {
         return [
           ...lines.slice(0, limit),
@@ -69,7 +136,7 @@ export function fileTools(workdir: string): Tool[] {
     }),
     execute: ({ path, old_text, new_text }, ctx) => {
       const fp = safePath(path);
-      const content = readFileSync(fp, "utf8");
+      const content = readOrHint(root, path, fp);
       if (!content.includes(old_text))
         return `Error: Text not found in ${path}`;
       if (ctx.recordSnapshot) {
