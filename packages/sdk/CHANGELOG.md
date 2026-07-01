@@ -1,5 +1,15 @@
 # lite-agent
 
+## 0.8.0
+
+### Minor Changes
+
+- afbb084: Add free-text steering to manual compaction. `LiteAgent.compact(instructions?)` forwards an instruction string to the compactor (Claude Code's `/compact <instructions>`), biasing the summary toward what should be preserved. Only a manual `compact()` forwards it; automatic compaction is unchanged.
+
+### Patch Changes
+
+- c0384f5: Generate session ids as UUID v4 (e.g. `be63a577-971d-4a42-a8fe-a572b7246431`) via `crypto.randomUUID()`, replacing the `s-<timestamp>-<rand>` form. Ids stay opaque strings, so previously created sessions still resume/restore.
+
 ## 0.7.0
 
 ### Minor Changes

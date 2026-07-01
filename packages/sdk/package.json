@@ -1,6 +1,6 @@
 {
   "name": "@lite-agent/sdk",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "Batteries-included agent SDK over @lite-agent/core: tools, skills, system prompt, and query()/createLiteAgent().",
   "license": "ISC",
   "type": "module",
