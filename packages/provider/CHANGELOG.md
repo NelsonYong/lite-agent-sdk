@@ -1,5 +1,11 @@
 # @lite-agent/provider
 
+## 0.7.1
+
+### Patch Changes
+
+- Docs: add a package README (English + Simplified Chinese) documenting the `anthropic()` and `openai()` providers, their options, and their environment-variable defaults. Also correct `repository.url` to the renamed `lite-agent-sdk` GitHub repository. No code changes.
+
 ## 0.7.0
 
 ### Patch Changes

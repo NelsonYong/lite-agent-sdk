@@ -1,6 +1,6 @@
 {
   "name": "@lite-agent/sandbox-anthropic",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "OS-level Sandbox adapter for @lite-agent/core over @anthropic-ai/sandbox-runtime (Seatbelt / bubblewrap).",
   "license": "ISC",
   "type": "module",
@@ -29,7 +29,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NelsonYong/lite-agent.git",
+    "url": "git+https://github.com/NelsonYong/lite-agent-sdk.git",
     "directory": "packages/sandbox-anthropic"
   },
   "publishConfig": {

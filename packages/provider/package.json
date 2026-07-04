@@ -1,6 +1,6 @@
 {
   "name": "@lite-agent/provider",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Model providers for lite-agent: Anthropic Messages API + OpenAI Chat Completions (also OpenAI-compatible / local endpoints).",
   "license": "ISC",
   "type": "module",
@@ -30,7 +30,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NelsonYong/lite-agent.git",
+    "url": "git+https://github.com/NelsonYong/lite-agent-sdk.git",
     "directory": "packages/provider"
   },
   "publishConfig": {
