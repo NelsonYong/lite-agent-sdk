@@ -1,5 +1,11 @@
 # @lite-agent/core
 
+## 0.8.1
+
+### Patch Changes
+
+- Docs: rewrite the package README to reflect the current kernel (the previous version still described the pre-1.0 "walking skeleton" and predated sessions, the sandbox, compaction, the permission gate, and subagents), and add a Simplified Chinese translation (`README.zh-CN.md`). Also correct `repository.url` to the renamed `lite-agent-sdk` GitHub repository. No code changes.
+
 ## 0.8.0
 
 ### Minor Changes

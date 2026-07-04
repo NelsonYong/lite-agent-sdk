@@ -1,5 +1,11 @@
 # @lite-agent/checkpoint-sqlite
 
+## 0.7.1
+
+### Patch Changes
+
+- Docs: add a package README (English + Simplified Chinese) documenting `sqliteCheckpointer()`, the WAL / multi-process persistence model, and the `Checkpointer` contract it implements. Also correct `repository.url` to the renamed `lite-agent-sdk` GitHub repository. No code changes.
+
 ## 0.7.0
 
 ### Minor Changes

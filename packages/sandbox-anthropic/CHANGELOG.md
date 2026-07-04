@@ -1,5 +1,11 @@
 # @lite-agent/sandbox-anthropic
 
+## 0.7.1
+
+### Patch Changes
+
+- Docs: add a package README (English + Simplified Chinese) documenting `sandboxRuntime()`, its options, and its graceful degradation to a no-op on unsupported environments. Also correct `repository.url` to the renamed `lite-agent-sdk` GitHub repository. No code changes.
+
 ## 0.7.0
 
 ### Patch Changes

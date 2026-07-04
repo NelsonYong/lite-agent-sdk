@@ -1,6 +1,6 @@
 {
   "name": "@lite-agent/checkpoint-sqlite",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "SQLite (WAL) Checkpointer backend for @lite-agent/core — single-host multi-process event-sourced persistence.",
   "license": "ISC",
   "type": "module",
@@ -29,7 +29,7 @@
   ],
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/NelsonYong/lite-agent.git",
+    "url": "git+https://github.com/NelsonYong/lite-agent-sdk.git",
     "directory": "packages/checkpoint-sqlite"
   },
   "publishConfig": {

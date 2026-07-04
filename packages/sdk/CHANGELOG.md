@@ -1,5 +1,11 @@
 # lite-agent
 
+## 0.8.2
+
+### Patch Changes
+
+- Docs: add a package README (English + Simplified Chinese) documenting `query` / `createLiteAgent` / `tool`, the built-in batteries (default tools, skills, subagents, tasks, sessions, compaction, permission gate, sandbox, `ask_user`, structured output), and session management. Also correct `repository.url` to the renamed `lite-agent-sdk` GitHub repository. No code changes.
+
 ## 0.8.1
 
 ### Patch Changes
