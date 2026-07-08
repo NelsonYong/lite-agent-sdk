@@ -17,31 +17,32 @@ function ctxWithBackground() {
   return { ctx, bg, emitted };
 }
 
-test("Agent defaults to background: returns a placeholder, delivers one aggregated notification", async () => {
+test("Agent defaults to blocking: returns the aggregate directly, no placeholder", async () => {
   const t = agentTool({ loader: loader(), spawn: echoSpawn });
-  const { ctx, bg } = ctxWithBackground();
+  const { ctx } = ctxWithBackground();
   const out = await t.execute(
     { tasks: [{ subagent_type: "general-purpose", prompt: "A" }, { subagent_type: "general-purpose", prompt: "B" }] },
     ctx,
   );
+  expect(out).not.toMatch(/^\[background:/);
+  expect(out).toContain("RESULT(A)");
+  expect(out).toContain("RESULT(B)");
+});
+
+test("Agent with run_in_background:true backgrounds as one joinable task", async () => {
+  const t = agentTool({ loader: loader(), spawn: echoSpawn });
+  const { ctx, bg } = ctxWithBackground();
+  const out = await t.execute(
+    { tasks: [{ subagent_type: "general-purpose", prompt: "A" }, { subagent_type: "general-purpose", prompt: "B" }], run_in_background: true },
+    ctx,
+  );
   expect(out).toMatch(/^\[background:bg_/);
   expect(out).toContain("2 subagent");
-  expect(bg.pending()).toBe(1); // one batch = one task
-  await bg.waitNext(new AbortController().signal);
+  expect(bg.pendingJoinable()).toBe(1); // one batch = one joinable task
+  await bg.waitNextJoinable(new AbortController().signal);
   const [c] = bg.takeCompleted();
   expect(c!.content).toContain("RESULT(A)");
   expect(c!.content).toContain("RESULT(B)");
-});
-
-test("Agent with run_in_background:false blocks and returns the aggregate directly", async () => {
-  const t = agentTool({ loader: loader(), spawn: echoSpawn });
-  const { ctx } = ctxWithBackground();
-  const out = await t.execute(
-    { tasks: [{ subagent_type: "general-purpose", prompt: "X" }], run_in_background: false },
-    ctx,
-  );
-  expect(out).toContain("RESULT(X)");
-  expect(out).not.toMatch(/^\[background:/);
 });
 
 test("backgrounded subagent events route to the run-level emit, not ctx.emit", async () => {
@@ -50,10 +51,8 @@ test("backgrounded subagent events route to the run-level emit, not ctx.emit", a
   const bg = createBackgroundTasks({ emit: (e) => runLevel.push(e), signal: new AbortController().signal });
   const ctx = { sessionId: "s", signal: new AbortController().signal, emit: (e: AgentEvent) => ctxEmit.push(e), background: bg } as ToolContext;
   const t = agentTool({ loader: loader(), spawn: echoSpawn });
-  await t.execute({ tasks: [{ subagent_type: "general-purpose", prompt: "Q" }] }, ctx);
-  await bg.waitNext(new AbortController().signal);
-  // runOne's tool_use + tool_result were emitted through the background run-level emit,
-  // NOT through ctx.emit (which in the kernel would be the already-ended per-turn channel).
+  await t.execute({ tasks: [{ subagent_type: "general-purpose", prompt: "Q" }], run_in_background: true }, ctx);
+  await bg.waitNextJoinable(new AbortController().signal);
   expect(runLevel.some((e) => e.type === "tool_use")).toBe(true);
   expect(runLevel.some((e) => e.type === "tool_result")).toBe(true);
   expect(ctxEmit.length).toBe(0);

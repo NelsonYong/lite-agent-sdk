@@ -46,6 +46,23 @@ const bgErrTool = defineTool({
   },
 });
 
+// A tool that spawns a DETACHED task that never resolves unless aborted (a daemon).
+let daemonAborted = false;
+const daemonTool = defineTool({
+  name: "daemon",
+  description: "spawn a long-lived detached task",
+  schema: z.object({}),
+  execute: async (_input, ctx) => {
+    if (!ctx.background) return "no background";
+    const h = ctx.background.spawn({
+      label: "server",
+      kind: "detached",
+      run: (signal) => new Promise<string>((r) => signal.addEventListener("abort", () => { daemonAborted = true; r("stopped"); })),
+    });
+    return `[background:${h.id}] started.`;
+  },
+});
+
 test("run joins background work: it does not stop until the task completes and its result is injected", async () => {
   // turn 1: call bg tool. turn 2+: model produces no tool calls (dry-out).
   const provider = fakeProvider([
@@ -136,7 +153,7 @@ test("a still-pending background task is cancelled when the run hits maxTurns", 
     description: "spawn one long-lived background task, then keep busy",
     schema: z.object({}),
     execute: async (_input, ctx) => {
-      if (ctx.background && ctx.background.pending() === 0) {
+      if (ctx.background && ctx.background.pendingJoinable() === 0) {
         ctx.background.spawn({
           label: "long",
           run: (signal) => new Promise<string>((r) => signal.addEventListener("abort", () => { aborted = true; r("cancelled"); })),
@@ -171,4 +188,60 @@ test("an error completion is injected with status=\"error\"", async () => {
   };
   await drain(runKernel(baseCfg({ provider, tools: [bgErrTool] }), "go", new AbortController().signal, "s1"));
   expect(seen.some((c) => c.includes('status="error"') && c.includes("kaboom"))).toBe(true);
+});
+
+test("a detached daemon does NOT block dry-out: the run stops and the daemon is cancelled at run-end", async () => {
+  daemonAborted = false;
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "daemon", input: {} }] } },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  const { result } = await drain(
+    runKernel(baseCfg({ provider, tools: [daemonTool] }), "go", new AbortController().signal, "s1"),
+  );
+  expect(result.stopReason).toBe("stop"); // NOT hung on the never-exiting daemon
+  expect(daemonAborted).toBe(true); // cancelAll at run-end stopped it
+});
+
+test("a joinable task still blocks dry-out even when a detached daemon is also running", async () => {
+  daemonAborted = false;
+  // turn 1: start the daemon. turn 2: start a finite joinable bg. turn 3: dry-out → join on the joinable.
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "daemon", input: {} }] } },
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c2", name: "bg", input: {} }] } },
+    { text: "waiting", message: { role: "assistant", content: [textBlock("waiting")] } },
+    { text: "consumed", message: { role: "assistant", content: [textBlock("consumed")] } },
+  ]);
+  const { events, result } = await drain(
+    runKernel(baseCfg({ provider, tools: [daemonTool, bgTool(10)] }), "go", new AbortController().signal, "s1"),
+  );
+  expect(events.some((e) => e.type === "background_completed")).toBe(true); // joinable was joined + injected
+  expect(result.stopReason).toBe("stop");
+  expect(daemonAborted).toBe(true); // daemon cancelled at run-end
+});
+
+test("a detached task that exits WHILE the run is active still injects a completion note", async () => {
+  // The detached task resolves on the microtask queue (no external timer), so it is
+  // finished by the turn-2 top drain — where takeCompleted() injects every completion,
+  // joinable or detached. Push semantics for daemon exits, without gating the run.
+  const detachedFinite = defineTool({
+    name: "dfin",
+    description: "spawn a detached task that finishes on its own",
+    schema: z.object({}),
+    execute: async (_input, ctx) => {
+      const h = ctx.background!.spawn({ label: "srv", kind: "detached", run: async () => "SRV DONE" });
+      return `[background:${h.id}] started.`;
+    },
+  });
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "dfin", input: {} }] } },
+    { text: "idle", message: { role: "assistant", content: [textBlock("idle")] } },
+  ]);
+  const { events, result } = await drain(
+    runKernel(baseCfg({ provider, tools: [detachedFinite] }), "go", new AbortController().signal, "s1"),
+  );
+  const completed = events.find((e) => e.type === "background_completed");
+  expect(completed).toBeDefined();
+  expect((completed as Extract<AgentEvent, { type: "background_completed" }>).completion.content).toBe("SRV DONE");
+  expect(result.stopReason).toBe("stop");
 });

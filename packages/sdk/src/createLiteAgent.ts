@@ -51,6 +51,7 @@ import { builtinAgents } from "./agents/builtin";
 import { agentTool } from "./tools/agent";
 import type { Spawn } from "./tools/agent";
 import { killBackgroundTool } from "./tools/killBackground";
+import { bashOutputTool } from "./tools/bashOutput";
 
 export interface CreateLiteAgentConfig {
   model: ModelProvider;
@@ -225,7 +226,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     }
   }
 
-  if (cfg.background !== false) tools.push(killBackgroundTool());
+  if (cfg.background !== false) tools.push(killBackgroundTool(), bashOutputTool());
 
   if (cfg.tools) tools.push(...cfg.tools);
   if (cfg.onAskUser) tools.push(askUserTool());
