@@ -32,6 +32,8 @@ export interface KernelConfig {
   maxParallelTools?: number;
   /** Optional turn-boundary steering queues (steer/followUp). */
   steer?: SteerController;
+  /** Enable background tasks (default true). When false, ctx.background is undefined. */
+  background?: boolean;
 }
 
 export async function* runKernel(
