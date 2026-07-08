@@ -97,12 +97,12 @@ export interface CreateLiteAgentConfig {
   taskListId?: string;
   /** File-defined subagents + the `Agent` dispatch tool. Default true. */
   agents?: boolean;
-  /** Non-blocking background tasks (bash run_in_background + background subagents) + the KillBackground tool. Default true. */
-  background?: boolean;
   /** Extra agents dir, appended last so it overrides global + project. */
   agentsDir?: string;
   /** Permission policy applied to subagent runs. Default: none (lenient — sandbox still applies). */
   subagentPermission?: PermissionPolicy;
+  /** Non-blocking background tasks (bash run_in_background + background subagents) + the KillBackground tool. Default true. */
+  background?: boolean;
   /** Proactive compactor. Default deterministic `defaultCompactor`; `false` disables compaction. */
   compactor?: Compactor | false;
   /** Sweep stale spill/session files once at startup. Default true (30 days). */
