@@ -138,6 +138,14 @@ test("task tools are registered by default; tasks:false removes them", async () 
   expect(await toolResults(off)).toMatch(/unknown tool/);
 });
 
+test("KillBackground is registered by default; background:false removes it", async () => {
+  const present = createLiteAgent({ model: callTool("KillBackground", { id: "bg_nope" }), workdir: freshWorkdir() });
+  expect(await toolResults(present)).toContain("No running background task");
+
+  const off = createLiteAgent({ model: callTool("KillBackground", { id: "bg_nope" }), workdir: freshWorkdir(), background: false });
+  expect(await toolResults(off)).toMatch(/unknown tool/);
+});
+
 test("the per-turn task reminder is never persisted to the transcript", async () => {
   const workdir = freshWorkdir();
   const agent = createLiteAgent({

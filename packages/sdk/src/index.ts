@@ -15,6 +15,7 @@ export {
   askUserTool,
   taskTools,
   agentTool,
+  killBackgroundTool,
 } from "./tools";
 export { SkillLoader } from "./skills/loader";
 export { loadSkillTool } from "./skills/loadSkillTool";

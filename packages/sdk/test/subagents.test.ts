@@ -30,7 +30,7 @@ function collectResults(gen: AsyncGenerator<{ type: string }, unknown>) {
 
 test("registers the Agent tool and runs a child to completion when a definition exists", async () => {
   const fp = fakeProvider([
-    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ subagent_type: "echo", prompt: "hi", resume: "agent-echo-fixed1" }] } }] } },
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ subagent_type: "echo", prompt: "hi", resume: "agent-echo-fixed1" }], run_in_background: false } }] } },
     { text: "child-done", message: { role: "assistant", content: [textBlock("child-done")] } },
     { text: "parent-done", message: { role: "assistant", content: [textBlock("parent-done")] } },
   ]);
@@ -43,7 +43,7 @@ test("registers the Agent tool and runs a child to completion when a definition 
 
 test("the built-in general-purpose subagent works with no agent files (default on)", async () => {
   const fp = fakeProvider([
-    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ subagent_type: "general-purpose", prompt: "do it", resume: "agent-gp-default1" }] } }] } },
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ subagent_type: "general-purpose", prompt: "do it", resume: "agent-gp-default1" }], run_in_background: false } }] } },
     { text: "child-done", message: { role: "assistant", content: [textBlock("child-done")] } },
     { text: "parent-done", message: { role: "assistant", content: [textBlock("parent-done")] } },
   ]);

@@ -52,6 +52,7 @@ export interface QueryOptions {
   agents?: boolean;
   agentsDir?: string;
   subagentPermission?: PermissionPolicy;
+  background?: boolean;
   cleanup?: boolean | { maxAgeDays?: number };
   permission?: PermissionPolicy;
   onApproval?: ApprovalHandler;
@@ -89,6 +90,7 @@ export function query(
     tasks: opts.tasks,
     taskListId: opts.taskListId,
     agents: opts.agents,
+    background: opts.background,
     agentsDir: opts.agentsDir,
     subagentPermission: opts.subagentPermission,
     cleanup: opts.cleanup,
