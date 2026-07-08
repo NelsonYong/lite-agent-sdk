@@ -65,7 +65,7 @@ export interface BackgroundTasks {
 
 - `spawn` assigns an id (`bg_` + short hex), links a per-task `AbortController` to the run's `AbortSignal`, invokes `run(taskSignal, emit)`, and stores the settled result (or `isError` on throw) into a completed queue. It never awaits `run` itself.
 - `run`'s `emit` routes to the **kernel's run-level event queue** (the one drained by `drain()`), **not** the per-turn tool channel. This is essential: a background subagent keeps emitting events after the turn that spawned it has ended and `end()`-ed its channel; routing to the run-level queue means those events surface at subsequent turn-boundary drains instead of being dropped.
-- `cancel` / `cancelAll` abort the task's controller. A cancelled task settles as a completion with `isError: true` (so its notification is still injected exactly once), then leaves `pending`.
+- `cancel` / `cancelAll` abort the task's controller; the task settles **asynchronously** through the same single `finish` path (so cancel-racing-completion still yields exactly one completion) and then leaves `pending`. A cancelled task's `isError` depends on how its `run` reacts to the abort: background bash rejects with an AbortError → `isError: true`; a backgrounded subagent batch whose children stop cleanly returns partial text → `isError: false`. (So "cancelled" does not universally mean `isError: true`.)
 - `waitNext` is abort-aware: it resolves when a task completes **or** when `signal` aborts, never sleeping past an abort.
 
 `ToolContext` (in `middleware.ts` / `strategies.ts`) gains:
@@ -118,7 +118,7 @@ The `continue` above increments `turn`, so naively each background completion wo
 
 ### Abort
 
-On run abort, `bg.cancelAll()` is called (both from the loop-top `signal.aborted` check and from a `signal` abort listener for immediacy). Cancelled tasks settle `isError`, their notifications inject once, and the run finishes with `stopReason: "aborted"` — leaving no dangling placeholder.
+On run abort, `bg.cancelAll()` is called from the loop-top `signal.aborted` check. `bg.cancelAll()` also runs unconditionally **after** the turn loop, which covers the `max_turns` exit — otherwise a task still pending at the turn cap would leak a detached child process / kernel. Because the kernel breaks out of the loop immediately on abort (and returns immediately on `max_turns`), cancelled tasks settle **asynchronously** and their completions are **not** drained/injected — so, exactly like the crash case below, an aborted or turn-capped run may leave a placeholder `tool_result` in the transcript with no following notification. That is accepted (the run is terminating). A normal `stop` exit is different: the join drains every completion first, so it never leaves a dangling placeholder.
 
 ## New event
 
@@ -174,7 +174,7 @@ New tool `KillBackground({ id: string })` → `ctx.background.cancel(id)`, retur
 
 ## Persistence & edge cases (checkpointer)
 
-- The placeholder is an ordinary `tool_result` event → persisted normally. The completion notification is a `user` message event → persisted like a steer. Because of run-内 join, a normal return never leaves a dangling placeholder.
+- The placeholder is an ordinary `tool_result` event → persisted normally. The completion notification is a `user` message event → persisted like a steer. Because of run-内 join, a normal `stop` return never leaves a dangling placeholder (the join drains all completions first). A `max_turns` or aborted exit cancels pending tasks without draining, so — like a crash — it can leave a placeholder with no following notification.
 - **Not persisted across restarts:** a background task's promise does not survive a process crash — matching Claude Code (background bash is not durable). The only resulting edge case is a crash mid-run leaving a persisted placeholder with no following completion; on resume the model sees an unresolved placeholder. Accepted.
 
 ## Testing strategy
