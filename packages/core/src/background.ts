@@ -49,6 +49,8 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
   const running = new Map<string, AbortController>();
   const completed: BackgroundCompletion[] = [];
   let seq = 0;
+  // Single-waiter slot: only the kernel calls waitNext, and it does so serially
+  // (one turn boundary at a time), so one wake callback is sufficient.
   let wake: (() => void) | null = null;
   const notify = () => { if (wake) { const w = wake; wake = null; w(); } };
 
@@ -71,7 +73,8 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
           const out = await run(ac.signal, deps.emit);
           finish(id, label, out, false);
         } catch (e) {
-          finish(id, label, `Error: ${(e as Error).message}`, true);
+          const msg = e instanceof Error ? e.message : String(e);
+          finish(id, label, `Error: ${msg}`, true);
         } finally {
           deps.signal.removeEventListener("abort", onRunAbort);
         }
@@ -88,6 +91,7 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
         if (signal.aborted) { notify(); return; }
         signal.addEventListener("abort", notify, { once: true });
       });
+      signal.removeEventListener("abort", notify);
     },
     cancel(id) {
       const ac = running.get(id);
