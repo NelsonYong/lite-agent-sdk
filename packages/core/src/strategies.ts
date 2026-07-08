@@ -4,6 +4,7 @@ import type {
   Usage, UserAnswer, UserQuestion,
 } from "./types";
 import type { AgentEvent } from "./events";
+import type { BackgroundTasks } from "./background";
 
 export interface ModelProvider {
   readonly id: string;
@@ -23,6 +24,7 @@ export interface ToolContext {
   readonly approval?: ApprovalHandler;
   readonly input?: InputHandler;
   readonly sandbox?: Sandbox;
+  readonly background?: BackgroundTasks;
   readonly call?: ToolCall;
   /** Record a file's pre-mutation content into the session log (for restore). Provided by
    *  the kernel only when a checkpointer is active; file-mutating tools call it before writing. */
