@@ -50,6 +50,7 @@ import { AgentLoader } from "./agents/loader";
 import { builtinAgents } from "./agents/builtin";
 import { agentTool } from "./tools/agent";
 import type { Spawn } from "./tools/agent";
+import { killBackgroundTool } from "./tools/killBackground";
 
 export interface CreateLiteAgentConfig {
   model: ModelProvider;
@@ -96,6 +97,8 @@ export interface CreateLiteAgentConfig {
   taskListId?: string;
   /** File-defined subagents + the `Agent` dispatch tool. Default true. */
   agents?: boolean;
+  /** Non-blocking background tasks (bash run_in_background + background subagents) + the KillBackground tool. Default true. */
+  background?: boolean;
   /** Extra agents dir, appended last so it overrides global + project. */
   agentsDir?: string;
   /** Permission policy applied to subagent runs. Default: none (lenient — sandbox still applies). */
@@ -222,6 +225,8 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     }
   }
 
+  if (cfg.background !== false) tools.push(killBackgroundTool());
+
   if (cfg.tools) tools.push(...cfg.tools);
   if (cfg.onAskUser) tools.push(askUserTool());
   if (cfg.allowedTools)
@@ -302,6 +307,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     toolChoice: cfg.toolChoice,
     seed: cfg.seed,
     maxParallelTools: cfg.maxParallelTools,
+    background: cfg.background,
     sandbox: cfg.sandbox,
     checkpointer,
     input: cfg.onAskUser,
