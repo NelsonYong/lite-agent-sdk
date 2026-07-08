@@ -11,6 +11,8 @@ import { toToolSpec } from "./tools/define";
 import type { Checkpointer, SessionEvent, StoredEvent } from "./checkpoint";
 import { foldEvents } from "./checkpoint";
 import type { SteerController } from "./steer";
+import { createBackgroundTasks } from "./background";
+import type { BackgroundCompletion } from "./background";
 
 export interface KernelConfig {
   provider: ModelProvider;
@@ -32,6 +34,8 @@ export interface KernelConfig {
   maxParallelTools?: number;
   /** Optional turn-boundary steering queues (steer/followUp). */
   steer?: SteerController;
+  /** Enable background tasks (default true). When false, ctx.background is undefined. */
+  background?: boolean;
 }
 
 export async function* runKernel(
@@ -60,6 +64,7 @@ export async function* runKernel(
   };
   const queue: AgentEvent[] = [];
   const emit = (ev: AgentEvent) => { queue.push(ev); };
+  const bg = cfg.background === false ? undefined : createBackgroundTasks({ emit, signal });
   const toolMap = new Map(cfg.tools.map((t) => [t.name, t]));
   const toolSpecs = cfg.tools.map(toToolSpec);
   const state = new Map<string, unknown>();
@@ -79,7 +84,7 @@ export async function* runKernel(
 
   for (let turn = 1; turn <= cfg.maxTurns; turn++) {
     // Phase 1: abort is observed only at turn boundaries.
-    if (signal.aborted) { stopReason = "aborted"; break; }
+    if (signal.aborted) { bg?.cancelAll(); stopReason = "aborted"; break; }
     const ctx = mkCtx(turn);
     yield { type: "turn_start", turn };
 
@@ -88,6 +93,15 @@ export async function* runKernel(
       ctx.messages.push(...steers);
       for (const m of steers) await append({ type: "user", message: m });
       yield { type: "steer", messages: steers };
+    }
+
+    if (bg) {
+      for (const c of bg.takeCompleted()) {
+        const note = backgroundNote(c);
+        ctx.messages.push(note);
+        await append({ type: "user", message: note });
+        yield { type: "background_completed", completion: c };
+      }
     }
 
     await runLifecycle(cfg.middleware, "beforeModel", ctx);
@@ -145,6 +159,26 @@ export async function* runKernel(
         yield { type: "steer", messages: followUps };
         continue; // resurrect: keep looping instead of stopping
       }
+      // Background join: the model is done, but background tasks are still running
+      // or have undelivered results — so we DON'T stop. Block for the next
+      // completion, then loop back to inject it (turn top) and let the model react.
+      //
+      // `turn--` rewinds the counter so the for-loop's `turn++` lands on the SAME
+      // turn number: waiting on background work never burns the maxTurns budget.
+      // Consequences to keep in mind when touching this:
+      //   - Termination is bounded only by tasks settling (or run-abort /
+      //     KillBackground). A task that never resolves AND ignores abort would
+      //     block the run here forever — whole-run abort is the escape valve.
+      //   - Total model-call count can exceed maxTurns, and the same turn number
+      //     can repeat across join cycles, so turn numbers are NOT unique in the
+      //     event stream. RunResult and the terminal `done` event remain the
+      //     source of truth for consumers.
+      if (bg && (bg.pending() > 0 || bg.hasCompleted())) {
+        yield { type: "turn_end", turn, stopReason: "stop" };
+        if (!bg.hasCompleted()) await bg.waitNext(signal); // block until next completion or abort
+        turn--;
+        continue; // back to turn top → completions inject → model consumes
+      }
       yield { type: "turn_end", turn, stopReason: "stop" };
       stopReason = "stop";
       break;
@@ -173,7 +207,7 @@ export async function* runKernel(
         if (!tool) return { id: call.id, name: call.name, content: `Error: unknown tool '${call.name}'`, isError: true };
         try {
           const parsed = tool.schema.parse(call.input);
-          const out = await tool.execute(parsed, { sessionId, signal, emit: callEmit, sandbox: cfg.sandbox, input: cfg.input, call, recordSnapshot });
+          const out = await tool.execute(parsed, { sessionId, signal, emit: callEmit, sandbox: cfg.sandbox, input: cfg.input, call, recordSnapshot, background: bg });
           return { id: call.id, name: call.name, content: String(out) };
         } catch (e) {
           return { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true };
@@ -203,6 +237,11 @@ export async function* runKernel(
     yield { type: "turn_end", turn, stopReason: "tool_use" };
   }
 
+  // Stop any tasks still running when the loop ends. On a normal `stop` exit the
+  // join guarantees none are pending; this matters on the maxTurns exit, where
+  // leaving them running would leak detached child processes / kernels.
+  bg?.cancelAll();
+
   await runLifecycle(cfg.middleware, "afterAgent", mkCtx(0));
   yield* drain();
 
@@ -219,4 +258,13 @@ function lastAssistantText(messages: Message[]): string {
     }
   }
   return "";
+}
+
+function backgroundNote(c: BackgroundCompletion): Message {
+  const status = c.isError ? ' status="error"' : "";
+  const label = c.label.replace(/"/g, "'"); // keep the label attribute well-formed
+  return {
+    role: "user",
+    content: `<background-task-completed id="${c.id}" label="${label}"${status}>\n${c.content}\n</background-task-completed>`,
+  };
 }

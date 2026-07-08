@@ -1,6 +1,7 @@
 import type {
   AssistantMessage, Message, StopReason, ToolCall, ToolResult, Usage, UserAnswer, UserQuestion,
 } from "./types";
+import type { BackgroundCompletion } from "./background";
 
 export type RunResult = {
   messages: Message[];
@@ -47,6 +48,7 @@ type AgentEventBody =
   | { type: "tool_result"; result: ToolResult }
   | { type: "compaction"; kind: "micro" | "auto" | "manual"; before: number; after: number; phase?: "start" | "done" }
   | { type: "steer"; messages: Message[] }
+  | { type: "background_completed"; completion: BackgroundCompletion }
   | { type: "turn_end"; turn: number; stopReason: StopReason }
   | { type: "error"; error: AgentError; fatal: boolean }
   | { type: "done"; reason: "stop" | "aborted" | "max_turns"; result: RunResult };

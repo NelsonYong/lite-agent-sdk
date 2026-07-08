@@ -37,55 +37,74 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn }): Tool {
     name: "Agent",
     description:
       "Delegate a large or context-heavy subtask to a specialized subagent, keeping your own context clean. Each subagent runs in isolation (it sees only the `prompt` you pass) and returns only its final result. " +
-      "This call is SYNCHRONOUS: it blocks until every subagent has finished, then returns all of their final results together (labeled `subagent[0]`, `subagent[1]`, …). " +
-      "To run subtasks in parallel, pass them as MULTIPLE entries in `tasks` within a SINGLE call — do not issue separate `Agent` calls for that, and never call `Agent` again just to wait for or check on running subagents (they are already finished when this returns). " +
+      "By default (`run_in_background: true`) this call is NON-BLOCKING: it returns a placeholder immediately and the aggregated results (labeled `subagent[0]`, `subagent[1]`, …) are delivered to you automatically as a notification once all subagents finish — do NOT call `Agent` again to wait for or poll them; the notification arrives on its own. " +
+      "Pass `run_in_background: false` to instead BLOCK until every subagent has finished and receive all their results directly in this call's return value. " +
+      "To run subtasks in parallel, pass them as MULTIPLE entries in `tasks` within a SINGLE call — do not issue separate `Agent` calls for that. " +
       "To continue a previous subagent, pass its reported agentId as `resume`.",
-    schema: z.object({ tasks: z.array(TASK).min(1) }),
-    execute: async ({ tasks }, ctx) => {
+    schema: z.object({
+      tasks: z.array(TASK).min(1),
+      run_in_background: z.boolean().optional().default(true),
+    }),
+    execute: async ({ tasks, run_in_background }, ctx) => {
       // Each entry in `tasks` is one subagent. Surface it as an ordinary tool
       // call (a tool_use + tool_result pair, paired by id) so any UI that already
       // renders tool calls shows N distinct subagents — no bespoke event type.
-      // These events are observational; the model still receives the single
-      // aggregated string this tool returns. (To later drill into a subagent's
-      // live progress, forward the child kernel's own event stream from `spawn`.)
-      const runOne = async (t: z.infer<typeof TASK>): Promise<{ id: string; out: string }> => {
-        const name = t.subagent_type.replace(/[\r\n]+/g, " ");
-        const def = loader.get(t.subagent_type);
-        if (!def) {
-          const id = `agent-${sanitize(t.subagent_type) || "unknown"}-${shortId()}`;
-          const out = `Error: unknown subagent_type '${name}'. Available: ${
-            loader.names().join(", ") || "(none)"
-          }`;
-          ctx.emit({ type: "tool_use", call: { id, name, input: { prompt: t.prompt } } });
-          ctx.emit({ type: "tool_result", result: { id, name, content: out, isError: true } });
-          return { id: "-", out };
-        }
-        // Sanitize the resume handle too: keeps the reported agentId, the output
-        // header, and the on-disk session key identical and filesystem-safe.
-        const sessionId = t.resume
-          ? sanitize(t.resume)
-          : `agent-${sanitize(t.subagent_type)}-${shortId()}`;
-        ctx.emit({ type: "tool_use", call: { id: sessionId, name, input: { prompt: t.prompt } } });
-        try {
-          const out = await spawn(def, t.prompt, {
-            signal: ctx.signal,
-            sessionId,
-            onEvent: (e) => ctx.emit({ ...e, agentId: sessionId }),
-          });
-          ctx.emit({ type: "tool_result", result: { id: sessionId, name, content: out } });
-          return { id: sessionId, out };
-        } catch (e) {
-          const out = `Error: ${(e as Error).message}`;
-          ctx.emit({ type: "tool_result", result: { id: sessionId, name, content: out, isError: true } });
-          return { id: sessionId, out };
-        }
+      // `signal`/`emit` default to the run-level ctx values (synchronous path). The
+      // background path instead passes the task-scoped signal + run-level emit from
+      // spawn, so subagent events survive after the spawning turn's channel has ended
+      // and KillBackground can cancel the batch.
+      const runBatch = async (
+        signal: AbortSignal = ctx.signal,
+        emit: (e: AgentEvent) => void = ctx.emit,
+      ): Promise<string> => {
+        const runOne = async (t: z.infer<typeof TASK>): Promise<{ id: string; out: string }> => {
+          const name = t.subagent_type.replace(/[\r\n]+/g, " ");
+          const def = loader.get(t.subagent_type);
+          if (!def) {
+            const id = `agent-${sanitize(t.subagent_type) || "unknown"}-${shortId()}`;
+            const out = `Error: unknown subagent_type '${name}'. Available: ${
+              loader.names().join(", ") || "(none)"
+            }`;
+            emit({ type: "tool_use", call: { id, name, input: { prompt: t.prompt } } });
+            emit({ type: "tool_result", result: { id, name, content: out, isError: true } });
+            return { id: "-", out };
+          }
+          const sessionId = t.resume
+            ? sanitize(t.resume)
+            : `agent-${sanitize(t.subagent_type)}-${shortId()}`;
+          emit({ type: "tool_use", call: { id: sessionId, name, input: { prompt: t.prompt } } });
+          try {
+            const out = await spawn(def, t.prompt, {
+              signal,
+              sessionId,
+              onEvent: (e) => emit({ ...e, agentId: sessionId }),
+            });
+            emit({ type: "tool_result", result: { id: sessionId, name, content: out } });
+            return { id: sessionId, out };
+          } catch (e) {
+            const out = `Error: ${(e as Error).message}`;
+            emit({ type: "tool_result", result: { id: sessionId, name, content: out, isError: true } });
+            return { id: sessionId, out };
+          }
+        };
+
+        const limit = pLimit(MAX_CONCURRENCY);
+        const results = await Promise.all(tasks.map((t) => limit(() => runOne(t))));
+        return results
+          .map((r, i) => `## subagent[${i}] ${tasks[i]!.subagent_type.replace(/[\r\n]+/g, " ")} (agentId: ${r.id})\n${r.out}`)
+          .join("\n\n");
       };
 
-      const limit = pLimit(MAX_CONCURRENCY);
-      const results = await Promise.all(tasks.map((t) => limit(() => runOne(t))));
-      return results
-        .map((r, i) => `## subagent[${i}] ${tasks[i]!.subagent_type.replace(/[\r\n]+/g, " ")} (agentId: ${r.id})\n${r.out}`)
-        .join("\n\n");
+      // !== false: a direct execute() call (bypassing schema parse) leaves this
+      // undefined, which should still default to background.
+      if (run_in_background !== false && ctx.background) {
+        const handle = ctx.background.spawn({
+          label: `${tasks.length} subagent(s)`,
+          run: (signal, emit) => runBatch(signal, emit),
+        });
+        return `[background:${handle.id}] dispatched ${tasks.length} subagent(s). Aggregated results will be delivered when all complete.`;
+      }
+      return runBatch();
     },
   });
 }
