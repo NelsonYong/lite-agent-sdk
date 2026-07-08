@@ -37,13 +37,13 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn }): Tool {
     name: "Agent",
     description:
       "Delegate a large or context-heavy subtask to a specialized subagent, keeping your own context clean. Each subagent runs in isolation (it sees only the `prompt` you pass) and returns only its final result. " +
-      "By default (`run_in_background: true`) this call is NON-BLOCKING: it returns a placeholder immediately and the aggregated results (labeled `subagent[0]`, `subagent[1]`, …) are delivered to you automatically as a notification once all subagents finish — do NOT call `Agent` again to wait for or poll them; the notification arrives on its own. " +
-      "Pass `run_in_background: false` to instead BLOCK until every subagent has finished and receive all their results directly in this call's return value. " +
+      "By default this call BLOCKS until every subagent has finished and returns all their results directly (labeled `subagent[0]`, `subagent[1]`, …) — use this whenever you need the results to continue. " +
+      "Pass `run_in_background: true` only for fire-and-forget fan-out you don't need immediately: it returns a placeholder now and the aggregated results are delivered later as a notification when all subagents finish (do NOT call `Agent` again to poll them). " +
       "To run subtasks in parallel, pass them as MULTIPLE entries in `tasks` within a SINGLE call — do not issue separate `Agent` calls for that. " +
       "To continue a previous subagent, pass its reported agentId as `resume`.",
     schema: z.object({
       tasks: z.array(TASK).min(1),
-      run_in_background: z.boolean().optional().default(true),
+      run_in_background: z.boolean().optional().default(false),
     }),
     execute: async ({ tasks, run_in_background }, ctx) => {
       // Each entry in `tasks` is one subagent. Surface it as an ordinary tool
@@ -95,11 +95,12 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn }): Tool {
           .join("\n\n");
       };
 
-      // !== false: a direct execute() call (bypassing schema parse) leaves this
-      // undefined, which should still default to background.
-      if (run_in_background !== false && ctx.background) {
+      // === true: blocking is the default, so a direct execute() call (bypassing schema
+      // parse) that leaves this undefined must fall through to the blocking path.
+      if (run_in_background === true && ctx.background) {
         const handle = ctx.background.spawn({
           label: `${tasks.length} subagent(s)`,
+          kind: "joinable",
           run: (signal, emit) => runBatch(signal, emit),
         });
         return `[background:${handle.id}] dispatched ${tasks.length} subagent(s). Aggregated results will be delivered when all complete.`;

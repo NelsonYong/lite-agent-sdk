@@ -26,7 +26,7 @@ export type {
 } from "./compaction";
 export { SteerController } from "./steer";
 export { createBackgroundTasks } from "./background";
-export type { BackgroundTasks, BackgroundHandle, BackgroundCompletion, BackgroundSpawnOptions } from "./background";
+export type { BackgroundTasks, BackgroundHandle, BackgroundCompletion, BackgroundSpawnOptions, BackgroundKind, BackgroundRead } from "./background";
 export { policy, permission } from "./permission";
 export type { PolicyOptions } from "./permission";
 export type {

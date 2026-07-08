@@ -15,7 +15,7 @@ test("spawn returns a handle immediately and reports pending", () => {
   const h = bg.spawn({ label: "x", run: () => new Promise<string>((r) => { release = () => r("done"); }) });
   expect(h.id).toMatch(/^bg_/);
   expect(h.label).toBe("x");
-  expect(bg.pending()).toBe(1);
+  expect(bg.pendingJoinable()).toBe(1);
   expect(bg.hasCompleted()).toBe(false);
   release(); // avoid dangling promise
 });
@@ -23,8 +23,8 @@ test("spawn returns a handle immediately and reports pending", () => {
 test("a completed task moves to takeCompleted and clears pending", async () => {
   const { bg } = mk();
   bg.spawn({ label: "job", run: async () => "the output" });
-  await bg.waitNext(noSignal());
-  expect(bg.pending()).toBe(0);
+  await bg.waitNextJoinable(noSignal());
+  expect(bg.pendingJoinable()).toBe(0);
   expect(bg.hasCompleted()).toBe(true);
   const done = bg.takeCompleted();
   expect(done).toEqual([{ id: expect.stringMatching(/^bg_/), label: "job", content: "the output", isError: false }]);
@@ -34,7 +34,7 @@ test("a completed task moves to takeCompleted and clears pending", async () => {
 test("a throwing task completes as isError", async () => {
   const { bg } = mk();
   bg.spawn({ label: "boom", run: async () => { throw new Error("nope"); } });
-  await bg.waitNext(noSignal());
+  await bg.waitNextJoinable(noSignal());
   const [c] = bg.takeCompleted();
   expect(c!.isError).toBe(true);
   expect(c!.content).toContain("nope");
@@ -49,8 +49,8 @@ test("run receives a signal that aborts on cancel", async () => {
     }),
   });
   expect(bg.cancel(h.id)).toBe(true);
-  await bg.waitNext(noSignal());
-  expect(bg.pending()).toBe(0);
+  await bg.waitNextJoinable(noSignal());
+  expect(bg.pendingJoinable()).toBe(0);
   expect(bg.cancel(h.id)).toBe(false); // already gone
 });
 
@@ -60,11 +60,11 @@ test("cancelAll aborts every running task", async () => {
     new Promise<string>((resolve) => signal.addEventListener("abort", () => resolve("x")));
   bg.spawn({ label: "a", run: mkRun() });
   bg.spawn({ label: "b", run: mkRun() });
-  expect(bg.pending()).toBe(2);
+  expect(bg.pendingJoinable()).toBe(2);
   bg.cancelAll();
-  await bg.waitNext(noSignal());
-  await bg.waitNext(noSignal());
-  expect(bg.pending()).toBe(0);
+  await bg.waitNextJoinable(noSignal());
+  await bg.waitNextJoinable(noSignal());
+  expect(bg.pendingJoinable()).toBe(0);
 });
 
 test("waitNext returns immediately when a signal is already aborted", async () => {
@@ -72,13 +72,62 @@ test("waitNext returns immediately when a signal is already aborted", async () =
   bg.spawn({ label: "slow", run: () => new Promise<string>(() => {}) }); // never resolves
   const ac = new AbortController();
   ac.abort();
-  await bg.waitNext(ac.signal); // must not hang
+  await bg.waitNextJoinable(ac.signal); // must not hang
   expect(true).toBe(true);
 });
 
 test("run's emit is forwarded to the registry emit", async () => {
   const { bg, events } = mk();
   bg.spawn({ label: "e", run: async (_signal, emit) => { emit({ type: "text_delta", text: "hi" }); return "ok"; } });
-  await bg.waitNext(noSignal());
+  await bg.waitNextJoinable(noSignal());
   expect(events).toContainEqual({ type: "text_delta", text: "hi" });
+});
+
+test("a detached task is counted by pendingDetached, not pendingJoinable", () => {
+  const { bg } = mk();
+  let release!: () => void;
+  bg.spawn({ label: "srv", kind: "detached", run: () => new Promise<string>((r) => { release = () => r("x"); }) });
+  expect(bg.pendingDetached()).toBe(1);
+  expect(bg.pendingJoinable()).toBe(0);
+  release();
+});
+
+test("waitNextJoinable returns immediately when only detached tasks are running", async () => {
+  const { bg } = mk();
+  bg.spawn({ label: "srv", kind: "detached", run: () => new Promise<string>(() => {}) }); // never resolves
+  await bg.waitNextJoinable(noSignal()); // must not hang: no joinable pending
+  expect(bg.pendingDetached()).toBe(1);
+});
+
+test("read returns a detached task's new output incrementally, then done on exit", async () => {
+  const { bg } = mk();
+  let write!: (s: string) => void;
+  let finish!: () => void;
+  const h = bg.spawn({
+    label: "srv", kind: "detached",
+    run: (_s, _e, w) => new Promise<string>((r) => { write = w; finish = () => r("bye"); }),
+  });
+  write("line one\n");
+  expect(bg.read(h.id)).toEqual({ output: "line one\n", done: false });
+  write("line two\n");
+  expect(bg.read(h.id)).toEqual({ output: "line two\n", done: false }); // only NEW output
+  finish();
+  await bg.waitNextJoinable(noSignal()); // wakes on any completion; drains nothing joinable but lets the task settle
+  expect(bg.read(h.id)!.done).toBe(true);
+});
+
+test("read filters to matching lines", () => {
+  const { bg } = mk();
+  let write!: (s: string) => void;
+  const h = bg.spawn({ label: "srv", kind: "detached", run: (_s, _e, w) => new Promise<string>(() => { write = w; }) });
+  write("keep me\ndrop this\nkeep also\n");
+  expect(bg.read(h.id, { filter: /keep/ })!.output).toBe("keep me\nkeep also");
+});
+
+test("read returns null for an unknown or joinable id; listDetached lists live detached", () => {
+  const { bg } = mk();
+  bg.spawn({ label: "job", run: () => new Promise<string>(() => {}) }); // joinable
+  const h = bg.spawn({ label: "srv", kind: "detached", run: () => new Promise<string>(() => {}) });
+  expect(bg.read("bg_nope")).toBeNull();
+  expect(bg.listDetached()).toEqual([{ id: h.id, label: "srv" }]);
 });

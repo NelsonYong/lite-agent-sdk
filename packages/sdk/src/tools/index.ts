@@ -12,3 +12,4 @@ export { askUserTool } from "./askUser";
 export { taskTools } from "./task";
 export { agentTool } from "./agent";
 export { killBackgroundTool } from "./killBackground";
+export { bashOutputTool } from "./bashOutput";

@@ -16,6 +16,7 @@ export {
   taskTools,
   agentTool,
   killBackgroundTool,
+  bashOutputTool,
 } from "./tools";
 export { SkillLoader } from "./skills/loader";
 export { loadSkillTool } from "./skills/loadSkillTool";

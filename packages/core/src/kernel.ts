@@ -173,9 +173,9 @@ export async function* runKernel(
       //     can repeat across join cycles, so turn numbers are NOT unique in the
       //     event stream. RunResult and the terminal `done` event remain the
       //     source of truth for consumers.
-      if (bg && (bg.pending() > 0 || bg.hasCompleted())) {
+      if (bg && (bg.pendingJoinable() > 0 || bg.hasCompleted())) {
         yield { type: "turn_end", turn, stopReason: "stop" };
-        if (!bg.hasCompleted()) await bg.waitNext(signal); // block until next completion or abort
+        if (!bg.hasCompleted()) await bg.waitNextJoinable(signal); // block until next completion or abort
         turn--;
         continue; // back to turn top → completions inject → model consumes
       }
