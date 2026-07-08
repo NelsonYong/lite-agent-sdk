@@ -237,6 +237,11 @@ export async function* runKernel(
     yield { type: "turn_end", turn, stopReason: "tool_use" };
   }
 
+  // Stop any tasks still running when the loop ends. On a normal `stop` exit the
+  // join guarantees none are pending; this matters on the maxTurns exit, where
+  // leaving them running would leak detached child processes / kernels.
+  bg?.cancelAll();
+
   await runLifecycle(cfg.middleware, "afterAgent", mkCtx(0));
   yield* drain();
 
