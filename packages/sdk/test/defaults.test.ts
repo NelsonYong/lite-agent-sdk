@@ -146,6 +146,14 @@ test("KillBackground is registered by default; background:false removes it", asy
   expect(await toolResults(off)).toMatch(/unknown tool/);
 });
 
+test("BashOutput is registered by default; background:false removes it", async () => {
+  const present = createLiteAgent({ model: callTool("BashOutput", { id: "bg_nope" }), workdir: freshWorkdir() });
+  expect(await toolResults(present)).toContain("No detached background task with id 'bg_nope'");
+
+  const off = createLiteAgent({ model: callTool("BashOutput", { id: "bg_nope" }), workdir: freshWorkdir(), background: false });
+  expect(await toolResults(off)).toMatch(/unknown tool/);
+});
+
 test("the per-turn task reminder is never persisted to the transcript", async () => {
   const workdir = freshWorkdir();
   const agent = createLiteAgent({
