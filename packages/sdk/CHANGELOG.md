@@ -1,5 +1,17 @@
 # lite-agent
 
+## 0.9.0
+
+### Minor Changes
+
+- Add non-blocking background execution (Claude Code's `run_in_background`), gated by a new top-level `background` option on `createLiteAgent` / `query` (default on):
+
+  - **`bash` gains `run_in_background` (default `false` — foreground behavior is unchanged).** A backgrounded command runs via async `exec` (not `execSync`, which would block the event loop), is bounded by cancellation rather than the 120s foreground timeout (so it suits long-running servers / watchers), and its output is delivered to the agent as a notification when it finishes.
+  - **Behavioral change: the `Agent` subagent tool now defaults to `run_in_background: true`.** An `Agent` call returns a placeholder immediately, and the aggregated `subagent[…]` results arrive later as a single notification once all children finish — instead of blocking and returning them inline. Pass `run_in_background: false` to restore the old synchronous behavior. Callers that relied on `Agent` returning its results inline must set the flag.
+  - New `KillBackground` tool cancels a running background task by its reported `bg_…` id. It is registered by default and omitted when `background: false`.
+
+  Under the hood a run stays alive until every background task it spawned has finished (delivered as `<background-task-completed>` notifications), and background subagent events are routed to the run-level event stream so they still surface after the spawning turn ends.
+
 ## 0.8.2
 
 ### Patch Changes

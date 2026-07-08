@@ -1,5 +1,11 @@
 # @lite-agent/core
 
+## 0.9.0
+
+### Minor Changes
+
+- Add background tasks. A new `BackgroundTasks` primitive (`createBackgroundTasks`, a sibling to `SteerController`) lets a tool spawn a labeled fire-and-forget promise via `ctx.background.spawn({ label, run })` and return immediately. The kernel constructs one registry per run — gated by a new `background` option on `KernelConfig` / `createAgent` (default on) — injects each completion as a `<background-task-completed>` user message at the next turn boundary, and, when the model stops calling tools while tasks are still pending, blocks and **joins** instead of stopping, so a run never returns with unfinished background work (this waiting is exempt from `maxTurns`). Pending tasks are cancelled on abort and on the `maxTurns` exit, so no work is leaked. Adds a `background_completed` event and an optional `background` field on `ToolContext`. Fully additive: with no background-spawning tool the registry is inert and existing behavior is unchanged.
+
 ## 0.8.1
 
 ### Patch Changes
