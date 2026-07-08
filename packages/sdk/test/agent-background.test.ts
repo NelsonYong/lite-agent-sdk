@@ -43,3 +43,18 @@ test("Agent with run_in_background:false blocks and returns the aggregate direct
   expect(out).toContain("RESULT(X)");
   expect(out).not.toMatch(/^\[background:/);
 });
+
+test("backgrounded subagent events route to the run-level emit, not ctx.emit", async () => {
+  const runLevel: AgentEvent[] = [];
+  const ctxEmit: AgentEvent[] = [];
+  const bg = createBackgroundTasks({ emit: (e) => runLevel.push(e), signal: new AbortController().signal });
+  const ctx = { sessionId: "s", signal: new AbortController().signal, emit: (e: AgentEvent) => ctxEmit.push(e), background: bg } as ToolContext;
+  const t = agentTool({ loader: loader(), spawn: echoSpawn });
+  await t.execute({ tasks: [{ subagent_type: "general-purpose", prompt: "Q" }] }, ctx);
+  await bg.waitNext(new AbortController().signal);
+  // runOne's tool_use + tool_result were emitted through the background run-level emit,
+  // NOT through ctx.emit (which in the kernel would be the already-ended per-turn channel).
+  expect(runLevel.some((e) => e.type === "tool_use")).toBe(true);
+  expect(runLevel.some((e) => e.type === "tool_result")).toBe(true);
+  expect(ctxEmit.length).toBe(0);
+});
