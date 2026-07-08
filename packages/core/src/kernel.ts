@@ -159,11 +159,24 @@ export async function* runKernel(
         yield { type: "steer", messages: followUps };
         continue; // resurrect: keep looping instead of stopping
       }
-      // Background join: don't stop while tasks are still running or undelivered.
+      // Background join: the model is done, but background tasks are still running
+      // or have undelivered results — so we DON'T stop. Block for the next
+      // completion, then loop back to inject it (turn top) and let the model react.
+      //
+      // `turn--` rewinds the counter so the for-loop's `turn++` lands on the SAME
+      // turn number: waiting on background work never burns the maxTurns budget.
+      // Consequences to keep in mind when touching this:
+      //   - Termination is bounded only by tasks settling (or run-abort /
+      //     KillBackground). A task that never resolves AND ignores abort would
+      //     block the run here forever — whole-run abort is the escape valve.
+      //   - Total model-call count can exceed maxTurns, and the same turn number
+      //     can repeat across join cycles, so turn numbers are NOT unique in the
+      //     event stream. RunResult and the terminal `done` event remain the
+      //     source of truth for consumers.
       if (bg && (bg.pending() > 0 || bg.hasCompleted())) {
         yield { type: "turn_end", turn, stopReason: "stop" };
         if (!bg.hasCompleted()) await bg.waitNext(signal); // block until next completion or abort
-        turn--; // exempt this wait iteration from the maxTurns budget
+        turn--;
         continue; // back to turn top → completions inject → model consumes
       }
       yield { type: "turn_end", turn, stopReason: "stop" };
@@ -244,8 +257,9 @@ function lastAssistantText(messages: Message[]): string {
 
 function backgroundNote(c: BackgroundCompletion): Message {
   const status = c.isError ? ' status="error"' : "";
+  const label = c.label.replace(/"/g, "'"); // keep the label attribute well-formed
   return {
     role: "user",
-    content: `<background-task-completed id="${c.id}" label="${c.label}"${status}>\n${c.content}\n</background-task-completed>`,
+    content: `<background-task-completed id="${c.id}" label="${label}"${status}>\n${c.content}\n</background-task-completed>`,
   };
 }
