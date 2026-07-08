@@ -50,9 +50,9 @@ export interface QueryOptions {
   tasks?: boolean;
   taskListId?: string;
   agents?: boolean;
-  background?: boolean;
   agentsDir?: string;
   subagentPermission?: PermissionPolicy;
+  background?: boolean;
   cleanup?: boolean | { maxAgeDays?: number };
   permission?: PermissionPolicy;
   onApproval?: ApprovalHandler;
