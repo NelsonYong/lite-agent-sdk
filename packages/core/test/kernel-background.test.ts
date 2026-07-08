@@ -34,6 +34,18 @@ const bgTool = (ms: number) => defineTool({
   },
 });
 
+// A tool whose background task throws — exercises the isError completion path.
+const bgErrTool = defineTool({
+  name: "bgerr",
+  description: "spawn failing background work",
+  schema: z.object({}),
+  execute: async (_input, ctx) => {
+    if (!ctx.background) return "no background";
+    const h = ctx.background.spawn({ label: "boom", run: async () => { throw new Error("kaboom"); } });
+    return `[background:${h.id}] started.`;
+  },
+});
+
 test("run joins background work: it does not stop until the task completes and its result is injected", async () => {
   // turn 1: call bg tool. turn 2+: model produces no tool calls (dry-out).
   const provider = fakeProvider([
@@ -94,4 +106,40 @@ test("background disabled: ctx.background is undefined and the tool runs synchro
   expect(events.some((e) => e.type === "background_completed")).toBe(false);
   const tr = events.find((e) => e.type === "tool_result");
   expect((tr as Extract<AgentEvent, { type: "tool_result" }>).result.content).toBe("no background");
+});
+
+test("aborting during a background join ends the run as aborted", async () => {
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "bg", input: {} }] } },
+    { text: "waiting", message: { role: "assistant", content: [textBlock("waiting")] } },
+  ]);
+  const ac = new AbortController();
+  // The bg task takes 1s, but we abort while the join is waiting on it.
+  const gen = runKernel(baseCfg({ provider, tools: [bgTool(1000)] }), "go", ac.signal, "s1");
+  const events: AgentEvent[] = [];
+  let r = await gen.next();
+  while (!r.done) {
+    events.push(r.value);
+    // The 2nd turn_end is the join branch's turn_end (turn 1 = tool_use, turn 2 = dry-out join).
+    if (r.value.type === "turn_end" && events.filter((e) => e.type === "turn_end").length >= 2) ac.abort();
+    r = await gen.next();
+  }
+  expect(r.value.stopReason).toBe("aborted");
+});
+
+test("an error completion is injected with status=\"error\"", async () => {
+  const seen: string[] = [];
+  const inner = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "bgerr", input: {} }] } },
+    { text: "ok", message: { role: "assistant", content: [textBlock("ok")] } },
+  ]);
+  const provider = {
+    id: "rec",
+    stream: (req: Parameters<typeof inner.stream>[0], signal?: AbortSignal) => {
+      for (const m of req.messages) if (typeof m.content === "string") seen.push(m.content);
+      return inner.stream(req, signal);
+    },
+  };
+  await drain(runKernel(baseCfg({ provider, tools: [bgErrTool] }), "go", new AbortController().signal, "s1"));
+  expect(seen.some((c) => c.includes('status="error"') && c.includes("kaboom"))).toBe(true);
 });
