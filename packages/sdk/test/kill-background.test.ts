@@ -15,8 +15,8 @@ test("KillBackground cancels a running task by id", async () => {
   const t = killBackgroundTool();
   const out = await t.execute({ id: h.id }, ctx);
   expect(out).toContain(h.id);
-  await bg.waitNext(new AbortController().signal);
-  expect(bg.pending()).toBe(0);
+  await bg.waitNextJoinable(new AbortController().signal);
+  expect(bg.pendingJoinable()).toBe(0);
 });
 
 test("KillBackground reports an unknown id", async () => {

@@ -17,16 +17,24 @@ test("foreground bash runs synchronously and returns output", async () => {
   expect(out).toBe("hi");
 });
 
-test("background bash returns a placeholder and delivers output via the registry", async () => {
+test("background bash returns a placeholder and streams output as a detached task", async () => {
   const t = bashTool(process.cwd());
   const { ctx, bg } = ctxWithBackground();
   const out = await t.execute({ command: "echo delayed", run_in_background: true }, ctx);
   expect(out).toMatch(/^\[background:bg_/);
-  expect(bg.pending()).toBe(1);
-  await bg.waitNext(new AbortController().signal);
-  const [c] = bg.takeCompleted();
-  expect(c!.content).toBe("delayed");
-  expect(c!.isError).toBe(false);
+  expect(bg.pendingDetached()).toBe(1);
+  const id = out.match(/bg_[a-z0-9]+_[a-f0-9]+/)![0];
+  // Accumulate incremental reads until the streamed process exits.
+  let output = "";
+  let done = false;
+  for (let i = 0; i < 200 && !done; i++) {
+    const r = bg.read(id)!;
+    output += r.output;
+    done = r.done;
+    if (!done) await new Promise((r) => setTimeout(r, 5));
+  }
+  expect(done).toBe(true);
+  expect(output).toContain("delayed");
 });
 
 test("background bash falls back to synchronous when no registry is present", async () => {
@@ -35,4 +43,16 @@ test("background bash falls back to synchronous when no registry is present", as
     sessionId: "s", signal: new AbortController().signal, emit: () => {},
   } as ToolContext);
   expect(out).toBe("sync"); // no ctx.background → ran inline
+});
+
+test("cancelling a running background command stops the child process", async () => {
+  const t = bashTool(process.cwd());
+  const { ctx, bg } = ctxWithBackground();
+  const out = await t.execute({ command: "sleep 30", run_in_background: true }, ctx);
+  const id = out.match(/bg_[a-z0-9]+_[a-f0-9]+/)![0];
+  expect(bg.pendingDetached()).toBe(1);
+  expect(bg.cancel(id)).toBe(true); // KillBackground does the same: ctx.background.cancel(id)
+  // The spawned child is killed via its AbortSignal; poll until the task settles.
+  for (let i = 0; i < 200 && bg.pendingDetached() > 0; i++) await new Promise((r) => setTimeout(r, 5));
+  expect(bg.pendingDetached()).toBe(0);
 });
