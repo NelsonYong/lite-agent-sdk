@@ -1,0 +1,97 @@
+import { expect, test } from "vitest";
+import { z } from "zod";
+import { runKernel } from "../src/kernel";
+import type { KernelConfig } from "../src/kernel";
+import { nativeCodec } from "../src/codecs/native";
+import { fakeProvider } from "../src/testing/fakeProvider";
+import { defineTool } from "../src/tools/define";
+import { textBlock } from "../src/types";
+import { noopSandbox } from "../src/sandbox";
+import type { AgentEvent, RunResult } from "../src/events";
+
+function baseCfg(over: Partial<KernelConfig>): KernelConfig {
+  return { provider: fakeProvider([]), codec: nativeCodec(), tools: [], middleware: [], model: "fake", maxTurns: 10, sandbox: noopSandbox(), ...over };
+}
+async function drain(gen: AsyncGenerator<AgentEvent, RunResult>) {
+  const events: AgentEvent[] = [];
+  let r = await gen.next();
+  while (!r.done) { events.push(r.value); r = await gen.next(); }
+  return { events, result: r.value };
+}
+
+// A tool that spawns a background task resolving after `ms`, and returns a placeholder immediately.
+const bgTool = (ms: number) => defineTool({
+  name: "bg",
+  description: "spawn background work",
+  schema: z.object({}),
+  execute: async (_input, ctx) => {
+    if (!ctx.background) return "no background";
+    const h = ctx.background.spawn({
+      label: "work",
+      run: () => new Promise<string>((r) => setTimeout(() => r("BG RESULT"), ms)),
+    });
+    return `[background:${h.id}] started.`;
+  },
+});
+
+test("run joins background work: it does not stop until the task completes and its result is injected", async () => {
+  // turn 1: call bg tool. turn 2+: model produces no tool calls (dry-out).
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "bg", input: {} }] } },
+    { text: "all done", message: { role: "assistant", content: [textBlock("all done")] } },
+  ]);
+  const { events, result } = await drain(
+    runKernel(baseCfg({ provider, tools: [bgTool(10)] }), "go", new AbortController().signal, "s1"),
+  );
+  // The completion was delivered as an observational event...
+  const completed = events.find((e) => e.type === "background_completed");
+  expect(completed).toBeDefined();
+  expect((completed as Extract<AgentEvent, { type: "background_completed" }>).completion.content).toBe("BG RESULT");
+  // ...and the run only finished after joining (stopReason stop, done last).
+  expect(result.stopReason).toBe("stop");
+  expect(events[events.length - 1]!.type).toBe("done");
+});
+
+test("the injected notification reaches the model as a tagged user message", async () => {
+  const seen: string[] = [];
+  const inner = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "bg", input: {} }] } },
+    { text: "ok", message: { role: "assistant", content: [textBlock("ok")] } },
+  ]);
+  const provider = {
+    id: "rec",
+    stream: (req: Parameters<typeof inner.stream>[0], signal?: AbortSignal) => {
+      for (const m of req.messages) if (typeof m.content === "string") seen.push(m.content);
+      return inner.stream(req, signal);
+    },
+  };
+  await drain(runKernel(baseCfg({ provider, tools: [bgTool(5)] }), "go", new AbortController().signal, "s1"));
+  expect(seen.some((c) => c.includes("<background-task-completed") && c.includes("BG RESULT"))).toBe(true);
+});
+
+test("a slow background task does not exhaust the maxTurns budget", async () => {
+  // maxTurns 2, but the model dry-outs on turn 2 while the task is still running.
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "bg", input: {} }] } },
+    { text: "waiting", message: { role: "assistant", content: [textBlock("waiting")] } },
+    { text: "consumed", message: { role: "assistant", content: [textBlock("consumed")] } },
+  ]);
+  const { result } = await drain(
+    runKernel(baseCfg({ provider, tools: [bgTool(30)], maxTurns: 2 }), "go", new AbortController().signal, "s1"),
+  );
+  // Without the maxTurns exemption this would end "max_turns" with a dangling task.
+  expect(result.stopReason).toBe("stop");
+});
+
+test("background disabled: ctx.background is undefined and the tool runs synchronously", async () => {
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "bg", input: {} }] } },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  const { events } = await drain(
+    runKernel(baseCfg({ provider, tools: [bgTool(5)], background: false }), "go", new AbortController().signal, "s1"),
+  );
+  expect(events.some((e) => e.type === "background_completed")).toBe(false);
+  const tr = events.find((e) => e.type === "tool_result");
+  expect((tr as Extract<AgentEvent, { type: "tool_result" }>).result.content).toBe("no background");
+});

@@ -11,6 +11,8 @@ import { toToolSpec } from "./tools/define";
 import type { Checkpointer, SessionEvent, StoredEvent } from "./checkpoint";
 import { foldEvents } from "./checkpoint";
 import type { SteerController } from "./steer";
+import { createBackgroundTasks } from "./background";
+import type { BackgroundCompletion } from "./background";
 
 export interface KernelConfig {
   provider: ModelProvider;
@@ -62,6 +64,7 @@ export async function* runKernel(
   };
   const queue: AgentEvent[] = [];
   const emit = (ev: AgentEvent) => { queue.push(ev); };
+  const bg = cfg.background === false ? undefined : createBackgroundTasks({ emit, signal });
   const toolMap = new Map(cfg.tools.map((t) => [t.name, t]));
   const toolSpecs = cfg.tools.map(toToolSpec);
   const state = new Map<string, unknown>();
@@ -81,7 +84,7 @@ export async function* runKernel(
 
   for (let turn = 1; turn <= cfg.maxTurns; turn++) {
     // Phase 1: abort is observed only at turn boundaries.
-    if (signal.aborted) { stopReason = "aborted"; break; }
+    if (signal.aborted) { bg?.cancelAll(); stopReason = "aborted"; break; }
     const ctx = mkCtx(turn);
     yield { type: "turn_start", turn };
 
@@ -90,6 +93,15 @@ export async function* runKernel(
       ctx.messages.push(...steers);
       for (const m of steers) await append({ type: "user", message: m });
       yield { type: "steer", messages: steers };
+    }
+
+    if (bg) {
+      for (const c of bg.takeCompleted()) {
+        const note = backgroundNote(c);
+        ctx.messages.push(note);
+        await append({ type: "user", message: note });
+        yield { type: "background_completed", completion: c };
+      }
     }
 
     await runLifecycle(cfg.middleware, "beforeModel", ctx);
@@ -147,6 +159,13 @@ export async function* runKernel(
         yield { type: "steer", messages: followUps };
         continue; // resurrect: keep looping instead of stopping
       }
+      // Background join: don't stop while tasks are still running or undelivered.
+      if (bg && (bg.pending() > 0 || bg.hasCompleted())) {
+        yield { type: "turn_end", turn, stopReason: "stop" };
+        if (!bg.hasCompleted()) await bg.waitNext(signal); // block until next completion or abort
+        turn--; // exempt this wait iteration from the maxTurns budget
+        continue; // back to turn top → completions inject → model consumes
+      }
       yield { type: "turn_end", turn, stopReason: "stop" };
       stopReason = "stop";
       break;
@@ -175,7 +194,7 @@ export async function* runKernel(
         if (!tool) return { id: call.id, name: call.name, content: `Error: unknown tool '${call.name}'`, isError: true };
         try {
           const parsed = tool.schema.parse(call.input);
-          const out = await tool.execute(parsed, { sessionId, signal, emit: callEmit, sandbox: cfg.sandbox, input: cfg.input, call, recordSnapshot });
+          const out = await tool.execute(parsed, { sessionId, signal, emit: callEmit, sandbox: cfg.sandbox, input: cfg.input, call, recordSnapshot, background: bg });
           return { id: call.id, name: call.name, content: String(out) };
         } catch (e) {
           return { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true };
@@ -221,4 +240,12 @@ function lastAssistantText(messages: Message[]): string {
     }
   }
   return "";
+}
+
+function backgroundNote(c: BackgroundCompletion): Message {
+  const status = c.isError ? ' status="error"' : "";
+  return {
+    role: "user",
+    content: `<background-task-completed id="${c.id}" label="${c.label}"${status}>\n${c.content}\n</background-task-completed>`,
+  };
 }
