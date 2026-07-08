@@ -6,29 +6,38 @@ import type { Tool, ToolContext } from "@lite-agent/core";
 
 const execAsync = promisify(execCb);
 const DANGEROUS = ["rm -rf /", "sudo", "shutdown", "reboot", "> /dev/"];
-const OPTS = { encoding: "utf8" as const, timeout: 120000, maxBuffer: 50_000_000 };
+const SHARED_OPTS = { encoding: "utf8" as const, maxBuffer: 50_000_000 };
+// Foreground commands get a hard timeout so the agent can't hang waiting on them.
+// Background commands are bounded by their AbortSignal instead (KillBackground /
+// run-abort); a 2-minute cap would kill the servers/watchers this feature is for.
+const SYNC_OPTS = { ...SHARED_OPTS, timeout: 120000 };
 
 async function resolveCommand(command: string, workdir: string, ctx: ToolContext): Promise<string> {
   return ctx.sandbox ? await ctx.sandbox.wrap(command, { cwd: workdir }) : command;
 }
 
+function formatExecError(e: unknown): string {
+  const err = e as { stdout?: string; stderr?: string; message?: string };
+  return `${err.stdout ?? ""}${err.stderr ?? ""}`.trim().slice(0, 50_000) || `Error: ${err.message}`;
+}
+
 function runSync(toRun: string, workdir: string): string {
   try {
-    const out = execSync(toRun, { cwd: workdir, ...OPTS });
+    const out = execSync(toRun, { ...SYNC_OPTS, cwd: workdir });
     return out.trim() || "(no output)";
   } catch (e) {
-    const err = e as { stdout?: string; stderr?: string; message?: string };
-    return `${err.stdout ?? ""}${err.stderr ?? ""}`.trim().slice(0, 50_000) || `Error: ${err.message}`;
+    return formatExecError(e);
   }
 }
 
 async function runAsync(toRun: string, workdir: string, signal: AbortSignal): Promise<string> {
   try {
-    const { stdout } = await execAsync(toRun, { cwd: workdir, signal, ...OPTS });
-    return stdout.trim() || "(no output)";
+    const { stdout, stderr } = await execAsync(toRun, { ...SHARED_OPTS, cwd: workdir, signal });
+    // Unlike execSync (where stderr streams to the parent), async exec captures it —
+    // include stderr so a background task's success output isn't silently dropped.
+    return `${stdout}${stderr}`.trim() || "(no output)";
   } catch (e) {
-    const err = e as { stdout?: string; stderr?: string; message?: string };
-    return `${err.stdout ?? ""}${err.stderr ?? ""}`.trim().slice(0, 50_000) || `Error: ${err.message}`;
+    return formatExecError(e);
   }
 }
 
@@ -45,12 +54,13 @@ export function bashTool(workdir: string): Tool {
       if (DANGEROUS.some((d) => command.includes(d))) return "Error: Dangerous command blocked";
       const toRun = await resolveCommand(command, workdir, ctx);
       if (run_in_background && ctx.background) {
-        const h = ctx.background.spawn({
+        const handle = ctx.background.spawn({
           label: command,
           run: (signal) => runAsync(toRun, workdir, signal),
         });
-        return `[background:${h.id}] started: ${command}. Output will be delivered when it completes.`;
+        return `[background:${handle.id}] started: ${command}. Output will be delivered when it completes.`;
       }
+      // No registry (background disabled) → run synchronously as a graceful fallback.
       return runSync(toRun, workdir);
     },
   });
