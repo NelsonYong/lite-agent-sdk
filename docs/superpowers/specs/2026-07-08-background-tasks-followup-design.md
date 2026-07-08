@@ -91,7 +91,7 @@ export interface BackgroundRead {
 
 - `pending()` is renamed to `pendingJoinable()` (the join loop's real intent); `pendingDetached()` is additive.
 - `waitNext` → `waitNextJoinable` (never waits on detached tasks).
-- Detached tasks keep an append-only output buffer (a bounded ring — cap e.g. 1 MB, drop oldest) fed by `write`. The registry holds one **read cursor per detached id**, so successive `read(id)` calls return only output appended since the previous read (mirrors Claude Code's incremental `BashOutput`); the first read returns from the start. No cursor is threaded through `ToolContext` — the tool ctx does not carry `state` (`kernel.ts:210`).
+- Detached tasks keep an append-only output buffer (a bounded ring — cap 1 MB, drop-oldest; see §9.1) fed by `write`. The registry holds one **read cursor per detached id**, so successive `read(id)` calls return only output appended since the previous read (mirrors Claude Code's incremental `BashOutput`); the first read returns from the start. No cursor is threaded through `ToolContext` — the tool ctx does not carry `state` (`kernel.ts:210`).
 - A **detached** task that *does* exit still records a `BackgroundCompletion` and is injected at the next turn top exactly like today — you get the push note *and* it never blocked the run.
 
 ### 3.3 `finish` / kind bookkeeping
@@ -191,7 +191,7 @@ SDK (`packages/sdk/test/`):
 - Persisting detached-task output across `resume` — buffers are in-memory, per-run; a resumed session starts fresh.
 - Cross-run/daemon supervision (restart on crash, health checks).
 
-## 9. Open questions
+## 9. Resolved decisions
 
-1. Detached output buffer cap and overflow policy — proposed 1 MB ring, drop-oldest, with a `[…truncated]` marker. OK?
-2. Should a `stop` that leaves detached daemons running surface a one-line notice to the consumer (e.g. a final event listing what was killed), or is silent `cancelAll` fine?
+1. **Detached output buffer:** 1 MB ring, drop-oldest, with a leading `[…truncated]` marker when the oldest bytes have been dropped. Reads still return only *new* output since the last read; if a drop happened between reads, the returned slice is prefixed with the marker once.
+2. **Daemon cleanup on `stop`:** silent. `cancelAll()` at run-end kills any still-running detached tasks with **no** consumer-facing notice event. (`KillBackground` remains the explicit, model-driven way to stop one early.)
