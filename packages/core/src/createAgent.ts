@@ -31,6 +31,8 @@ export interface CreateAgentConfig {
   store?: Store;
   /** Max tool calls run concurrently per turn (default 10; 1 = sequential). */
   maxParallelTools?: number;
+  /** Enable background tasks (default true). */
+  background?: boolean;
 }
 
 export type RunOptions = { signal?: AbortSignal; sessionId?: string; steer?: SteerController };
@@ -58,6 +60,7 @@ export function createAgent(cfg: CreateAgentConfig): Agent {
     input: cfg.input,
     checkpointer: cfg.checkpointer ?? (cfg.store ? legacyStoreAdapter(cfg.store) : undefined),
     maxParallelTools: cfg.maxParallelTools,
+    background: cfg.background,
   };
 
   const agent: Agent = {
