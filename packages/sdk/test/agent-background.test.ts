@@ -26,8 +26,8 @@ test("Agent defaults to background: returns a placeholder, delivers one aggregat
   );
   expect(out).toMatch(/^\[background:bg_/);
   expect(out).toContain("2 subagent");
-  expect(bg.pending()).toBe(1); // one batch = one task
-  await bg.waitNext(new AbortController().signal);
+  expect(bg.pendingJoinable()).toBe(1); // one batch = one task
+  await bg.waitNextJoinable(new AbortController().signal);
   const [c] = bg.takeCompleted();
   expect(c!.content).toContain("RESULT(A)");
   expect(c!.content).toContain("RESULT(B)");
@@ -51,7 +51,7 @@ test("backgrounded subagent events route to the run-level emit, not ctx.emit", a
   const ctx = { sessionId: "s", signal: new AbortController().signal, emit: (e: AgentEvent) => ctxEmit.push(e), background: bg } as ToolContext;
   const t = agentTool({ loader: loader(), spawn: echoSpawn });
   await t.execute({ tasks: [{ subagent_type: "general-purpose", prompt: "Q" }] }, ctx);
-  await bg.waitNext(new AbortController().signal);
+  await bg.waitNextJoinable(new AbortController().signal);
   // runOne's tool_use + tool_result were emitted through the background run-level emit,
   // NOT through ctx.emit (which in the kernel would be the already-ended per-turn channel).
   expect(runLevel.some((e) => e.type === "tool_use")).toBe(true);
