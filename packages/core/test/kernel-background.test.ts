@@ -136,7 +136,7 @@ test("a still-pending background task is cancelled when the run hits maxTurns", 
     description: "spawn one long-lived background task, then keep busy",
     schema: z.object({}),
     execute: async (_input, ctx) => {
-      if (ctx.background && ctx.background.pending() === 0) {
+      if (ctx.background && ctx.background.pendingJoinable() === 0) {
         ctx.background.spawn({
           label: "long",
           run: (signal) => new Promise<string>((r) => signal.addEventListener("abort", () => { aborted = true; r("cancelled"); })),
