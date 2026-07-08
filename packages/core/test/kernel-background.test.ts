@@ -127,6 +127,35 @@ test("aborting during a background join ends the run as aborted", async () => {
   expect(r.value.stopReason).toBe("aborted");
 });
 
+test("a still-pending background task is cancelled when the run hits maxTurns", async () => {
+  let aborted = false;
+  // Foreground tool: burns a turn each call (never dry-outs), and on its first call
+  // spawns a background task that only settles if its signal aborts.
+  const spawnBg = defineTool({
+    name: "spawn_bg",
+    description: "spawn one long-lived background task, then keep busy",
+    schema: z.object({}),
+    execute: async (_input, ctx) => {
+      if (ctx.background && ctx.background.pending() === 0) {
+        ctx.background.spawn({
+          label: "long",
+          run: (signal) => new Promise<string>((r) => signal.addEventListener("abort", () => { aborted = true; r("cancelled"); })),
+        });
+      }
+      return "busy";
+    },
+  });
+  // fakeProvider repeats its last turn, so every turn calls spawn_bg → never dry-out → hits maxTurns.
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "spawn_bg", input: {} }] } },
+  ]);
+  const { result } = await drain(
+    runKernel(baseCfg({ provider, tools: [spawnBg], maxTurns: 3 }), "go", new AbortController().signal, "s1"),
+  );
+  expect(result.stopReason).toBe("max_turns");
+  expect(aborted).toBe(true); // the pending task was cancelled on the maxTurns exit, not leaked
+});
+
 test("an error completion is injected with status=\"error\"", async () => {
   const seen: string[] = [];
   const inner = fakeProvider([
