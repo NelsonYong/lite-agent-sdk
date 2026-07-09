@@ -2,7 +2,10 @@ export type Redactor = (input: unknown) => unknown;
 
 // Best-effort masking of common secrets/PII in string values. Matches substrings so a
 // token embedded in a larger command is still masked. Documented as best-effort.
-const SECRET = /(bearer\s+[\w.\-]+|sk-[A-Za-z0-9]{16,}|eyJ[\w.\-]{20,}|[\w.+-]+@[\w-]+\.[\w.-]+|(?:api[_-]?key|token|secret|password)["'\s:=]+[\w.\-]{6,})/gi;
+// Known misses: AWS AKIA keys, aws_secret_access_key=... (underscore-delimited keywords),
+// bare ghp_/glpat- tokens, generic hex secrets — inject a custom Redactor for stricter coverage.
+// Walk assumes JSON-shaped input: Map/Set/Date serialize as {}; cycles are unsupported.
+const SECRET = /(bearer\s+[\w.\-]+|sk-[\w-]{16,}|eyJ[\w.\-]{20,}|[\w.+-]{1,64}@[\w-]+\.[\w.-]+|(?:api[_-]?key|token|secret|password)["'\s:=]+[\w.\-]{6,})/gi;
 
 const maskString = (s: string): string => s.replace(SECRET, "[redacted]");
 
