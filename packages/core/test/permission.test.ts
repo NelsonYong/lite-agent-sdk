@@ -1,5 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { policy, permission } from "../src/permission";
+import type { PermissionRule } from "../src/permission";
 import { composeToolCall } from "../src/middleware";
 import type { AgentContext, ToolCallContext } from "../src/middleware";
 import type { AgentEvent } from "../src/events";
@@ -141,4 +142,51 @@ test("a rejected approval request still advances the lock for the next waiter", 
   expect(r1.status).toBe("rejected"); // caller observes the real (rejected) outcome
   expect(r2.status).toBe("fulfilled"); // chain advanced past the rejection
   if (r2.status === "fulfilled") expect(r2.value.content).toBe("ran");
+});
+
+test("rules: content match via dot-path + operators", () => {
+  const p = policy({
+    default: "allow",
+    rules: [
+      { id: "no-rm", tool: "bash", when: { command: { contains: "rm -rf" } }, effect: "deny" },
+      { id: "src-only", tool: ["write_file", "edit_file"], when: { path: { glob: "src/**" } }, effect: "allow" },
+    ],
+  });
+  expect(p.check({ id: "1", name: "bash", input: { command: "rm -rf /" } }, { sessionId: "s" }))
+    .toEqual({ decision: "deny", ruleId: "no-rm", reason: undefined });
+  // bash without the pattern → no rule matches → default (bare string)
+  expect(p.check({ id: "1", name: "bash", input: { command: "ls" } }, { sessionId: "s" })).toBe("allow");
+  expect(p.check({ id: "1", name: "write_file", input: { path: "src/a.ts" } }, { sessionId: "s" }))
+    .toMatchObject({ decision: "allow", ruleId: "src-only" });
+});
+
+test("rules: operators regex/equals/in/startsWith/not and missing/typed fields don't throw", () => {
+  const p = policy({ default: "deny", rules: [
+    { id: "r1", tool: "t", when: { a: { regex: "^x" } }, effect: "allow" },
+    { id: "r2", tool: "t", when: { n: { in: [1, 2] } }, effect: "ask" },
+    { id: "r3", tool: "t", when: { s: { not: { startsWith: "no" } } }, effect: "allow" },
+  ]});
+  expect(p.check({ id: "1", name: "t", input: { a: "xyz" } }, { sessionId: "s" })).toMatchObject({ decision: "allow" });
+  expect(p.check({ id: "1", name: "t", input: { n: 2 } }, { sessionId: "s" })).toMatchObject({ decision: "ask" });
+  expect(p.check({ id: "1", name: "t", input: { s: "ok" } }, { sessionId: "s" })).toMatchObject({ decision: "allow" });
+  // missing field / non-string for a string op → no match → default
+  expect(p.check({ id: "1", name: "t", input: { a: 123 } }, { sessionId: "s" })).toBe("deny");
+  expect(p.check({ id: "1", name: "t", input: {} }, { sessionId: "s" })).toBe("deny");
+});
+
+test("rules: precedence deny>ask>allow across matching content rules; where predicate AND-s", () => {
+  const p = policy({ rules: [
+    { id: "a", tool: "bash", effect: "allow" },
+    { id: "k", tool: "bash", when: { command: { contains: "sudo" } }, effect: "deny" },
+    { id: "w", tool: "bash", where: (c) => (c.input as { n?: number }).n === 1, effect: "ask" },
+  ]});
+  expect(p.check({ id: "1", name: "bash", input: { command: "sudo x" } }, { sessionId: "s" })).toMatchObject({ decision: "deny", ruleId: "k" });
+  expect(p.check({ id: "1", name: "bash", input: { command: "ls", n: 1 } }, { sessionId: "s" })).toMatchObject({ decision: "ask", ruleId: "w" });
+  expect(p.check({ id: "1", name: "bash", input: { command: "ls" } }, { sessionId: "s" })).toMatchObject({ decision: "allow", ruleId: "a" });
+});
+
+test("rules: legacy arrays still return BARE strings (backward compat) even mixed with rules", () => {
+  const p = policy({ deny: ["rm"], rules: [{ id: "c", tool: "bash", effect: "ask" }] });
+  expect(p.check({ id: "1", name: "rm", input: {} }, { sessionId: "s" })).toBe("deny");        // legacy → bare
+  expect(p.check({ id: "1", name: "bash", input: {} }, { sessionId: "s" })).toMatchObject({ decision: "ask", ruleId: "c" }); // rule → verdict
 });
