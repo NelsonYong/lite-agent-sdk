@@ -1,5 +1,25 @@
 # lite-agent
 
+## 0.10.0
+
+### Minor Changes
+
+- Make background shell commands detached and pollable. `bash` with
+  `run_in_background: true` now starts a streaming child process that does not
+  block run completion; read incremental output through the new `BashOutput` tool
+  and stop it with `KillBackground`. `BashOutput` is registered by default with
+  background support and omitted when `background: false`.
+
+- Change the `Agent` subagent tool back to blocking by default. Calls now return
+  aggregated subagent results inline unless `run_in_background: true` is passed,
+  in which case the subagent batch is a joinable background task and its results
+  arrive later as a notification.
+
+- Add SDK permission helpers and gate options. New `bashCommand()` and `filePath()`
+  helpers build content-level `PermissionRule`s, and `createLiteAgent()` / `query()`
+  now forward `redact` and `permissionMode` to the core permission middleware so
+  callers can customize audit redaction or run policies in dry-run mode.
+
 ## 0.9.0
 
 ### Minor Changes
