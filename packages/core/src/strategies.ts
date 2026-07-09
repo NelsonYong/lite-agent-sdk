@@ -55,8 +55,10 @@ export interface Compactor {
 export type Decision = "allow" | "deny" | "ask";
 // Narrower than ToolContext on purpose: a permission policy gets identity only — no emit/signal.
 export interface PolicyContext { readonly sessionId: string; }
+/** A decision plus optional provenance (which rule, why) for audit + denied messages. */
+export interface PolicyVerdict { decision: Decision; ruleId?: string; reason?: string; }
 export interface PermissionPolicy {
-  check(call: ToolCall, ctx: PolicyContext): Decision | Promise<Decision>;
+  check(call: ToolCall, ctx: PolicyContext): Decision | PolicyVerdict | Promise<Decision | PolicyVerdict>;
 }
 
 export interface ApprovalHandler { request(call: ToolCall): Promise<"allow" | "deny">; }

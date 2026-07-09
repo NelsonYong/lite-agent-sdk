@@ -1,4 +1,4 @@
-import type { PermissionPolicy, ApprovalHandler } from "../strategies";
+import type { PermissionPolicy, ApprovalHandler, Decision } from "../strategies";
 import type { Middleware, ToolCallContext } from "../middleware";
 import type { ToolCall, ToolResult } from "../types";
 
@@ -19,7 +19,8 @@ export function permission(pol: PermissionPolicy, approval?: ApprovalHandler): M
   return {
     name: "permission",
     async wrapToolCall(ctx, next) {
-      const decision = await pol.check(ctx.call, { sessionId: ctx.sessionId });
+      const raw = await pol.check(ctx.call, { sessionId: ctx.sessionId });
+      const decision: Decision = typeof raw === "string" ? raw : raw.decision;
       if (decision === "allow") return next();
       if (decision === "deny") return denied(ctx, "blocked by policy");
       ctx.emit({ type: "approval_request", call: ctx.call });

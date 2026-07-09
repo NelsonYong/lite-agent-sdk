@@ -28,10 +28,10 @@ export { SteerController } from "./steer";
 export { createBackgroundTasks } from "./background";
 export type { BackgroundTasks, BackgroundHandle, BackgroundCompletion, BackgroundSpawnOptions, BackgroundKind, BackgroundRead } from "./background";
 export { policy, permission } from "./permission";
-export type { PolicyOptions } from "./permission";
+export type { PolicyOptions, PermissionRule, MatchSpec, Condition } from "./permission";
 export type {
   ModelProvider, ToolCallCodec, Tool, ToolContext,
-  Compactor, CompactResult, PermissionPolicy, PolicyContext, Decision,
+  Compactor, CompactResult, PermissionPolicy, PolicyContext, Decision, PolicyVerdict,
   ApprovalHandler, InputHandler, Store,
   Sandbox, SandboxWrapOptions,
 } from "./strategies";
