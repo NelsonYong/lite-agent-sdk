@@ -40,7 +40,7 @@ export function permission(
       try {
         v = norm(await pol.check(ctx.call, { sessionId: ctx.sessionId }));
       } catch (e) {
-        v = { decision: "deny", reason: `policy error: ${(e as Error).message}` }; // fail closed
+        v = { decision: "deny", reason: `policy error: ${e instanceof Error ? e.message : String(e)}` }; // fail closed (any throw shape)
       }
       // dry-run: record the would-be decision but never block or prompt.
       if (dry) {
