@@ -72,6 +72,11 @@ function ruleMatches(rule: PermissionRule, call: ToolCall, ctx: PolicyContext): 
   return true;
 }
 
+/** Deny-by-default posture: only what you list is permitted. Sugar for policy({ ..., default: "deny" }). */
+export function strictPolicy(opts: Omit<PolicyOptions, "default"> = {}): PermissionPolicy {
+  return policy({ ...opts, default: "deny" });
+}
+
 export function policy(opts: PolicyOptions = {}): PermissionPolicy {
   const fallback: Decision = opts.default ?? "allow";
   // Legacy name arrays desugar into rules WITHOUT ids (→ bare-string verdicts, backward compat).
