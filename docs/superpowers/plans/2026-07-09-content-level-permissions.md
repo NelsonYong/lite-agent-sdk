@@ -140,6 +140,8 @@ git commit -m "refactor(core): split permission.ts into a permission/ folder"
 
 ## Task 2: Declarative rules + `MatchSpec` matcher + provenance verdict
 
+> **Post-review corrections (shipped in `632d396` — the snippets below predate them):** (1) `matchCondition` gained a top-level `value === undefined → false` guard and an `evaluable()` helper so `not` never matches a missing or type-mismatched value (fail-closed negation); the bare `if ("not" in cond) return !matchCondition(...)` line below is the pre-fix version. (2) `deepEqual` via `JSON.stringify` was replaced with the `dequal` library (structural, key-order-insensitive).
+
 **Files:**
 - Modify: `packages/core/src/permission/policy.ts` (rewrite `policy()`)
 - Modify: `packages/core/src/strategies.ts` (add `PolicyVerdict`, widen `check`)
