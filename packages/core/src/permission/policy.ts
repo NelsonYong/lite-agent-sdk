@@ -77,6 +77,24 @@ export function strictPolicy(opts: Omit<PolicyOptions, "default"> = {}): Permiss
   return policy({ ...opts, default: "deny" });
 }
 
+/** Merge policies with deny-wins (deny>ask>allow>default). A managed layer's deny is thus
+ *  non-overridable by later layers. Provenance = the verdict of the layer that decided. */
+export function composePolicies(...policies: PermissionPolicy[]): PermissionPolicy {
+  const rank: Record<Decision, number> = { deny: 3, ask: 2, allow: 1 };
+  const asVerdict = (v: Decision | PolicyVerdict): PolicyVerdict => (typeof v === "string" ? { decision: v } : v);
+  return {
+    async check(call, ctx): Promise<PolicyVerdict> {
+      let winner: PolicyVerdict = { decision: "allow" };
+      let seen = false;
+      for (const p of policies) {
+        const v = asVerdict(await p.check(call, ctx));
+        if (!seen || rank[v.decision] > rank[winner.decision]) { winner = v; seen = true; }
+      }
+      return winner;
+    },
+  };
+}
+
 export function policy(opts: PolicyOptions = {}): PermissionPolicy {
   const fallback: Decision = opts.default ?? "allow";
   // Legacy name arrays desugar into rules WITHOUT ids (→ bare-string verdicts, backward compat).

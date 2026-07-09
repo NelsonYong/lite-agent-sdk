@@ -1,4 +1,4 @@
-export { policy, strictPolicy } from "./policy";
+export { policy, strictPolicy, composePolicies } from "./policy";
 export type { PolicyOptions, PermissionRule, MatchSpec, Condition } from "./policy";
 export { permission } from "./gate";
 export { defaultRedactor } from "./redact";
