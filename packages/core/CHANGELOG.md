@@ -1,5 +1,24 @@
 # @lite-agent/core
 
+## 0.10.0
+
+### Minor Changes
+
+- Split background work into `joinable` and `detached` kinds. Joinable tasks still
+  gate run completion, while detached tasks no longer block the kernel dry-out loop.
+  Detached tasks keep a bounded live output buffer exposed through
+  `BackgroundTasks.read()`, and `BackgroundTasks` now also exposes
+  `pendingJoinable()`, `pendingDetached()`, `waitNextJoinable()`,
+  `listDetached()`, `BackgroundKind`, and `BackgroundRead`.
+
+- Add content-level permission policies with provenance and audit events. `policy()`
+  now accepts declarative `rules` with `MatchSpec` conditions over tool inputs,
+  `PermissionPolicy.check()` can return a `PolicyVerdict`, and the gate emits a
+  redacted `permission_decision` event for every allow, deny, or ask decision.
+  New helpers include `strictPolicy()`, `composePolicies()`, and
+  `defaultRedactor`; legacy `allow` / `ask` / `deny` tool-name arrays still return
+  bare decisions for backward compatibility.
+
 ## 0.9.0
 
 ### Minor Changes
