@@ -55,7 +55,9 @@ test("permission: allow runs the tool", async () => {
   const ctx = ctxFor("read_file", (e) => events.push(e));
   const r = await composeToolCall([permission(policy({ allow: ["read_file"] }))], ctx, okExec)();
   expect(r.content).toBe("ran");
-  expect(events).toEqual([]);
+  expect(events).toEqual([
+    { type: "permission_decision", call: { id: "t1", name: "read_file", input: {} }, decision: "allow", ruleId: undefined, reason: undefined, by: "policy" },
+  ]);
 });
 
 test("permission: deny short-circuits with isError, tool never runs", async () => {
@@ -79,6 +81,7 @@ test("permission: ask + approver allow emits request/resolved then runs", async 
   expect(events).toEqual([
     { type: "approval_request", call: { id: "t1", name: "bash", input: {} } },
     { type: "approval_resolved", id: "t1", decision: "allow", by: "user" },
+    { type: "permission_decision", call: { id: "t1", name: "bash", input: {} }, decision: "allow", ruleId: undefined, reason: undefined, by: "user" },
   ]);
 });
 
@@ -99,7 +102,7 @@ test("permission: ask with no approver fails closed (by auto)", async () => {
   const ctx = ctxFor("bash", (e) => events.push(e));
   const r = await composeToolCall([permission(policy({ ask: ["bash"] }))], ctx, okExec)();
   expect(r).toMatchObject({ content: "Error: denied by user", isError: true });
-  expect(events.at(-1)).toEqual({ type: "approval_resolved", id: "t1", decision: "deny", by: "auto" });
+  expect(events.at(-1)).toEqual({ type: "permission_decision", call: { id: "t1", name: "bash", input: {} }, decision: "deny", ruleId: undefined, reason: undefined, by: "auto" });
 });
 
 test("permission serializes concurrent approval prompts (no overlap)", async () => {
@@ -219,4 +222,16 @@ test("rules: equals is structural (key order irrelevant); equals undefined ≠ m
   ]});
   expect(p.check({ id: "1", name: "t", input: { cfg: { b: 2, a: 1 } } }, { sessionId: "s" })).toMatchObject({ decision: "deny", ruleId: "cfg" });
   expect(p.check({ id: "1", name: "t", input: {} }, { sessionId: "s" })).toBe("allow"); // missing field matches nothing, even equals:undefined
+});
+
+test("permission: a content deny rule surfaces reason in the message + a permission_decision event", async () => {
+  const events: AgentEvent[] = [];
+  const ctx = ctxFor("bash", (e) => events.push(e));
+  ctx.call.input = { command: "rm -rf /" };
+  const pol = policy({ rules: [{ id: "no-rm", description: "destructive", tool: "bash", when: { command: { contains: "rm -rf" } }, effect: "deny" }] });
+  let ran = false;
+  const r = await composeToolCall([permission(pol)], ctx, async () => { ran = true; return { id: "t1", name: "bash", content: "x" }; })();
+  expect(ran).toBe(false);
+  expect(r).toMatchObject({ content: "Error: blocked by policy: destructive", isError: true });
+  expect(events.at(-1)).toMatchObject({ type: "permission_decision", decision: "deny", ruleId: "no-rm", reason: "destructive", by: "policy" });
 });

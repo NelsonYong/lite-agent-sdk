@@ -43,6 +43,7 @@ type AgentEventBody =
   | { type: "tool_use"; call: ToolCall }
   | { type: "approval_request"; call: ToolCall; reason?: string }
   | { type: "approval_resolved"; id: string; decision: "allow" | "deny"; by: string }
+  | { type: "permission_decision"; call: ToolCall; decision: "allow" | "deny" | "ask"; ruleId?: string; reason?: string; simulated?: boolean; by: "policy" | "user" | "auto" }
   | { type: "input_request"; call: ToolCall; question: UserQuestion }
   | { type: "input_resolved"; id: string; answer: UserAnswer }
   | { type: "tool_result"; result: ToolResult }
