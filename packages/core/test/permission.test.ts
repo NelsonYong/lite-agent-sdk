@@ -282,6 +282,17 @@ test("fail-closed: a throwing policy denies + emits a policy-error decision", as
   expect(events.at(-1)).toMatchObject({ type: "permission_decision", decision: "deny", reason: "policy error: boom", by: "policy" });
 });
 
+test("fail-closed: a policy that throws a non-Error still denies (no crash in the catch)", async () => {
+  const events: AgentEvent[] = [];
+  const ctx = ctxFor("bash", (e) => events.push(e));
+  const bad = { check() { throw null; } } as unknown as PermissionPolicy; // eslint-disable-line no-throw-literal
+  let ran = false;
+  const r = await composeToolCall([permission(bad)], ctx, async () => { ran = true; return { id: "t1", name: "bash", content: "x" }; })();
+  expect(ran).toBe(false);
+  expect(r).toMatchObject({ content: "Error: blocked by policy: policy error: null", isError: true });
+  expect(events.at(-1)).toMatchObject({ type: "permission_decision", decision: "deny", by: "policy" });
+});
+
 test("strictPolicy denies an unlisted tool and allows a listed one", () => {
   const p = strictPolicy({ allow: ["read_file"] });
   expect(p.check({ id: "1", name: "read_file", input: {} }, { sessionId: "s" })).toBe("allow");
