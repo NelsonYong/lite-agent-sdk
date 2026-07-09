@@ -1,4 +1,5 @@
 import picomatch from "picomatch";
+import { dequal } from "dequal";
 import type { Decision, PermissionPolicy, PolicyContext, PolicyVerdict } from "../strategies";
 import type { ToolCall } from "../types";
 
@@ -38,16 +39,21 @@ function getPath(obj: unknown, path: string): unknown {
   );
 }
 
-const deepEqual = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
+// A condition is evaluable for a value when the value's type fits the operator;
+// `not` never matches an unevaluable value (fail closed rather than inverting a type mismatch).
+function evaluable(value: unknown, cond: Condition): boolean {
+  if (value === undefined) return false;
+  if ("not" in cond) return evaluable(value, cond.not);
+  if ("equals" in cond || "in" in cond) return true;
+  return typeof value === "string"; // string ops
+}
 
 function matchCondition(value: unknown, cond: Condition): boolean {
-  if ("not" in cond) {
-    // A missing (undefined) field fails even a negated condition; only invert a present-field result.
-    if (value === undefined) return false;
-    return !matchCondition(value, cond.not);
-  }
-  if ("equals" in cond) return deepEqual(value, cond.equals);
-  if ("in" in cond) return cond.in.some((v) => deepEqual(value, v));
+  // A missing (undefined) field matches NO condition of any kind.
+  if (value === undefined) return false;
+  if ("not" in cond) return evaluable(value, cond.not) && !matchCondition(value, cond.not);
+  if ("equals" in cond) return dequal(value, cond.equals);
+  if ("in" in cond) return cond.in.some((v) => dequal(value, v));
   if (typeof value !== "string") return false; // remaining ops require a string value
   if ("regex" in cond) return new RegExp(cond.regex).test(value);
   if ("glob" in cond) return picomatch(cond.glob, { dot: true })(value);
