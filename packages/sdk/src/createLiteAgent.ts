@@ -21,6 +21,7 @@ import type {
   Middleware,
   ModelProvider,
   PermissionPolicy,
+  Redactor,
   RunOptions,
   RunResult,
   Sandbox,
@@ -109,6 +110,10 @@ export interface CreateLiteAgentConfig {
   /** Sweep stale spill/session files once at startup. Default true (30 days). */
   cleanup?: boolean | { maxAgeDays?: number };
   permission?: PermissionPolicy;
+  /** Redactor for permission audit payloads. Default: core `defaultRedactor`. */
+  redact?: Redactor;
+  /** Permission enforcement mode. "dry-run" records decisions without blocking. Default "enforce". */
+  permissionMode?: "enforce" | "dry-run";
   onApproval?: ApprovalHandler;
   onAskUser?: InputHandler;
 }
@@ -289,7 +294,9 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
   const use: Middleware[] = [
     // proactive compaction (beforeModel) + reactive overflow net (wrapModelCall)
     ...(compactor ? [compaction(compactor), reactiveCompaction()] : []),
-    ...(cfg.permission ? [permission(cfg.permission, cfg.onApproval)] : []),
+    ...(cfg.permission
+      ? [permission(cfg.permission, cfg.onApproval, { redact: cfg.redact, mode: cfg.permissionMode })]
+      : []),
     ...(cfg.use ?? []),
     ...(taskStore ? [taskReminder(taskStore)] : []),
   ];
