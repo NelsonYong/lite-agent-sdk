@@ -190,3 +190,33 @@ test("rules: legacy arrays still return BARE strings (backward compat) even mixe
   expect(p.check({ id: "1", name: "rm", input: {} }, { sessionId: "s" })).toBe("deny");        // legacy → bare
   expect(p.check({ id: "1", name: "bash", input: {} }, { sessionId: "s" })).toMatchObject({ decision: "ask", ruleId: "c" }); // rule → verdict
 });
+
+test("rules: dot-path digs into nested input; multiple when keys AND", () => {
+  const p = policy({ default: "deny", rules: [
+    { id: "nested", tool: "t", when: { "args.path": { glob: "src/**" } }, effect: "allow" },
+    { id: "both", tool: "u", when: { a: { equals: 1 }, b: { contains: "x" } }, effect: "allow" },
+  ]});
+  expect(p.check({ id: "1", name: "t", input: { args: { path: "src/a.ts" } } }, { sessionId: "s" })).toMatchObject({ decision: "allow", ruleId: "nested" });
+  expect(p.check({ id: "1", name: "t", input: { args: { path: "dist/a.js" } } }, { sessionId: "s" })).toBe("deny");
+  expect(p.check({ id: "1", name: "u", input: { a: 1, b: "x1" } }, { sessionId: "s" })).toMatchObject({ decision: "allow", ruleId: "both" });
+  expect(p.check({ id: "1", name: "u", input: { a: 1, b: "zzz" } }, { sessionId: "s" })).toBe("deny"); // one key fails → AND fails
+});
+
+test("rules: negated string op fails closed on type-mismatched or missing values", () => {
+  const p = policy({ default: "deny", rules: [
+    { id: "safe", tool: "bash", when: { command: { not: { contains: "sudo" } } }, effect: "allow" },
+  ]});
+  expect(p.check({ id: "1", name: "bash", input: { command: "ls" } }, { sessionId: "s" })).toMatchObject({ decision: "allow" });
+  expect(p.check({ id: "1", name: "bash", input: { command: 42 } }, { sessionId: "s" })).toBe("deny");           // non-string → not evaluable
+  expect(p.check({ id: "1", name: "bash", input: { command: { evil: "sudo" } } }, { sessionId: "s" })).toBe("deny"); // object → not evaluable
+  expect(p.check({ id: "1", name: "bash", input: {} }, { sessionId: "s" })).toBe("deny");                        // missing → never matches
+});
+
+test("rules: equals is structural (key order irrelevant); equals undefined ≠ missing field", () => {
+  const p = policy({ rules: [
+    { id: "cfg", tool: "t", when: { cfg: { equals: { a: 1, b: 2 } } }, effect: "deny" },
+    { id: "u", tool: "t", when: { x: { equals: undefined } }, effect: "deny" },
+  ]});
+  expect(p.check({ id: "1", name: "t", input: { cfg: { b: 2, a: 1 } } }, { sessionId: "s" })).toMatchObject({ decision: "deny", ruleId: "cfg" });
+  expect(p.check({ id: "1", name: "t", input: {} }, { sessionId: "s" })).toBe("allow"); // missing field matches nothing, even equals:undefined
+});
