@@ -27,7 +27,7 @@ export type {
 export { SteerController } from "./steer";
 export { createBackgroundTasks } from "./background";
 export type { BackgroundTasks, BackgroundHandle, BackgroundCompletion, BackgroundSpawnOptions, BackgroundKind, BackgroundRead } from "./background";
-export { policy, permission, defaultRedactor } from "./permission";
+export { policy, strictPolicy, permission, defaultRedactor } from "./permission";
 export type { PolicyOptions, PermissionRule, MatchSpec, Condition, Redactor } from "./permission";
 export type {
   ModelProvider, ToolCallCodec, Tool, ToolContext,

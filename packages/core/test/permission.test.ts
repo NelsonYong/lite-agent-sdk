@@ -1,6 +1,7 @@
 import { expect, test, vi } from "vitest";
-import { policy, permission, defaultRedactor } from "../src/permission";
+import { policy, permission, strictPolicy, defaultRedactor } from "../src/permission";
 import type { PermissionRule } from "../src/permission";
+import type { PermissionPolicy } from "../src/strategies";
 import { composeToolCall } from "../src/middleware";
 import type { AgentContext, ToolCallContext } from "../src/middleware";
 import type { AgentEvent } from "../src/events";
@@ -268,4 +269,34 @@ test("defaultRedactor masks modern sk- key formats and stays linear on large ben
   // 200k chars of email-local-part-like chars with no @: quadratic regex would stall for minutes here.
   const blob = "Zm9vYmFyMTIzNDU2Nzg5MA+".repeat(10000);
   expect(defaultRedactor({ big: blob })).toEqual({ big: blob });
+});
+
+test("fail-closed: a throwing policy denies + emits a policy-error decision", async () => {
+  const events: AgentEvent[] = [];
+  const ctx = ctxFor("bash", (e) => events.push(e));
+  const bad = { check() { throw new Error("boom"); } } as PermissionPolicy;
+  let ran = false;
+  const r = await composeToolCall([permission(bad)], ctx, async () => { ran = true; return { id: "t1", name: "bash", content: "x" }; })();
+  expect(ran).toBe(false);
+  expect(r).toMatchObject({ content: "Error: blocked by policy: policy error: boom", isError: true });
+  expect(events.at(-1)).toMatchObject({ type: "permission_decision", decision: "deny", reason: "policy error: boom", by: "policy" });
+});
+
+test("strictPolicy denies an unlisted tool and allows a listed one", () => {
+  const p = strictPolicy({ allow: ["read_file"] });
+  expect(p.check({ id: "1", name: "read_file", input: {} }, { sessionId: "s" })).toBe("allow");
+  expect(p.check({ id: "1", name: "bash", input: {} }, { sessionId: "s" })).toBe("deny"); // default deny
+});
+
+test("dry-run: a would-deny still runs the tool, emitting simulated=true", async () => {
+  const events: AgentEvent[] = [];
+  const ctx = ctxFor("rm", (e) => events.push(e));
+  let ran = false;
+  const r = await composeToolCall(
+    [permission(policy({ deny: ["rm"] }), undefined, { mode: "dry-run" })], ctx,
+    async () => { ran = true; return { id: "t1", name: "rm", content: "ran" }; },
+  )();
+  expect(ran).toBe(true);           // NOT blocked
+  expect(r.content).toBe("ran");
+  expect(events.at(-1)).toMatchObject({ type: "permission_decision", decision: "deny", simulated: true });
 });

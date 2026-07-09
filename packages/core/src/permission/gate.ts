@@ -19,8 +19,12 @@ function decisionEvent(
 }
 
 // Gate middleware (spec §6): allow → run; deny → blocked; ask → emit request, await approver, emit resolved.
-export function permission(pol: PermissionPolicy, approval?: ApprovalHandler, opts: { redact?: Redactor } = {}): Middleware {
+export function permission(
+  pol: PermissionPolicy, approval?: ApprovalHandler,
+  opts: { redact?: Redactor; mode?: "enforce" | "dry-run" } = {},
+): Middleware {
   const redact = opts.redact ?? defaultRedactor;
+  const dry = opts.mode === "dry-run";
   // Serialize interactive approval prompts: with concurrent in-turn tool execution,
   // multiple ask-gated calls would otherwise prompt at the same time and overlap.
   let lock: Promise<unknown> = Promise.resolve();
@@ -32,7 +36,17 @@ export function permission(pol: PermissionPolicy, approval?: ApprovalHandler, op
   return {
     name: "permission",
     async wrapToolCall(ctx, next) {
-      const v = norm(await pol.check(ctx.call, { sessionId: ctx.sessionId }));
+      let v: PolicyVerdict;
+      try {
+        v = norm(await pol.check(ctx.call, { sessionId: ctx.sessionId }));
+      } catch (e) {
+        v = { decision: "deny", reason: `policy error: ${(e as Error).message}` }; // fail closed
+      }
+      // dry-run: record the would-be decision but never block or prompt.
+      if (dry) {
+        ctx.emit({ ...decisionEvent(ctx.call, v.decision, "policy", redact, v), simulated: true });
+        return next();
+      }
       if (v.decision === "allow") {
         ctx.emit(decisionEvent(ctx.call, "allow", "policy", redact, v));
         return next();
