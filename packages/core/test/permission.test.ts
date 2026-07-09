@@ -260,3 +260,12 @@ test("defaultRedactor masks bearer/sk/emails and leaves plain text alone", () =>
     a: "[redacted]", b: "[redacted]", c: "plain",
   });
 });
+
+test("defaultRedactor masks modern sk- key formats and stays linear on large benign input", () => {
+  expect(defaultRedactor({ a: "sk-proj-AbCdEf1234567890XyZ", b: "sk-ant-api03-AbCdEf1234567890" })).toEqual({
+    a: "[redacted]", b: "[redacted]",
+  });
+  // 200k chars of email-local-part-like chars with no @: quadratic regex would stall for minutes here.
+  const blob = "Zm9vYmFyMTIzNDU2Nzg5MA+".repeat(10000);
+  expect(defaultRedactor({ big: blob })).toEqual({ big: blob });
+});
