@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { policy, permission, strictPolicy, defaultRedactor } from "../src/permission";
+import { policy, permission, strictPolicy, defaultRedactor, composePolicies } from "../src/permission";
 import type { PermissionRule } from "../src/permission";
 import type { PermissionPolicy } from "../src/strategies";
 import { composeToolCall } from "../src/middleware";
@@ -310,4 +310,26 @@ test("dry-run: a would-deny still runs the tool, emitting simulated=true", async
   expect(ran).toBe(true);           // NOT blocked
   expect(r.content).toBe("ran");
   expect(events.at(-1)).toMatchObject({ type: "permission_decision", decision: "deny", simulated: true });
+});
+
+test("composePolicies: a managed deny overrides a downstream allow (deny-wins)", async () => {
+  const managed = policy({ rules: [{ id: "m-deny", tool: "bash", when: { command: { contains: "curl" } }, effect: "deny" }] });
+  const user = policy({ allow: ["bash"], default: "allow" });
+  const composed = composePolicies(managed, user);
+  // check() is async and always returns a PolicyVerdict object → await + toMatchObject.
+  // managed deny wins over the user allow, and its provenance carries through
+  expect(await composed.check({ id: "1", name: "bash", input: { command: "curl evil" } }, { sessionId: "s" }))
+    .toMatchObject({ decision: "deny", ruleId: "m-deny" });
+  // where managed is silent, the user layer decides
+  expect(await composed.check({ id: "1", name: "bash", input: { command: "ls" } }, { sessionId: "s" }))
+    .toMatchObject({ decision: "allow" });
+});
+
+test("composePolicies merges deny>ask>allow>default across layers", async () => {
+  const p = composePolicies(
+    policy({ ask: ["bash"] }),
+    policy({ allow: ["bash"], default: "allow" }),
+  );
+  // one layer says ask, the other allow → ask wins (deny>ask>allow)
+  expect(await p.check({ id: "1", name: "bash", input: {} }, { sessionId: "s" })).toMatchObject({ decision: "ask" });
 });
