@@ -1,0 +1,23 @@
+{
+  "skill_name": "version-and-changelog",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "改动过的包的版本号和 changelog 更新一下,准备发版。",
+      "expected_output": "Detects the packages changed since the last release (core: compact feature; sdk: compact feature + UUID session-id), bumps only those (fixed-group note aside, it should bump core and sdk to 0.8.0 per feature=minor), prepends English CHANGELOG entries matching the existing changeset-style format, and leaves provider / sandbox-anthropic / checkpoint-sqlite (unchanged) at 0.7.0 with untouched changelogs.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "I just finished the manual-compact instructions feature (core + sdk) and the UUID session-id change (sdk). Bump the versions and write the changelogs before I publish.",
+      "expected_output": "core -> 0.8.0 (minor, feature), sdk -> 0.8.0 (minor for the feature; the UUID change is a patch-level note in the same entry). Only core and sdk package.json version fields and CHANGELOG.md files change. Entries are English, describe the API from a consumer's view, and match the existing '### Minor Changes / ### Patch Changes' structure. No commit/tag/publish performed.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "I only tweaked some unit tests in packages/provider and fixed a typo in its README. Do I need to version anything for a release?",
+      "expected_output": "Recognizes that test-only and README changes do not ship, so provider should NOT be bumped and its version/changelog must stay exactly as-is. Explains why (nothing in the published artifact changed) rather than mechanically bumping.",
+      "files": []
+    }
+  ]
+}

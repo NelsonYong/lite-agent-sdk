@@ -18,6 +18,7 @@ export {
   killBackgroundTool,
   bashOutputTool,
 } from "./tools";
+export { bashCommand, filePath } from "./permission/specifiers";
 export { SkillLoader } from "./skills/loader";
 export { loadSkillTool } from "./skills/loadSkillTool";
 export { jsonlStore, newSessionId, isSessionStore } from "./store";

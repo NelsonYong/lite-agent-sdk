@@ -8,6 +8,7 @@ import type {
   Middleware,
   ModelProvider,
   PermissionPolicy,
+  Redactor,
   Sandbox,
   Store,
   SteerController,
@@ -55,6 +56,8 @@ export interface QueryOptions {
   background?: boolean;
   cleanup?: boolean | { maxAgeDays?: number };
   permission?: PermissionPolicy;
+  redact?: Redactor;
+  permissionMode?: "enforce" | "dry-run";
   onApproval?: ApprovalHandler;
   onAskUser?: InputHandler;
 }
@@ -95,6 +98,8 @@ export function query(
     subagentPermission: opts.subagentPermission,
     cleanup: opts.cleanup,
     permission: opts.permission,
+    redact: opts.redact,
+    permissionMode: opts.permissionMode,
     onApproval: opts.onApproval,
     onAskUser: opts.onAskUser,
   });
