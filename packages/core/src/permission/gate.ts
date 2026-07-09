@@ -2,6 +2,8 @@ import type { PermissionPolicy, ApprovalHandler, Decision, PolicyVerdict } from 
 import type { Middleware, ToolCallContext } from "../middleware";
 import type { AgentEvent } from "../events";
 import type { ToolCall, ToolResult } from "../types";
+import type { Redactor } from "./redact";
+import { defaultRedactor } from "./redact";
 
 const norm = (v: Decision | PolicyVerdict): PolicyVerdict => (typeof v === "string" ? { decision: v } : v);
 
@@ -10,13 +12,15 @@ function denied(ctx: ToolCallContext, base: string, reason?: string): ToolResult
 }
 
 function decisionEvent(
-  call: ToolCall, decision: Decision, by: "policy" | "user" | "auto", v?: PolicyVerdict,
+  call: ToolCall, decision: Decision, by: "policy" | "user" | "auto", redact: Redactor, v?: PolicyVerdict,
 ): Extract<AgentEvent, { type: "permission_decision" }> {
-  return { type: "permission_decision", call, decision, ruleId: v?.ruleId, reason: v?.reason, by };
+  const safe: ToolCall = { ...call, input: redact(call.input) };
+  return { type: "permission_decision", call: safe, decision, ruleId: v?.ruleId, reason: v?.reason, by };
 }
 
 // Gate middleware (spec §6): allow → run; deny → blocked; ask → emit request, await approver, emit resolved.
-export function permission(pol: PermissionPolicy, approval?: ApprovalHandler): Middleware {
+export function permission(pol: PermissionPolicy, approval?: ApprovalHandler, opts: { redact?: Redactor } = {}): Middleware {
+  const redact = opts.redact ?? defaultRedactor;
   // Serialize interactive approval prompts: with concurrent in-turn tool execution,
   // multiple ask-gated calls would otherwise prompt at the same time and overlap.
   let lock: Promise<unknown> = Promise.resolve();
@@ -30,11 +34,11 @@ export function permission(pol: PermissionPolicy, approval?: ApprovalHandler): M
     async wrapToolCall(ctx, next) {
       const v = norm(await pol.check(ctx.call, { sessionId: ctx.sessionId }));
       if (v.decision === "allow") {
-        ctx.emit(decisionEvent(ctx.call, "allow", "policy", v));
+        ctx.emit(decisionEvent(ctx.call, "allow", "policy", redact, v));
         return next();
       }
       if (v.decision === "deny") {
-        ctx.emit(decisionEvent(ctx.call, "deny", "policy", v));
+        ctx.emit(decisionEvent(ctx.call, "deny", "policy", redact, v));
         return denied(ctx, "blocked by policy", v.reason);
       }
       // ask: keep approval_request/approval_resolved for UI compatibility, then a permission_decision.
@@ -42,7 +46,7 @@ export function permission(pol: PermissionPolicy, approval?: ApprovalHandler): M
       const resolved = approval ? await requestSerial(ctx.call) : "deny";
       const by = approval ? "user" : "auto";
       ctx.emit({ type: "approval_resolved", id: ctx.call.id, decision: resolved, by });
-      ctx.emit(decisionEvent(ctx.call, resolved, by, v));
+      ctx.emit(decisionEvent(ctx.call, resolved, by, redact, v));
       return resolved === "allow" ? next() : denied(ctx, "denied by user");
     },
   };
