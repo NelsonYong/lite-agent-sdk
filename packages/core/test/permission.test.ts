@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { policy, permission } from "../src/permission";
+import { policy, permission, defaultRedactor } from "../src/permission";
 import type { PermissionRule } from "../src/permission";
 import { composeToolCall } from "../src/middleware";
 import type { AgentContext, ToolCallContext } from "../src/middleware";
@@ -102,7 +102,10 @@ test("permission: ask with no approver fails closed (by auto)", async () => {
   const ctx = ctxFor("bash", (e) => events.push(e));
   const r = await composeToolCall([permission(policy({ ask: ["bash"] }))], ctx, okExec)();
   expect(r).toMatchObject({ content: "Error: denied by user", isError: true });
-  expect(events.at(-1)).toEqual({ type: "permission_decision", call: { id: "t1", name: "bash", input: {} }, decision: "deny", ruleId: undefined, reason: undefined, by: "auto" });
+  expect(events.slice(-2)).toEqual([
+    { type: "approval_resolved", id: "t1", decision: "deny", by: "auto" },
+    { type: "permission_decision", call: { id: "t1", name: "bash", input: {} }, decision: "deny", ruleId: undefined, reason: undefined, by: "auto" },
+  ]);
 });
 
 test("permission serializes concurrent approval prompts (no overlap)", async () => {
@@ -234,4 +237,26 @@ test("permission: a content deny rule surfaces reason in the message + a permiss
   expect(ran).toBe(false);
   expect(r).toMatchObject({ content: "Error: blocked by policy: destructive", isError: true });
   expect(events.at(-1)).toMatchObject({ type: "permission_decision", decision: "deny", ruleId: "no-rm", reason: "destructive", by: "policy" });
+});
+
+test("redaction: secrets masked in the permission_decision event; tool gets real input", async () => {
+  const events: AgentEvent[] = [];
+  const ctx = ctxFor("bash", (e) => events.push(e));
+  ctx.call.input = { command: "curl -H 'authorization: Bearer sk-ABCDEF1234567890abcdef' x" };
+  let seen = "";
+  await composeToolCall([permission(policy({ allow: ["bash"] }))], ctx, async () => {
+    seen = (ctx.call.input as { command: string }).command; // tool still sees the REAL input
+    return { id: "t1", name: "bash", content: "ok" };
+  })();
+  const ev = events.find((e) => e.type === "permission_decision") as Extract<AgentEvent, { type: "permission_decision" }>;
+  const redactedCmd = (ev.call.input as { command: string }).command;
+  expect(redactedCmd).toContain("[redacted]");
+  expect(redactedCmd).not.toContain("sk-ABCDEF1234567890abcdef");
+  expect(seen).toContain("sk-ABCDEF1234567890abcdef"); // real input reached the tool
+});
+
+test("defaultRedactor masks bearer/sk/emails and leaves plain text alone", () => {
+  expect(defaultRedactor({ a: "Bearer sk-ABCDEF1234567890abcdef", b: "hi@x.com", c: "plain" })).toEqual({
+    a: "[redacted]", b: "[redacted]", c: "plain",
+  });
 });
