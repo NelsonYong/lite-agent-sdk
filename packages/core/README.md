@@ -56,7 +56,7 @@ One implementation per role, hot-swappable:
 
 ## What's exported
 
-- **Assembly** — `createAgent`, `defineTool` / `toToolSpec`, `nativeCodec`.
+- **Assembly** — `createAgent`, `defineTool` / `toToolSpec`, `nativeCodec`, `jsonCodec`, `reactCodec`.
 - **Middleware** — `permission` + `policy`, `retry`, `compaction` and the compaction toolkit (`defaultCompactor`, `reactiveCompaction`, `llmCompactor`, spill store, …), `composeModelCall` / `composeToolCall`.
 - **Persistence** — event-sourced `Checkpointer` primitives: `memoryCheckpointer`, `foldEvents`, `storeEvents`, `legacyStoreAdapter`, plus `memoryStore`. (For durable backends see [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) or the SDK's file checkpointer.)
 - **Sandbox** — `noopSandbox` (the default no-boundary sandbox; OS-level boundary lives in [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic)).

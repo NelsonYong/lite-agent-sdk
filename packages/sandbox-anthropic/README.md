@@ -45,10 +45,12 @@ If the OS sandbox can't initialize (no bubblewrap, native Windows, unsupported e
 | Option | Default | Description |
 | --- | --- | --- |
 | `allowWrite` | `["."]` | Filesystem paths the command may write. |
+| `allowRead` | `[]` | Paths re-allowed inside a denied read region. |
 | `denyRead` | `["~/.ssh", "~/.aws"]` | Paths blocked from reading. |
 | `denyWrite` | `[]` | Additional paths blocked from writing. |
 | `allowedDomains` | `[]` | Network domains allowed. |
 | `deniedDomains` | `[]` | Network domains denied. |
+| `allowLocalBinding` | `false` | Allow sandboxed commands to bind local ports. |
 | `requireSandbox` | `false` | `false` → degrade to noop if init fails; `true` → throw. |
 | `onUnavailable` | — | Called once when degrading to noop. |
 

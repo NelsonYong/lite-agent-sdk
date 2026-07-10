@@ -8,6 +8,7 @@ A pluggable, lightweight **agent-core SDK**, structured as a pnpm monorepo. The 
 
 | Package | Description |
 | --- | --- |
+| [`@lite-agent/local`](./packages/local) | Strict single-host runtime: local models, SQLite, mandatory sandbox, managed permissions, resource limits, and local audit logs. |
 | [`@lite-agent/sdk`](./packages/sdk) | Batteries-included agent: tools, skills, subagents, tasks, sessions, system prompt — `query()` / `createLiteAgent()` / `tool()`. |
 | [`@lite-agent/core`](./packages/core) | The kernel: strategy interfaces, middleware pipeline, normalized types, codecs, permission, sandbox, checkpointer primitives. |
 | [`@lite-agent/provider`](./packages/provider) | Model providers — Anthropic Messages API + OpenAI Chat Completions (also OpenAI-compatible / local endpoints). |

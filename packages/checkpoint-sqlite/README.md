@@ -40,9 +40,12 @@ checkpointer.close(); // when you're done
 
 ## API
 
-`sqliteCheckpointer({ file })` → `SqliteCheckpointer` (a core `Checkpointer` plus `close()`):
+`sqliteCheckpointer({ file })` → `SqliteCheckpointer` (a core `Checkpointer` plus `checkIntegrity()` / `close()`):
 
 - `file` — path to the SQLite database, or `":memory:"` for an ephemeral DB.
+- `synchronous` — `"normal"` (default) or `"full"` for stricter durability.
+- `busyTimeoutMs` — writer wait timeout (default 5000 ms).
+- `integrityCheckOnOpen` — run `PRAGMA quick_check` and fail startup if corrupt.
 
 It implements the full `Checkpointer` contract — `append` (optimistic, `expectedHead`-guarded), `read`, `head`, `list`, `delete`, and `truncate` (so session time-travel / `restore` works) — and is validated against core's `checkpointerConformance` test suite.
 

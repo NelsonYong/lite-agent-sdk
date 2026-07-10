@@ -68,7 +68,7 @@ Session management on the returned `LiteAgent`: `sessionId`, `resume(id)`, `clea
 
 Assembled by `createLiteAgent` (each toggleable):
 
-- **Default tools** — `bash`, `read_file`, `write_file`, `edit_file`, `delete_file`, all scoped to `workdir`. Mutating file tools record bounded pre-change snapshots so session restore can undo writes, edits, and deletions when the file fits the snapshot limit.
+- **Default tools** — `bash`, `read_file`, `write_file`, `edit_file`, `delete_file`, all scoped to `workdir`. Mutating file tools use atomic writes and record bounded UTF-8/base64 pre-change snapshots so session restore can undo text or binary writes, edits, and deletions.
 - **Skills** — `SKILL.md` files (YAML frontmatter) loaded from `~/.lite-agent/skills`, `<workdir>/.lite-agent/skills`, and an explicit `skillsDir`; injected on demand via `load_skill`.
 - **Subagents** — a parallel-capable `Agent` dispatch tool with a built-in `general-purpose` agent; add your own as `agents/*.md`. (`agents: false` to disable.)
 - **Tasks** — a persistent task list (`TaskCreate/Update/Get/List`) with a per-turn reminder. (`tasks: false` to disable.)
@@ -78,6 +78,7 @@ Assembled by `createLiteAgent` (each toggleable):
 - **Sandbox** — pass a `Sandbox` (e.g. [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic)) to run `bash` inside an OS boundary.
 - **`ask_user`** — registered when `onAskUser` is set, letting the model ask you questions mid-run.
 - **Structured output** — set `outputSchema` (a Zod object) to force a validated final answer, surfaced as `result.output`.
+- **Local hardening primitives** — configurable prompt codec/repair, context budget, file/snapshot limits, crash recovery, managed permission files, and rotating hash-chained event sinks. For strict defaults use [`@lite-agent/local`](../local).
 
 ## API
 

@@ -45,10 +45,12 @@ const agent = createLiteAgent({
 | 选项 | 默认值 | 说明 |
 | --- | --- | --- |
 | `allowWrite` | `["."]` | 命令可写的文件系统路径。 |
+| `allowRead` | `[]` | 在已禁止读取的区域内重新放行的路径。 |
 | `denyRead` | `["~/.ssh", "~/.aws"]` | 禁止读取的路径。 |
 | `denyWrite` | `[]` | 额外禁止写入的路径。 |
 | `allowedDomains` | `[]` | 允许访问的网络域名。 |
 | `deniedDomains` | `[]` | 禁止访问的网络域名。 |
+| `allowLocalBinding` | `false` | 是否允许沙箱命令监听本地端口。 |
 | `requireSandbox` | `false` | `false` → 初始化失败时降级为 noop；`true` → 抛错。 |
 | `onUnavailable` | —— | 降级为 noop 时触发一次。 |
 
