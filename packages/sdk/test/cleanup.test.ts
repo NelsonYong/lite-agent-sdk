@@ -56,3 +56,14 @@ test("discards a legacy whole-array session transcript regardless of age", () =>
 test("tolerates a missing home without throwing", () => {
   expect(() => sweepStale({ home: join(tmpdir(), "no-such-home-xyz") })).not.toThrow();
 });
+
+test("enforces maxBytes by deleting least-recently-used runtime files", () => {
+  const home = mkdtempSync(join(tmpdir(), "sweep-"));
+  const old = seed(home, "proj", "spill", "old.txt", 2, "12345");
+  const fresh = seed(home, "proj", "spill", "fresh.txt", 1, "67890");
+
+  sweepStale({ home, maxAgeDays: 30, maxBytes: 5 });
+
+  expect(existsSync(old)).toBe(false);
+  expect(existsSync(fresh)).toBe(true);
+});

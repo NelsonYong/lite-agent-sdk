@@ -45,6 +45,27 @@ test("restore recreates a file deleted via delete_file", async () => {
   expect(readFileSync(join(dir, "f.txt"), "utf8")).toBe("before delete");
 });
 
+test("restore recreates a deleted binary file byte-for-byte", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "la-restore-binary-"));
+  const cp = memoryCheckpointer();
+  const before = Buffer.from([0, 255, 10, 13, 128, 42]);
+  writeFileSync(join(dir, "f.bin"), before);
+  const agent = createLiteAgent({
+    model: fakeProvider([
+      { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "delete_file", input: { path: "f.bin" } }] } },
+      { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+    ]),
+    workdir: dir,
+    checkpointer: cp,
+  });
+  const id = agent.sessionId;
+  await agent.send("delete it");
+
+  await agent.restore(id, 0, { files: true, conversation: false });
+
+  expect(readFileSync(join(dir, "f.bin"))).toEqual(before);
+});
+
 test("restore can truncate the conversation", async () => {
   const dir = mkdtempSync(join(tmpdir(), "la-restore2-"));
   const cp = memoryCheckpointer();

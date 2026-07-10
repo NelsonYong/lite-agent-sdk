@@ -36,6 +36,7 @@ export function readSpilledTool(store: SpillStore): Tool {
     description:
       "Retrieve the full content of a tool result that was moved off-context to save space. Pass the ref shown in its [spilled:<ref>] marker.",
     schema: z.object({ ref: z.string() }),
+    security: { network: "none", filesystem: "unrestricted", sideEffects: "none" },
     execute: ({ ref }) => store.get(ref) ?? `No spilled content for ref '${ref}'`,
   });
 }

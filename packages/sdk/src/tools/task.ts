@@ -17,6 +17,7 @@ export function taskTools(store: TaskStore): Tool[] {
       activeForm: z.string().optional(),
       metadata: META,
     }),
+    security: { network: "none", filesystem: "unrestricted", sideEffects: "workspace" },
     execute: async (input) => {
       const t = await store.create(input);
       return `Created task #${t.id}: ${t.subject}`;
@@ -38,6 +39,7 @@ export function taskTools(store: TaskStore): Tool[] {
       addBlocks: z.array(z.string()).optional(),
       metadata: META,
     }),
+    security: { network: "none", filesystem: "unrestricted", sideEffects: "workspace" },
     execute: async (input) => {
       const t = await store.update(input);
       return `Updated task #${t.id}: ${t.subject} (${t.status})`;
@@ -48,6 +50,7 @@ export function taskTools(store: TaskStore): Tool[] {
     name: "TaskGet",
     description: "Fetch the full detail of one task by id (description, status, dependency edges).",
     schema: z.object({ taskId: z.string() }),
+    security: { network: "none", filesystem: "unrestricted", sideEffects: "none" },
     execute: ({ taskId }) => {
       const t = store.get(taskId);
       return t ? JSON.stringify(t, null, 2) : `No task '${taskId}'`;
@@ -58,6 +61,7 @@ export function taskTools(store: TaskStore): Tool[] {
     name: "TaskList",
     description: "List every task with its status and blockedBy dependencies.",
     schema: z.object({}),
+    security: { network: "none", filesystem: "unrestricted", sideEffects: "none" },
     execute: () => store.render() || "No tasks.",
   });
 

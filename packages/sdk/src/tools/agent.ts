@@ -45,6 +45,7 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn }): Tool {
       tasks: z.array(TASK).min(1),
       run_in_background: z.boolean().optional().default(false),
     }),
+    security: { network: "loopback", filesystem: "workspace", sideEffects: "workspace" },
     execute: async ({ tasks, run_in_background }, ctx) => {
       // Each entry in `tasks` is one subagent. Surface it as an ordinary tool
       // call (a tool_use + tool_result pair, paired by id) so any UI that already

@@ -5,6 +5,7 @@ import {
   compaction,
   reactiveCompaction,
   defaultCompactor,
+  tokenBudgetCompactor,
   legacyStoreAdapter,
   foldEvents,
   estimateTokens,
@@ -27,12 +28,16 @@ import type {
   Sandbox,
   Store,
   Tool,
+  ToolCallCodec,
   ToolChoice,
+  BackgroundLimits,
+  TokenEstimator,
 } from "@lite-agent/core";
 import type { ZodType } from "zod";
-import { existsSync, mkdirSync, writeFileSync, unlinkSync } from "node:fs";
-import { dirname } from "node:path";
-import { makeSafePath } from "./tools/file";
+import { existsSync, unlinkSync } from "node:fs";
+import { atomicWriteFile, resolveSafePath } from "./tools/file";
+import type { FileToolsOptions } from "./tools/file";
+import type { BashToolOptions } from "./tools/bash";
 import { tool } from "./tool";
 import { defaultTools, askUserTool } from "./tools";
 import { SkillLoader } from "./skills/loader";
@@ -60,6 +65,8 @@ export interface CreateLiteAgentConfig {
   workdir: string;
   skillsDir?: string;
   tools?: Tool[];
+  /** Tool-call protocol. Default nativeCodec. */
+  codec?: ToolCallCodec;
   system?: string;
   allowedTools?: string[];
   disallowedTools?: string[];
@@ -82,6 +89,8 @@ export interface CreateLiteAgentConfig {
   outputSchema?: ZodType;
   /** Max tool calls run concurrently per turn (default 10; 1 = sequential). Inherited by subagents. */
   maxParallelTools?: number;
+  /** Prompt-codec repair attempts after malformed output. Default 2. */
+  maxDecodeRetries?: number;
   use?: Middleware[];
   sandbox?: Sandbox;
   /** Event-sourced persistence backend. Default: fileCheckpointer under the project's sessions dir. Overrides `store`. */
@@ -105,10 +114,21 @@ export interface CreateLiteAgentConfig {
   subagentPermission?: PermissionPolicy;
   /** Non-blocking background tasks (bash run_in_background + background subagents) + the KillBackground tool. Default true. */
   background?: boolean;
+  backgroundLimits?: BackgroundLimits;
+  /** Default file-tool hardening and snapshot settings. */
+  fileTools?: FileToolsOptions;
+  /** Bash timeout, output, environment, and security metadata. */
+  bash?: BashToolOptions;
+  /** Safe mode persists tool starts and closes interrupted calls on resume. */
+  crashRecovery?: "off" | "safe";
+  /** Maximum retained snapshot bytes in one session. */
+  maxSnapshotBytesPerSession?: number;
   /** Proactive compactor. Default deterministic `defaultCompactor`; `false` disables compaction. */
   compactor?: Compactor | false;
+  /** Hard context budget applied after structural compaction. */
+  contextBudget?: { maxTokens: number; estimator?: TokenEstimator };
   /** Sweep stale spill/session files once at startup. Default true (30 days). */
-  cleanup?: boolean | { maxAgeDays?: number };
+  cleanup?: boolean | { maxAgeDays?: number; maxBytes?: number };
   permission?: PermissionPolicy;
   /** Redactor for permission audit payloads. Default: core `defaultRedactor`. */
   redact?: Redactor;
@@ -160,10 +180,11 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     sweepStale({
       home: paths.home,
       maxAgeDays: typeof cfg.cleanup === "object" ? cfg.cleanup.maxAgeDays : undefined,
+      maxBytes: typeof cfg.cleanup === "object" ? cfg.cleanup.maxBytes : undefined,
     });
   }
 
-  let tools: Tool[] = [...defaultTools(cfg.workdir)];
+  let tools: Tool[] = [...defaultTools(cfg.workdir, { files: cfg.fileTools, bash: cfg.bash })];
 
   // Skills: global < project < explicit skillsDir (later overrides earlier).
   const loader = new SkillLoader([
@@ -222,7 +243,10 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
           onApproval: undefined, // don't share the interactive approval handler (parallel-unsafe)
           onAskUser: undefined, // subagents run non-interactively (no ask_user prompts)
           outputSchema: undefined, // subagents return their answer as text, not via final_answer
-          checkpointer: undefined, // child rebuilds its own fileCheckpointer from the shared sessions dir (keyed by its sessionId)
+          // An explicit backend (notably SQLite in strict local mode) is safe to
+          // share because child sessions use distinct ids. Undefined still lets
+          // ordinary SDK children build the default project file checkpointer.
+          checkpointer: cfg.checkpointer,
         });
         const gen = child.run([{ role: "user", content: prompt }], { signal, sessionId });
         let r = await gen.next();
@@ -257,6 +281,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
           outputs.set(ctx.sessionId, input);
           return "Final answer recorded.";
         },
+        { security: { network: "none", filesystem: "none", sideEffects: "none" } },
       ),
     );
   }
@@ -274,7 +299,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
 
   // Compaction: explicit compactor wins; `false` disables; default = deterministic
   // pipeline with the spill store auto-injected (no LLM call ever by default).
-  const compactor =
+  const structuralCompactor =
     cfg.compactor === false
       ? undefined
       : cfg.compactor ??
@@ -282,6 +307,20 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
           spillStore,
           budgetBytes: typeof cfg.spill === "object" ? cfg.spill.budgetBytes : undefined,
         });
+  const budgetCompactor = cfg.contextBudget
+    ? tokenBudgetCompactor(cfg.contextBudget)
+    : undefined;
+  const compactor: Compactor | undefined = structuralCompactor && budgetCompactor
+    ? {
+        async maybeCompact(messages, usage, instructions) {
+          const first = await structuralCompactor.maybeCompact(messages, usage, instructions);
+          const second = await budgetCompactor.maybeCompact(first.messages, usage, instructions);
+          return second.messages === first.messages
+            ? first
+            : { ...second, before: first.before ?? second.before };
+        },
+      }
+    : structuralCompactor ?? budgetCompactor;
 
   // Sessions: explicit checkpointer wins; else a legacy `store` is adapted; else the
   // default event-sourced fileCheckpointer, unless sessions:false disables persistence.
@@ -310,7 +349,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
   const core = createAgent({
     model: cfg.model,
     modelName: cfg.modelName,
-    codec: nativeCodec(),
+    codec: cfg.codec ?? nativeCodec(),
     tools,
     use,
     system,
@@ -321,7 +360,11 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     toolChoice: cfg.toolChoice,
     seed: cfg.seed,
     maxParallelTools: cfg.maxParallelTools,
+    maxDecodeRetries: cfg.maxDecodeRetries,
     background: cfg.background,
+    backgroundLimits: cfg.backgroundLimits,
+    crashRecovery: cfg.crashRecovery,
+    maxSnapshotBytesPerSession: cfg.maxSnapshotBytesPerSession,
     sandbox: cfg.sandbox,
     checkpointer,
     input: cfg.onAskUser,
@@ -388,18 +431,25 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
       const files = opts?.files ?? true;
       const conversation = opts?.conversation ?? true;
       if (files) {
-        const safe = makeSafePath(cfg.workdir);
-        const earliest = new Map<string, { before: string | null; truncated?: boolean }>();
+        const earliest = new Map<string, { before: string | null; truncated?: boolean; encoding?: "utf8" | "base64" }>();
         for await (const e of checkpointer.read(id, { sinceSeq: toSeq })) {
           if (e.event.type === "file_snapshot" && !earliest.has(e.event.path)) {
-            earliest.set(e.event.path, { before: e.event.before, truncated: e.event.truncated });
+            earliest.set(e.event.path, {
+              before: e.event.before, truncated: e.event.truncated, encoding: e.event.encoding,
+            });
           }
         }
         for (const [path, snap] of earliest) {
           if (snap.truncated) continue;
-          const fp = safe(path);
+          const fp = resolveSafePath(cfg.workdir, path, {
+            mode: snap.before === null ? "delete" : "write",
+            symlinks: "deny",
+          });
           if (snap.before === null) { if (existsSync(fp)) unlinkSync(fp); }
-          else { mkdirSync(dirname(fp), { recursive: true }); writeFileSync(fp, snap.before); }
+          else {
+            const body = snap.encoding === "base64" ? Buffer.from(snap.before, "base64") : snap.before;
+            atomicWriteFile(fp, body);
+          }
         }
       }
       if (conversation) {

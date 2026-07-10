@@ -13,8 +13,13 @@ import type {
   Store,
   SteerController,
   Tool,
+  ToolCallCodec,
   ToolChoice,
+  BackgroundLimits,
+  TokenEstimator,
 } from "@lite-agent/core";
+import type { FileToolsOptions } from "./tools/file";
+import type { BashToolOptions } from "./tools/bash";
 import type { ZodType } from "zod";
 import { createLiteAgent } from "./createLiteAgent";
 import type { LiteAgentResult } from "./createLiteAgent";
@@ -27,6 +32,7 @@ export interface QueryOptions {
   systemPrompt?: string;
   skillsDir?: string;
   tools?: Tool[];
+  codec?: ToolCallCodec;
   allowedTools?: string[];
   disallowedTools?: string[];
   maxTurns?: number;
@@ -37,6 +43,7 @@ export interface QueryOptions {
   seed?: number;
   outputSchema?: ZodType;
   maxParallelTools?: number;
+  maxDecodeRetries?: number;
   use?: Middleware[];
   signal?: AbortSignal;
   sessionId?: string;
@@ -45,6 +52,7 @@ export interface QueryOptions {
   checkpointer?: Checkpointer;
   store?: Store;
   compactor?: Compactor | false;
+  contextBudget?: { maxTokens: number; estimator?: TokenEstimator };
   home?: string;
   sessions?: boolean;
   spill?: boolean | { budgetBytes?: number };
@@ -54,7 +62,12 @@ export interface QueryOptions {
   agentsDir?: string;
   subagentPermission?: PermissionPolicy;
   background?: boolean;
-  cleanup?: boolean | { maxAgeDays?: number };
+  backgroundLimits?: BackgroundLimits;
+  fileTools?: FileToolsOptions;
+  bash?: BashToolOptions;
+  crashRecovery?: "off" | "safe";
+  maxSnapshotBytesPerSession?: number;
+  cleanup?: boolean | { maxAgeDays?: number; maxBytes?: number };
   permission?: PermissionPolicy;
   redact?: Redactor;
   permissionMode?: "enforce" | "dry-run";
@@ -73,6 +86,7 @@ export function query(
     workdir: opts.cwd ?? process.cwd(),
     skillsDir: opts.skillsDir,
     tools: opts.tools,
+    codec: opts.codec,
     system: opts.systemPrompt,
     allowedTools: opts.allowedTools,
     disallowedTools: opts.disallowedTools,
@@ -84,11 +98,13 @@ export function query(
     seed: opts.seed,
     outputSchema: opts.outputSchema,
     maxParallelTools: opts.maxParallelTools,
+    maxDecodeRetries: opts.maxDecodeRetries,
     use: opts.use,
     sandbox: opts.sandbox,
     checkpointer: opts.checkpointer,
     store: opts.store,
     compactor: opts.compactor,
+    contextBudget: opts.contextBudget,
     home: opts.home,
     sessions: opts.sessions,
     spill: opts.spill,
@@ -96,6 +112,11 @@ export function query(
     taskListId: opts.taskListId,
     agents: opts.agents,
     background: opts.background,
+    backgroundLimits: opts.backgroundLimits,
+    fileTools: opts.fileTools,
+    bash: opts.bash,
+    crashRecovery: opts.crashRecovery,
+    maxSnapshotBytesPerSession: opts.maxSnapshotBytesPerSession,
     agentsDir: opts.agentsDir,
     subagentPermission: opts.subagentPermission,
     cleanup: opts.cleanup,
