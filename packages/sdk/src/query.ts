@@ -58,6 +58,8 @@ export interface QueryOptions {
   permission?: PermissionPolicy;
   redact?: Redactor;
   permissionMode?: "enforce" | "dry-run";
+  /** Persist redacted permission decisions in the session event log. Default false. */
+  permissionAudit?: boolean;
   onApproval?: ApprovalHandler;
   onAskUser?: InputHandler;
 }
@@ -100,6 +102,7 @@ export function query(
     permission: opts.permission,
     redact: opts.redact,
     permissionMode: opts.permissionMode,
+    permissionAudit: opts.permissionAudit,
     onApproval: opts.onApproval,
     onAskUser: opts.onAskUser,
   });

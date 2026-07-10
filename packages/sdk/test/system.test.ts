@@ -8,6 +8,7 @@ test("system prompt embeds workdir, model, skills, and load_skill hint", () => {
   expect(s).toContain("- demo: x");
   expect(s).toContain("load_skill");
   expect(s).toContain("TaskCreate");
+  expect(s).toContain("delete_file");
 });
 
 test("includes a Subagents section listing types when subagents are provided", () => {

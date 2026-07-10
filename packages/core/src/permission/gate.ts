@@ -21,10 +21,11 @@ function decisionEvent(
 // Gate middleware (spec §6): allow → run; deny → blocked; ask → emit request, await approver, emit resolved.
 export function permission(
   pol: PermissionPolicy, approval?: ApprovalHandler,
-  opts: { redact?: Redactor; mode?: "enforce" | "dry-run" } = {},
+  opts: { redact?: Redactor; mode?: "enforce" | "dry-run"; audit?: boolean } = {},
 ): Middleware {
   const redact = opts.redact ?? defaultRedactor;
   const dry = opts.mode === "dry-run";
+  const audit = opts.audit === true;
   // Serialize interactive approval prompts: with concurrent in-turn tool execution,
   // multiple ask-gated calls would otherwise prompt at the same time and overlap.
   let lock: Promise<unknown> = Promise.resolve();
@@ -32,6 +33,15 @@ export function permission(
     const run = lock.then(() => approval!.request(call));
     lock = run.then(() => undefined, () => undefined); // advance the chain regardless of outcome
     return run;
+  };
+  const reportDecision = async (
+    ctx: ToolCallContext,
+    event: Extract<AgentEvent, { type: "permission_decision" }>,
+  ): Promise<void> => {
+    ctx.emit(event);
+    if (audit && ctx.recordSessionEvent) {
+      await ctx.recordSessionEvent({ ...event, turn: ctx.turn });
+    }
   };
   return {
     name: "permission",
@@ -44,15 +54,15 @@ export function permission(
       }
       // dry-run: record the would-be decision but never block or prompt.
       if (dry) {
-        ctx.emit({ ...decisionEvent(ctx.call, v.decision, "policy", redact, v), simulated: true });
+        await reportDecision(ctx, { ...decisionEvent(ctx.call, v.decision, "policy", redact, v), simulated: true });
         return next();
       }
       if (v.decision === "allow") {
-        ctx.emit(decisionEvent(ctx.call, "allow", "policy", redact, v));
+        await reportDecision(ctx, decisionEvent(ctx.call, "allow", "policy", redact, v));
         return next();
       }
       if (v.decision === "deny") {
-        ctx.emit(decisionEvent(ctx.call, "deny", "policy", redact, v));
+        await reportDecision(ctx, decisionEvent(ctx.call, "deny", "policy", redact, v));
         return denied(ctx, "blocked by policy", v.reason);
       }
       // ask: keep approval_request/approval_resolved for UI compatibility, then a permission_decision.
@@ -60,7 +70,7 @@ export function permission(
       const resolved = approval ? await requestSerial(ctx.call) : "deny";
       const by = approval ? "user" : "auto";
       ctx.emit({ type: "approval_resolved", id: ctx.call.id, decision: resolved, by });
-      ctx.emit(decisionEvent(ctx.call, resolved, by, redact, v));
+      await reportDecision(ctx, decisionEvent(ctx.call, resolved, by, redact, v));
       return resolved === "allow" ? next() : denied(ctx, "denied by user");
     },
   };

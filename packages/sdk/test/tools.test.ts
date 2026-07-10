@@ -18,11 +18,11 @@ test("bash runs commands and blocks dangerous ones", async () => {
   );
 });
 
-test("defaultTools exposes the four built-ins by name", () => {
+test("defaultTools exposes the five built-ins by name", () => {
   const names = defaultTools(process.cwd())
     .map((t) => t.name)
     .sort();
-  expect(names).toEqual(["bash", "edit_file", "read_file", "write_file"]);
+  expect(names).toEqual(["bash", "delete_file", "edit_file", "read_file", "write_file"]);
 });
 
 test("bash wraps the command via ctx.sandbox before executing", async () => {

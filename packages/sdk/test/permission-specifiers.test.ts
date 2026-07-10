@@ -38,6 +38,12 @@ test("filePath: gates the file tools by a path glob", () => {
   ).toMatchObject({ decision: "allow" });
   expect(
     p.check(
+      { id: "1", name: "delete_file", input: { path: "src/a.ts" } },
+      { sessionId: "s" },
+    ),
+  ).toMatchObject({ decision: "allow" });
+  expect(
+    p.check(
       { id: "1", name: "write_file", input: { path: "secrets/a" } },
       { sessionId: "s" },
     ),

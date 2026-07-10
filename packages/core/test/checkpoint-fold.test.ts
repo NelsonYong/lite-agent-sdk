@@ -46,6 +46,32 @@ test("foldEvents skips file_snapshot sidecar events", () => {
   ]);
 });
 
+test("foldEvents skips permission_decision sidecars without splitting tool results", () => {
+  const events: SessionEvent[] = [
+    { type: "assistant", message: { role: "assistant", content: [textBlock("working")] } },
+    {
+      type: "permission_decision",
+      call: { id: "a", name: "read_file", input: { path: "a.txt" } },
+      decision: "allow",
+      by: "policy",
+      turn: 1,
+    },
+    { type: "tool_result", result: toolResultBlock("a", "ra"), turn: 1 },
+    {
+      type: "permission_decision",
+      call: { id: "b", name: "read_file", input: { path: "b.txt" } },
+      decision: "allow",
+      by: "policy",
+      turn: 1,
+    },
+    { type: "tool_result", result: toolResultBlock("b", "rb"), turn: 1 },
+  ];
+  expect(foldEvents(events)).toEqual([
+    { role: "assistant", content: [textBlock("working")] },
+    { role: "user", content: [toolResultBlock("a", "ra"), toolResultBlock("b", "rb")] },
+  ]);
+});
+
 test("foldEvents uses the latest summary as the base, then appends later events", () => {
   const events: SessionEvent[] = [
     { type: "user", message: { role: "user", content: "old-1" } },

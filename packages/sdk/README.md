@@ -52,7 +52,8 @@ const agent = createLiteAgent({
     ),
   ],
   // Ask before running side-effecting built-ins; everything else runs freely.
-  permission: policy({ ask: ["bash", "write_file", "edit_file"] }),
+  permission: policy({ ask: ["bash", "write_file", "edit_file", "delete_file"] }),
+  permissionAudit: true, // persist redacted decisions in the session event log
   onApproval: { request: async (call) => "allow" }, // your UI decides
 });
 
@@ -67,13 +68,13 @@ Session management on the returned `LiteAgent`: `sessionId`, `resume(id)`, `clea
 
 Assembled by `createLiteAgent` (each toggleable):
 
-- **Default tools** — `bash`, `read_file`, `write_file`, `edit_file`, all scoped to `workdir`.
+- **Default tools** — `bash`, `read_file`, `write_file`, `edit_file`, `delete_file`, all scoped to `workdir`. Mutating file tools record bounded pre-change snapshots so session restore can undo writes, edits, and deletions when the file fits the snapshot limit.
 - **Skills** — `SKILL.md` files (YAML frontmatter) loaded from `~/.lite-agent/skills`, `<workdir>/.lite-agent/skills`, and an explicit `skillsDir`; injected on demand via `load_skill`.
 - **Subagents** — a parallel-capable `Agent` dispatch tool with a built-in `general-purpose` agent; add your own as `agents/*.md`. (`agents: false` to disable.)
 - **Tasks** — a persistent task list (`TaskCreate/Update/Get/List`) with a per-turn reminder. (`tasks: false` to disable.)
 - **Sessions** — event-sourced persistence via a `fileCheckpointer` under the project dir; swap in [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) or any `Checkpointer`.
 - **Compaction** — a deterministic default compactor (no LLM call) plus a reactive overflow net; disk-**spill** for oversized tool results.
-- **Permission gate** — `policy({ allow, ask, deny })` matched by tool-name glob (`deny > ask > allow`); pair with `onApproval` for human-in-the-loop.
+- **Permission gate** — `policy({ allow, ask, deny })` matched by tool-name glob (`deny > ask > allow`); pair with `onApproval` for human-in-the-loop. Set `permissionAudit: true` to persist redacted `permission_decision` sidecars (off by default). Durable audit requires an event-sourced `Checkpointer`; legacy `Store` adapters retain only model messages.
 - **Sandbox** — pass a `Sandbox` (e.g. [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic)) to run `bash` inside an OS boundary.
 - **`ask_user`** — registered when `onAskUser` is set, letting the model ask you questions mid-run.
 - **Structured output** — set `outputSchema` (a Zod object) to force a validated final answer, surfaced as `result.output`.

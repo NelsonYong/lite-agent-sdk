@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { z } from "zod";
 import { createLiteAgent } from "../src/createLiteAgent";
-import { policy, defineTool, fakeProvider, textBlock } from "@lite-agent/core";
+import { policy, defineTool, fakeProvider, memoryCheckpointer, textBlock } from "@lite-agent/core";
 import type { AgentEvent, ApprovalHandler } from "@lite-agent/core";
 
 function probeTool(ran: { value: boolean }) {
@@ -74,4 +74,27 @@ test("onApproval allow lets the gated tool run", async () => {
   });
   await drain(agent.run("go"));
   expect(ran.value).toBe(true);
+});
+
+test("permissionAudit persists permission decisions in the configured checkpointer", async () => {
+  const ran = { value: false };
+  const cp = memoryCheckpointer();
+  const agent = createLiteAgent({
+    model: scriptedProvider(),
+    workdir: process.cwd(),
+    tools: [probeTool(ran)],
+    checkpointer: cp,
+    permission: policy({ allow: ["probe"] }),
+    permissionAudit: true,
+  });
+  const id = agent.sessionId;
+
+  await drain(agent.run("go"));
+
+  const decisions = [];
+  for await (const e of cp.read(id)) {
+    if (e.event.type === "permission_decision") decisions.push(e.event);
+  }
+  expect(decisions).toHaveLength(1);
+  expect(decisions[0]).toMatchObject({ decision: "allow", by: "policy", turn: 1 });
 });

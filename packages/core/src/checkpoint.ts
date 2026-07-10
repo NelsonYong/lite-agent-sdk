@@ -1,4 +1,4 @@
-import type { AssistantMessage, Message, ToolResultBlock } from "./types";
+import type { AssistantMessage, Message, ToolCall, ToolResultBlock } from "./types";
 import type { Store } from "./strategies";
 import { CheckpointConflictError } from "./events";
 
@@ -8,6 +8,7 @@ export type SessionEvent =
   | { type: "assistant"; message: AssistantMessage }
   | { type: "tool_result"; result: ToolResultBlock; turn: number }
   | { type: "file_snapshot"; path: string; before: string | null; truncated?: boolean; turn: number }
+  | { type: "permission_decision"; call: ToolCall; decision: "allow" | "deny" | "ask"; ruleId?: string; reason?: string; simulated?: boolean; by: "policy" | "user" | "auto"; turn: number }
   | { type: "summary"; messages: Message[]; throughSeq: number; before: number; after: number };
 
 /** A SessionEvent as stored, with its monotonic seq and parent link. */
@@ -161,7 +162,7 @@ export function foldEvents(events: SessionEvent[]): Message[] {
       case "tool_result": pending.push(ev.result); break;
       case "user": case "assistant": flush(); messages.push(ev.message); break;
       case "summary": pending = []; messages = [...ev.messages]; break;
-      // file_snapshot (and future sidecar events): not part of model context
+      // file_snapshot / permission_decision sidecars: not part of model context
     }
   }
   flush();

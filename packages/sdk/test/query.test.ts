@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { z } from "zod";
-import { fakeProvider, textBlock, SteerController } from "@lite-agent/core";
+import { fakeProvider, memoryCheckpointer, policy, textBlock, SteerController } from "@lite-agent/core";
 import { query } from "../src/query";
 import { tool } from "../src/tool";
 import { mkdtempSync, existsSync } from "node:fs";
@@ -56,6 +56,33 @@ test("query forwards sessions:false (no transcript written)", async () => {
   while (!r.done) r = await gen.next();
   const { sessionsDir } = resolveProjectPaths({ workdir: cwd, home: process.env.LITE_AGENT_HOME! });
   expect(existsSync(join(sessionsDir, "qs1.jsonl"))).toBe(false);
+});
+
+test("query forwards permissionAudit to the permission gate", async () => {
+  const cp = memoryCheckpointer();
+  const probe = tool("probe", "probe", z.object({}), () => "ok");
+  const gen = query({
+    prompt: "go",
+    model: fakeProvider([
+      { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "probe", input: {} }] } },
+      { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+    ]),
+    cwd: mkdtempSync(join(tmpdir(), "q-audit-")),
+    sessionId: "q-audit",
+    tools: [probe],
+    checkpointer: cp,
+    permission: policy({ allow: ["probe"] }),
+    permissionAudit: true,
+  });
+  let r = await gen.next();
+  while (!r.done) r = await gen.next();
+
+  const decisions = [];
+  for await (const e of cp.read("q-audit")) {
+    if (e.event.type === "permission_decision") decisions.push(e.event);
+  }
+  expect(decisions).toHaveLength(1);
+  expect(decisions[0]).toMatchObject({ decision: "allow", by: "policy", turn: 1 });
 });
 
 test("query forwards an explicit maxParallelTools and the kernel honors it as a bound", async () => {

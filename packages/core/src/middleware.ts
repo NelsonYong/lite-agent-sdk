@@ -1,5 +1,6 @@
 import type { Message, ModelChunk, ToolCall, ToolResult } from "./types";
 import type { AgentEvent } from "./events";
+import type { SessionEvent } from "./checkpoint";
 
 export interface AgentContext {
   readonly sessionId: string;
@@ -7,6 +8,8 @@ export interface AgentContext {
   readonly turn: number;
   readonly signal: AbortSignal;
   emit(ev: AgentEvent): void;
+  /** Persist a non-conversation session fact through the kernel's serialized append path. */
+  recordSessionEvent?(event: SessionEvent): Promise<void>;
   state: Map<string, unknown>;
 }
 export interface ToolCallContext extends AgentContext { readonly call: ToolCall; }
