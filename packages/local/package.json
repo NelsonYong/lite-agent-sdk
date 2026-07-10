@@ -1,0 +1,44 @@
+{
+  "name": "@lite-agent/local",
+  "version": "0.1.0",
+  "description": "Strict single-host local runtime for lite-agent: local models, SQLite, sandbox, managed permissions, and audit logs.",
+  "license": "ISC",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "sideEffects": false,
+  "files": ["dist"],
+  "engines": { "node": ">=20" },
+  "keywords": ["agent", "local-llm", "offline", "sandbox", "sqlite"],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/NelsonYong/lite-agent-sdk.git",
+    "directory": "packages/local"
+  },
+  "publishConfig": { "access": "public" },
+  "scripts": {
+    "build": "tsup src/index.ts --format esm --dts --clean --tsconfig tsconfig.build.json",
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@lite-agent/checkpoint-sqlite": "workspace:*",
+    "@lite-agent/core": "workspace:*",
+    "@lite-agent/provider": "workspace:*",
+    "@lite-agent/sandbox-anthropic": "workspace:*",
+    "@lite-agent/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsup": "^8.3.0",
+    "typescript": "^6.0.2",
+    "vitest": "^2.1.0",
+    "zod": "^4.3.6"
+  }
+}
