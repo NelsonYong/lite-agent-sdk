@@ -5,16 +5,21 @@ import { CheckpointConflictError } from "@lite-agent/core";
 export interface SqliteCheckpointerOptions {
   /** Path to the SQLite database file. Use ":memory:" for an ephemeral DB. */
   file: string;
+  synchronous?: "normal" | "full";
+  busyTimeoutMs?: number;
+  integrityCheckOnOpen?: boolean;
 }
 
 export interface SqliteCheckpointer extends Checkpointer {
+  checkIntegrity(): { ok: boolean; detail: string };
   close(): void;
 }
 
 export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): SqliteCheckpointer {
   const db = new Database(opts.file);
   db.pragma("journal_mode = WAL");
-  db.pragma("busy_timeout = 5000");
+  db.pragma(`synchronous = ${(opts.synchronous ?? "normal").toUpperCase()}`);
+  db.pragma(`busy_timeout = ${Math.max(0, opts.busyTimeoutMs ?? 5000)}`);
   db.exec(`
     CREATE TABLE IF NOT EXISTS events (
       session_id TEXT NOT NULL, seq INTEGER NOT NULL, parent_seq INTEGER,
@@ -22,6 +27,19 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): SqliteCheck
     CREATE TABLE IF NOT EXISTS sessions (
       id TEXT PRIMARY KEY, updated TEXT NOT NULL, head INTEGER NOT NULL);
   `);
+  const schemaVersion = db.pragma("user_version", { simple: true }) as number;
+  if (schemaVersion > 1) { db.close(); throw new Error(`unsupported SQLite schema version ${schemaVersion}`); }
+  if (schemaVersion === 0) db.pragma("user_version = 1");
+
+  const checkIntegrity = (): { ok: boolean; detail: string } => {
+    const row = db.prepare("PRAGMA quick_check").get() as Record<string, string> | undefined;
+    const detail = row ? Object.values(row)[0] ?? "unknown" : "unknown";
+    return { ok: detail === "ok", detail };
+  };
+  if (opts.integrityCheckOnOpen) {
+    const integrity = checkIntegrity();
+    if (!integrity.ok) { db.close(); throw new Error(`SQLite integrity check failed: ${integrity.detail}`); }
+  }
 
   const headStmt = db.prepare<[string]>("SELECT head FROM sessions WHERE id = ?");
   const insertEvt = db.prepare(
@@ -87,6 +105,7 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): SqliteCheck
     async truncate(sessionId, toSeq) {
       truncateTxn.immediate(sessionId, toSeq);
     },
+    checkIntegrity,
     close() {
       db.close();
     },
