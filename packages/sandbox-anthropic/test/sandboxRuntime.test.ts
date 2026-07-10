@@ -21,8 +21,8 @@ test("maps options, lazily initializes once, and wraps commands", async () => {
 
   expect(initialize).toHaveBeenCalledTimes(1);
   expect(initialize.mock.calls[0]![0]).toMatchObject({
-    network: { allowedDomains: ["api.github.com"], deniedDomains: [] },
-    filesystem: { allowWrite: ["."], denyRead: ["~/.ssh"], denyWrite: [".env"] },
+    network: { allowedDomains: ["api.github.com"], deniedDomains: [], allowLocalBinding: false },
+    filesystem: { allowWrite: ["."], allowRead: [], denyRead: ["~/.ssh"], denyWrite: [".env"] },
   });
   expect(wrapWithSandbox).toHaveBeenCalledTimes(2);
 
@@ -61,4 +61,10 @@ test("requireSandbox=true: rethrows init failure and never degrades", async () =
 
   await expect(sb.wrap("echo a", { cwd: "/w" })).rejects.toThrow("no bubblewrap");
   expect(onUnavailable).not.toHaveBeenCalled();
+});
+
+test("initialize eagerly verifies strict sandbox availability", async () => {
+  const sb = sandboxRuntime({ requireSandbox: true });
+  await sb.initialize?.();
+  expect(initialize).toHaveBeenCalled();
 });

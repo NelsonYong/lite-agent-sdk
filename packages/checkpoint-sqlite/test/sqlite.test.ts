@@ -56,3 +56,11 @@ test("truncate drops events past toSeq and resets head", async () => {
   expect(await cp.head("s")).toBe(2);
   cp.close();
 });
+
+test("strict durability options initialize a healthy versioned database", () => {
+  const cp = sqliteCheckpointer({
+    file: dbFile(), synchronous: "full", busyTimeoutMs: 1000, integrityCheckOnOpen: true,
+  });
+  expect(cp.checkIntegrity()).toEqual({ ok: true, detail: "ok" });
+  cp.close();
+});
