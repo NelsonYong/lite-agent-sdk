@@ -1,9 +1,9 @@
 import pLimit from "p-limit";
 import type { ModelProvider, ToolCallCodec, Tool, Sandbox, InputHandler } from "./strategies";
 import type { AssistantMessage, Message, ToolCall, ToolChoice, ToolResult, ToolResultBlock, Usage } from "./types";
-import { isTextBlock, toolResultBlock } from "./types";
+import { isTextBlock, textBlock, toolResultBlock } from "./types";
 import type { AgentEvent, RunResult } from "./events";
-import { ProviderError } from "./events";
+import { CodecError, ProviderError } from "./events";
 import { composeModelCall, composeToolCall, runLifecycle } from "./middleware";
 import type { AgentContext, Middleware, ToolCallContext } from "./middleware";
 import { channel } from "./channel";
@@ -12,7 +12,7 @@ import type { Checkpointer, SessionEvent, StoredEvent } from "./checkpoint";
 import { foldEvents } from "./checkpoint";
 import type { SteerController } from "./steer";
 import { createBackgroundTasks } from "./background";
-import type { BackgroundCompletion } from "./background";
+import type { BackgroundCompletion, BackgroundLimits } from "./background";
 
 export interface KernelConfig {
   provider: ModelProvider;
@@ -36,6 +36,10 @@ export interface KernelConfig {
   steer?: SteerController;
   /** Enable background tasks (default true). When false, ctx.background is undefined. */
   background?: boolean;
+  backgroundLimits?: BackgroundLimits;
+  maxDecodeRetries?: number;
+  crashRecovery?: "off" | "safe";
+  maxSnapshotBytesPerSession?: number;
 }
 
 export async function* runKernel(
@@ -45,13 +49,14 @@ export async function* runKernel(
   sessionId: string,
 ): AsyncGenerator<AgentEvent, RunResult> {
   const inputMessages: Message[] = typeof input === "string" ? [{ role: "user", content: input }] : [...input];
-  let messages: Message[] = inputMessages;
+  let messages: Message[];
   const cp = cfg.checkpointer;
   let head = 0;
+  const history: SessionEvent[] = [];
   if (cp) {
     const stored: StoredEvent[] = [];
     for await (const e of cp.read(sessionId)) stored.push(e);
-    messages = [...foldEvents(stored.map((s) => s.event)), ...inputMessages];
+    history.push(...stored.map((s) => s.event));
     head = stored.length ? stored[stored.length - 1]!.seq : 0;
   }
   // Serialize appends so concurrent in-turn tool_result appends can't race `head`.
@@ -62,9 +67,30 @@ export async function* runKernel(
     chain = p.then(() => undefined, () => undefined);
     return p;
   };
+  const recovered: Array<{ id: string; name: string; turn: number }> = [];
+  if (cp && cfg.crashRecovery === "safe") {
+    const pending = new Map<string, { id: string; name: string; turn: number }>();
+    for (const event of history) {
+      if (event.type === "tool_started") pending.set(event.id, event);
+      else if (event.type === "tool_result") pending.delete(event.result.id);
+    }
+    recovered.push(...pending.values());
+    const recoveryEvents = recovered.map(({ id, name, turn }): SessionEvent => ({
+      type: "tool_result",
+      result: toolResultBlock(id, `Error: interrupted before completion (${name})`, true),
+      turn,
+    }));
+    await append(...recoveryEvents);
+    history.push(...recoveryEvents);
+  }
+  messages = [...foldEvents(history), ...inputMessages];
+  let snapshotBytes = history.reduce((total, event) => total + snapshotSize(event), 0);
   const queue: AgentEvent[] = [];
   const emit = (ev: AgentEvent) => { queue.push(ev); };
-  const bg = cfg.background === false ? undefined : createBackgroundTasks({ emit, signal });
+  for (const event of recovered) queue.push({ ...event, type: "tool_recovered" });
+  const bg = cfg.background === false
+    ? undefined
+    : createBackgroundTasks({ emit, signal, limits: cfg.backgroundLimits });
   const toolMap = new Map(cfg.tools.map((t) => [t.name, t]));
   const toolSpecs = cfg.tools.map(toToolSpec);
   const state = new Map<string, unknown>();
@@ -78,6 +104,7 @@ export async function* runKernel(
     sessionId, messages, turn, signal, emit, recordSessionEvent, state,
   });
 
+  try {
   await append(...inputMessages.map((m): SessionEvent => ({ type: "user", message: m })));
 
   await runLifecycle(cfg.middleware, "beforeAgent", mkCtx(0));
@@ -111,48 +138,97 @@ export async function* runKernel(
     yield* drain();
     messages = ctx.messages;
 
-    // Encode inside the ModelCall so each (re)invocation reflects the CURRENT
-    // ctx.messages — lets a wrapModelCall middleware mutate messages and retry
-    // (e.g. reactive compaction on prompt_too_long) against the new context.
-    const modelCall = composeModelCall(cfg.middleware, ctx, () =>
-      cfg.provider.stream(
-        cfg.codec.encode(
-          {
-            model: cfg.model,
-            system: cfg.system,
-            messages: ctx.messages,
-            maxTokens: cfg.maxTokens,
-            temperature: cfg.temperature,
-            topP: cfg.topP,
-            toolChoice: cfg.toolChoice,
-            seed: cfg.seed,
-          },
-          toolSpecs,
+    let calls: ToolCall[] = [];
+    let decodeAttempts = 0;
+    while (true) {
+      // Encode inside the ModelCall so middleware retries and codec repairs use
+      // the current messages rather than a stale request snapshot.
+      const modelCall = composeModelCall(cfg.middleware, ctx, () =>
+        cfg.provider.stream(
+          cfg.codec.encode(
+            {
+              model: cfg.model,
+              system: cfg.system,
+              messages: ctx.messages,
+              maxTokens: cfg.maxTokens,
+              temperature: cfg.temperature,
+              topP: cfg.topP,
+              toolChoice: cfg.toolChoice,
+              seed: cfg.seed,
+            },
+            toolSpecs,
+          ),
+          signal,
         ),
-        signal,
-      ),
-    );
+      );
 
-    let assistant: AssistantMessage | undefined;
-    for await (const chunk of modelCall()) {
-      if (chunk.type === "text_delta") yield { type: "text_delta", text: chunk.text };
-      else {
-        assistant = chunk.message;
-        usage = {
-          inputTokens: usage.inputTokens + chunk.usage.inputTokens,
-          outputTokens: usage.outputTokens + chunk.usage.outputTokens,
+      let assistant: AssistantMessage | undefined;
+      let callUsage: Usage | undefined;
+      const modelStarted = Date.now();
+      yield { type: "model_call_start", turn, model: cfg.model };
+      try {
+        for await (const chunk of modelCall()) {
+          if (chunk.type === "text_delta") {
+            if (cfg.codec.streaming !== "buffer") yield { type: "text_delta", text: chunk.text };
+          } else {
+            assistant = chunk.message;
+            callUsage = chunk.usage;
+            usage = {
+              inputTokens: usage.inputTokens + chunk.usage.inputTokens,
+              outputTokens: usage.outputTokens + chunk.usage.outputTokens,
+            };
+          }
+        }
+        if (!assistant) throw new ProviderError("provider produced no message_done chunk");
+      } catch (error) {
+        yield {
+          type: "model_call_end", turn, model: cfg.model,
+          durationMs: Date.now() - modelStarted,
+          error: error instanceof Error ? error.message : String(error),
         };
+        throw error;
       }
+      yield {
+        type: "model_call_end", turn, model: cfg.model,
+        durationMs: Date.now() - modelStarted,
+        usage: callUsage,
+      };
+      messages = ctx.messages;
+      yield* drain();
+
+      let decoded: { text: string; calls: ToolCall[] };
+      try {
+        decoded = cfg.codec.decode(assistant);
+      } catch (error) {
+        if (!(error instanceof CodecError)) throw error;
+        ctx.messages.push(assistant);
+        yield { type: "message", message: assistant };
+        await append({ type: "assistant", message: assistant });
+        if (decodeAttempts >= (cfg.maxDecodeRetries ?? 2)) {
+          yield { type: "error", error, fatal: true };
+          throw error;
+        }
+        decodeAttempts++;
+        yield { type: "error", error, fatal: false };
+        const repair = cfg.codec.repairPrompt?.(error, decodeAttempts, toolSpecs) ?? {
+          role: "user" as const,
+          content: `Repair the malformed tool-call response and try again (${error.message}).`,
+        };
+        ctx.messages.push(repair);
+        await append({ type: "user", message: repair });
+        continue;
+      }
+
+      assistant = normalizedAssistant(decoded.text, decoded.calls);
+      calls = decoded.calls;
+      ctx.messages.push(assistant);
+      if (cfg.codec.streaming === "buffer" && calls.length === 0 && decoded.text)
+        yield { type: "text_delta", text: decoded.text };
+      yield { type: "message", message: assistant };
+      await append({ type: "assistant", message: assistant });
+      break;
     }
-    messages = ctx.messages; // re-sync: a wrapModelCall middleware may have replaced ctx.messages (e.g. reactive compaction)
-    yield* drain();
-    if (!assistant) throw new ProviderError("provider produced no message_done chunk");
 
-    ctx.messages.push(assistant);
-    yield { type: "message", message: assistant };
-    await append({ type: "assistant", message: assistant });
-
-    const { calls } = cfg.codec.decode(assistant);
     if (calls.length === 0) {
       const followUps = cfg.steer?.takeFollowUps() ?? [];
       if (followUps.length) {
@@ -200,8 +276,16 @@ export async function* runKernel(
     const runCall = async (call: ToolCall, i: number): Promise<void> => {
       const callEmit = (ev: AgentEvent) => { ch.push(ev); };
       const recordSnapshot = cfg.checkpointer
-        ? (path: string, before: string | null, truncated?: boolean) => {
-            void append({ type: "file_snapshot", path, before, truncated, turn });
+        ? async (path: string, before: string | null, truncated?: boolean, encoding?: "utf8" | "base64") => {
+            let event: SessionEvent = { type: "file_snapshot", path, before, truncated, encoding, turn };
+            const size = snapshotSize(event);
+            const limit = cfg.maxSnapshotBytesPerSession;
+            if (!truncated && limit !== undefined && snapshotBytes + size > limit) {
+              event = { type: "file_snapshot", path, before: null, truncated: true, turn };
+            } else {
+              snapshotBytes += size;
+            }
+            await append(event);
           }
         : undefined;
       const tctx: ToolCallContext = { ...ctx, call, emit: callEmit };
@@ -216,6 +300,10 @@ export async function* runKernel(
           return { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true };
         }
       };
+      if (cfg.crashRecovery === "safe")
+        await append({ type: "tool_started", id: call.id, name: call.name, turn });
+      const toolStarted = Date.now();
+      ch.push({ type: "tool_call_start", call, turn });
       let result: ToolResult;
       try {
         result = await composeToolCall(cfg.middleware, tctx, baseExec)();
@@ -224,6 +312,10 @@ export async function* runKernel(
       }
       await append({ type: "tool_result", result: toolResultBlock(result.id, result.content, result.isError), turn });
       results[i] = result;
+      ch.push({
+        type: "tool_call_end", id: result.id, name: result.name, turn,
+        durationMs: Date.now() - toolStarted, isError: result.isError === true,
+      });
       ch.push({ type: "tool_result", result });
     };
 
@@ -251,6 +343,26 @@ export async function* runKernel(
   const result: RunResult = { messages, text: lastAssistantText(messages), usage, stopReason };
   yield { type: "done", reason: stopReason, result };
   return result;
+  } finally {
+    bg?.cancelAll();
+  }
+}
+
+function normalizedAssistant(text: string, calls: ToolCall[]): AssistantMessage {
+  return {
+    role: "assistant",
+    content: [
+      ...(text ? [textBlock(text)] : []),
+      ...calls.map((call) => ({ type: "tool_call" as const, ...call })),
+    ],
+  };
+}
+
+function snapshotSize(event: SessionEvent): number {
+  if (event.type !== "file_snapshot" || event.before === null || event.truncated) return 0;
+  return event.encoding === "base64"
+    ? Buffer.from(event.before, "base64").byteLength
+    : Buffer.byteLength(event.before, "utf8");
 }
 
 function lastAssistantText(messages: Message[]): string {

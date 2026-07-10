@@ -10,6 +10,7 @@ import type { KernelConfig } from "./kernel";
 import type { Checkpointer } from "./checkpoint";
 import { legacyStoreAdapter } from "./checkpoint";
 import type { SteerController } from "./steer";
+import type { BackgroundLimits } from "./background";
 
 export interface CreateAgentConfig {
   model: ModelProvider;
@@ -33,6 +34,13 @@ export interface CreateAgentConfig {
   maxParallelTools?: number;
   /** Enable background tasks (default true). */
   background?: boolean;
+  backgroundLimits?: BackgroundLimits;
+  /** Prompt-codec repair attempts after a decode failure. Default 2. */
+  maxDecodeRetries?: number;
+  /** Persist tool starts and synthesize interrupted results on resume. Default false. */
+  crashRecovery?: "off" | "safe";
+  /** Maximum retained file-snapshot bytes per session. Default unlimited. */
+  maxSnapshotBytesPerSession?: number;
 }
 
 export type RunOptions = { signal?: AbortSignal; sessionId?: string; steer?: SteerController };
@@ -61,6 +69,10 @@ export function createAgent(cfg: CreateAgentConfig): Agent {
     checkpointer: cfg.checkpointer ?? (cfg.store ? legacyStoreAdapter(cfg.store) : undefined),
     maxParallelTools: cfg.maxParallelTools,
     background: cfg.background,
+    backgroundLimits: cfg.backgroundLimits,
+    maxDecodeRetries: cfg.maxDecodeRetries,
+    crashRecovery: cfg.crashRecovery,
+    maxSnapshotBytesPerSession: cfg.maxSnapshotBytesPerSession,
   };
 
   const agent: Agent = {

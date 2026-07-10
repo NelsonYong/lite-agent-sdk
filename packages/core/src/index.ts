@@ -2,6 +2,10 @@ export { createAgent } from "./createAgent";
 export type { Agent, CreateAgentConfig, RunOptions } from "./createAgent";
 
 export { nativeCodec } from "./codecs/native";
+export { jsonCodec } from "./codecs/json";
+export type { JsonCodecOptions } from "./codecs/json";
+export { reactCodec } from "./codecs/react";
+export type { ReactCodecOptions } from "./codecs/react";
 export { defineTool, toToolSpec } from "./tools/define";
 export { fakeProvider } from "./testing/fakeProvider";
 export type { FakeTurn } from "./testing/fakeProvider";
@@ -17,20 +21,23 @@ export type { RetryOptions } from "./retry";
 export {
   compaction, defaultCompactor, snipPass, microPass, splitTurns, runPipeline, estimateTokens,
   reactiveCompaction, reactiveTrim, llmCompactor,
+  tokenBudgetCompactor,
   memorySpillStore, toolResultBudgetPass, SPILL_PREFIX,
 } from "./compaction";
 export type {
   CompactPass, MicroPassOptions, SnipPassOptions, DefaultCompactorOptions,
   ReactiveCompactionOptions, ReactiveTrimOptions, LlmCompactorOptions,
   SpillStore, ToolResultBudgetOptions,
+  TokenBudgetCompactorOptions,
 } from "./compaction";
 export { SteerController } from "./steer";
 export { createBackgroundTasks } from "./background";
 export type { BackgroundTasks, BackgroundHandle, BackgroundCompletion, BackgroundSpawnOptions, BackgroundKind, BackgroundRead } from "./background";
+export type { BackgroundLimits } from "./background";
 export { policy, strictPolicy, composePolicies, permission, defaultRedactor } from "./permission";
 export type { PolicyOptions, PermissionRule, MatchSpec, Condition, Redactor } from "./permission";
 export type {
-  ModelProvider, ToolCallCodec, Tool, ToolContext,
+  ModelProvider, ToolCallCodec, Tool, ToolContext, ToolSecurity, TokenEstimator,
   Compactor, CompactResult, PermissionPolicy, PolicyContext, Decision, PolicyVerdict,
   ApprovalHandler, InputHandler, Store,
   Sandbox, SandboxWrapOptions,
