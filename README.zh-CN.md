@@ -8,6 +8,7 @@
 
 | 包 | 说明 |
 | --- | --- |
+| [`@lite-agent/local`](./packages/local) | 严格单机运行时：本地模型、SQLite、强制沙箱、托管权限、资源限制和本地审计日志。 |
 | [`@lite-agent/sdk`](./packages/sdk) | 开箱即用的 Agent：工具、技能（skills）、子 Agent、任务、会话、系统提示词 —— `query()` / `createLiteAgent()` / `tool()`。 |
 | [`@lite-agent/core`](./packages/core) | 内核：策略接口、中间件管道、归一化类型、codec、权限、沙箱、checkpointer 原语。 |
 | [`@lite-agent/provider`](./packages/provider) | 模型 Provider —— Anthropic Messages API + OpenAI Chat Completions（同时兼容 OpenAI 协议 / 本地端点）。 |

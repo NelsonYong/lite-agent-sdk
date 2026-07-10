@@ -68,7 +68,7 @@ console.log(result.text); // 同一会话 —— 它记得
 
 由 `createLiteAgent` 组装（每一项都可开关）：
 
-- **默认工具** —— `bash`、`read_file`、`write_file`、`edit_file`、`delete_file`，全部限定在 `workdir` 内。会修改文件的工具会记录有大小上限的变更前快照；文件未超过快照限制时，会话恢复可以撤销写入、编辑和删除。
+- **默认工具** —— `bash`、`read_file`、`write_file`、`edit_file`、`delete_file`，全部限定在 `workdir` 内。文件修改使用原子写，并记录有大小上限的 UTF-8/base64 变更前快照，可逐字节恢复文本或二进制文件。
 - **技能（Skills）** —— 从 `~/.lite-agent/skills`、`<workdir>/.lite-agent/skills` 以及显式的 `skillsDir` 加载 `SKILL.md`（YAML frontmatter）；通过 `load_skill` 按需注入。
 - **子 Agent** —— 一个可并行的 `Agent` 派发工具，内置 `general-purpose` agent；你可以用 `agents/*.md` 添加自定义 agent。（`agents: false` 关闭。）
 - **任务（Tasks）** —— 一个持久化任务列表（`TaskCreate/Update/Get/List`），并带每轮提醒。（`tasks: false` 关闭。）
@@ -78,6 +78,7 @@ console.log(result.text); // 同一会话 —— 它记得
 - **沙箱** —— 传入一个 `Sandbox`（如 [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic)）即可让 `bash` 在操作系统边界内运行。
 - **`ask_user`** —— 设置了 `onAskUser` 后注册，允许模型在运行中向你提问。
 - **结构化输出** —— 设置 `outputSchema`（一个 Zod object）以强制返回经校验的最终答案，通过 `result.output` 暴露。
+- **本地加固原语** —— 可配置 prompt codec/修复、上下文预算、文件与快照限制、崩溃恢复、托管权限文件和带 hash chain 的轮转事件日志。严格默认值见 [`@lite-agent/local`](../local)。
 
 ## API
 

@@ -40,9 +40,12 @@ checkpointer.close(); // 用完后关闭
 
 ## API
 
-`sqliteCheckpointer({ file })` → `SqliteCheckpointer`（core 的 `Checkpointer` 再加 `close()`）：
+`sqliteCheckpointer({ file })` → `SqliteCheckpointer`（core 的 `Checkpointer` 再加 `checkIntegrity()` / `close()`）：
 
 - `file` —— SQLite 数据库文件路径，或用 `":memory:"` 得到一个临时（内存）数据库。
+- `synchronous` —— `"normal"`（默认）或更强持久性的 `"full"`。
+- `busyTimeoutMs` —— 写锁等待超时（默认 5000 ms）。
+- `integrityCheckOnOpen` —— 启动时执行 `PRAGMA quick_check`，损坏则失败。
 
 它实现了完整的 `Checkpointer` 契约 —— `append`（乐观并发，由 `expectedHead` 守护）、`read`、`head`、`list`、`delete`，以及 `truncate`（因此会话时间旅行 / `restore` 可用）—— 并通过 core 的 `checkpointerConformance` 测试套件验证。
 

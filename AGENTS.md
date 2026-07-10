@@ -9,15 +9,16 @@ lite-agent is a **pluggable, lightweight agent-core SDK**, structured as a pnpm 
 ## Layout
 
 ```
-packages/                     # published SDK packages (fixed-versioned together)
+packages/                     # published SDK packages (versioned per changed package)
   core/                       # @lite-agent/core  — kernel, strategies, middleware, types, codecs, permission, sandbox
   provider/                   # @lite-agent/provider — Anthropic + OpenAI ModelProviders (src/anthropic, src/openai)
-  sdk/                        # lite-agent — batteries: tools, skills, system prompt, createLiteAgent / query
+  sdk/                        # @lite-agent/sdk — batteries: tools, skills, system prompt, createLiteAgent / query
   sandbox-anthropic/          # @lite-agent/sandbox-anthropic — OS-level Sandbox adapter (sandbox-runtime)
+  checkpoint-sqlite/          # @lite-agent/checkpoint-sqlite — SQLite WAL event checkpointer
+  local/                      # @lite-agent/local — strict single-host local-model/runtime assembly
 examples/
   cli/                        # @lite-agent/example-cli (private) — interactive REPL demo; owns its .env + skills/
 docs/superpowers/             # specs/ (design docs) + plans/ (TDD implementation plans)
-.changeset/                   # changesets config + pending changelogs
 ```
 
 ## Commands
@@ -28,8 +29,8 @@ Run from the repo root (it is a **private workspace root** — orchestration onl
 - **Test all:** `pnpm test` → `pnpm -r test` (vitest)
 - **Typecheck all:** `pnpm typecheck` → `pnpm -r typecheck` (`tsc --noEmit`)
 - **Run the demo:** `pnpm dev` → `pnpm --filter @lite-agent/example-cli dev` (`tsx src/main.ts`)
-- **One package:** `pnpm --filter @lite-agent/<name> <test|build|typecheck>` (the SDK package is unscoped: `pnpm --filter lite-agent …`) · single test: `pnpm --filter @lite-agent/core test -- <namefilter>`
-- **Versioning:** `pnpm changeset` (describe a change) → `pnpm version` (bump + changelogs) → `pnpm release` (build + `changeset publish`; publish wired, not yet run)
+- **One package:** `pnpm --filter @lite-agent/<name> <test|build|typecheck>` · single test: `pnpm --filter @lite-agent/core test -- <namefilter>`
+- **Versioning:** update changed package versions + English `CHANGELOG.md` files manually; `pnpm release:changed` previews registry publishing and `--yes` publishes.
 - **Package manager:** pnpm (pinned 10.12.4). Node >= 20.
 
 > **Build-before-test choreography (non-obvious):** packages import each other via their **built `dist/`** (package.json `exports` → `./dist/index.js`; `dist` is git-ignored, no src alias). So changing a package's source and then testing/typechecking a _dependent_ package (or the example) reads **stale dist** unless you rebuild the changed package first. Safe full check: `pnpm -r build && pnpm -r test && pnpm -r typecheck`. `pnpm -r` builds in topological order.
@@ -64,9 +65,13 @@ Provider-agnostic `Message` / `ContentBlock` / `ToolCall` / `ToolResult` / `User
 
 `Sandbox.wrap(command, {cwd})` rewrites a shell command to run inside an OS boundary. Default `noopSandbox()` (no boundary). `sandboxRuntime(opts)` wraps `@anthropic-ai/sandbox-runtime` (macOS Seatbelt / Linux bubblewrap); on an unsupported env it **degrades to noop** (unless `requireSandbox: true`) and fires `onUnavailable` once. `bashTool` wraps its command via `ctx.sandbox` before `execSync`. Sandbox (runtime boundary) + permission gate (pre-exec decision) = defense-in-depth.
 
-### SDK batteries (`lite-agent`)
+### SDK batteries (`@lite-agent/sdk`)
 
-`createLiteAgent(cfg)` assembles `defaultTools` (bash/file) + task tools + skills + a built system prompt + a `nativeCodec` agent, prepending the `permission()` middleware when `permission` is set, registering `ask_user` only when `onAskUser` is set, and threading `sandbox` / `onApproval` / `onAskUser`. `query(opts)` is the Codex-agent-sdk-style facade over it. `tool(name, desc, schema, handler)` defines a tool; `ask_user` (`tools/askUser.ts`) emits `input_request` → `await ctx.input.request` → `input_resolved`. Skills load from a `skillsDir` of `SKILL.md` files (YAML frontmatter); `load_skill` injects a body on demand. Subagents: a parallel-capable `Agent` dispatch tool (default on; `agents:false` disables) whose children run isolated, persisted, resumable sessions and share the project task list. A built-in `general-purpose` agent is always seeded, so delegation works with no config; specialized agents load from `agents/*.md` (global `~/.lite-agent/agents` + project `<workdir>/.lite-agent/agents`) and override the built-in by name. `createLiteAgent` returns a `LiteAgent` that owns a current session: `run`/`send` default to it, and `resume(id)` / `clear()` / `deleteSession(id)` / `listSessions()` / `sessionId` manage it. The default session id is unique per agent (not a process-local counter), and the default `jsonlStore` is a `SessionStore` (supports `list`/`delete`).
+`createLiteAgent(cfg)` assembles `defaultTools` (bash/file) + task tools + skills + a built system prompt + a configurable codec (default `nativeCodec`), prepending the `permission()` middleware when `permission` is set, registering `ask_user` only when `onAskUser` is set, and threading sandbox, checkpoint, recovery, context-budget, and resource options. `query(opts)` is the agent-sdk-style facade over it. `tool(name, desc, schema, handler, opts?)` defines a tool and optional security metadata. Skills load from `SKILL.md` files; subagents are parallel-capable, isolated sessions. `createLiteAgent` owns a current session with `resume`/`clear`/`deleteSession`/`listSessions`; the default backend is the event-sourced file checkpointer.
+
+### Strict local assembly (`@lite-agent/local`)
+
+`createLocalAgent()` is the async, fail-closed single-host entry point. It requires a declared loopback/Unix-socket provider and assembles SQLite WAL, mandatory sandbox initialization, resource limits, deny-by-default reloadable permission files, durable permission audit, safe interrupted-tool recovery, context-budget compaction, and a rotating redacted hash-chained event sink. `localOpenAI()` provides Ollama/vLLM/LM Studio/llama.cpp presets; unknown custom tools must declare `Tool.security`.
 
 ### Providers (`@lite-agent/provider`)
 
@@ -80,4 +85,4 @@ One package ships two `ModelProvider`s. `anthropic(opts)` (`src/anthropic/`) map
 
 - TypeScript 6 (strict, ES2022, ESM). Shared `tsconfig.base.json` uses `moduleResolution: Bundler`, `verbatimModuleSyntax` (type-only imports need `import type`), `noUncheckedIndexedAccess`, **no** `esModuleInterop`. The example app uses its own `NodeNext` tsconfig.
 - **`tsconfig.build.json` per package** adds `ignoreDeprecations: "6.0"` (the tsup `--dts` worker injects deprecated `baseUrl`); it is kept out of the editor-facing base config and referenced via `tsup --tsconfig`.
-- Build: `tsup` (ESM + d.ts). Test: `vitest`; kernel tests use `fakeProvider` + golden event-stream assertions, and mock external modules with `vi.mock`. Validation: `zod` (tool schemas → JSON Schema). Versioning: `changesets` (the four published packages — `lite-agent` + `@lite-agent/{core,provider,sandbox-anthropic}` — are **fixed**: one shared version; the example is ignored).
+- Build: `tsup` (ESM + d.ts). Test: `vitest`; kernel tests use `fakeProvider` + golden event-stream assertions, and mock external modules with `vi.mock`. Validation: `zod` (tool schemas → JSON Schema). Versioning is manual and only changed published packages are bumped.

@@ -56,7 +56,7 @@ console.log(result.text);
 
 ## 导出内容
 
-- **组装** —— `createAgent`、`defineTool` / `toToolSpec`、`nativeCodec`。
+- **组装** —— `createAgent`、`defineTool` / `toToolSpec`、`nativeCodec`、`jsonCodec`、`reactCodec`。
 - **中间件** —— `permission` + `policy`、`retry`、`compaction` 及压缩工具箱（`defaultCompactor`、`reactiveCompaction`、`llmCompactor`、spill store 等）、`composeModelCall` / `composeToolCall`。
 - **持久化** —— 事件溯源的 `Checkpointer` 原语：`memoryCheckpointer`、`foldEvents`、`storeEvents`、`legacyStoreAdapter`，以及 `memoryStore`。（持久化后端见 [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) 或 SDK 的文件 checkpointer。）
 - **沙箱** —— `noopSandbox`（默认的无边界沙箱；操作系统级边界在 [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic)）。
