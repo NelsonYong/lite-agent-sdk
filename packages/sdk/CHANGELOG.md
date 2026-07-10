@@ -1,5 +1,29 @@
 # lite-agent
 
+## 0.11.0
+
+### Minor Changes
+
+- Add configurable codecs, decode repair, context budgets, crash recovery,
+  snapshot quotas, background limits and bash runtime limits to
+  `createLiteAgent()` / `query()`. `tool()` now accepts optional security
+  metadata, while existing defaults remain backward compatible.
+
+- Harden file operations and restore. `write_file` / `edit_file` use atomic
+  same-directory replacement, canonical path checks prevent symlink escapes,
+  and UTF-8/base64 snapshots restore deleted or overwritten binary files exactly.
+  The default tool set now includes checkpoint-aware `delete_file`.
+
+- Add reloadable deny-by-default permission files and a rotating local event
+  sink. `permissionFilePolicy()` merges managed, user, project and inline rules
+  with global deny precedence; `jsonlEventSink()` redacts records and protects
+  them with SHA-256 or HMAC hash chains.
+
+### Patch Changes
+
+- File checkpointers can fsync appends and repair one malformed trailing record;
+  cleanup can enforce an LRU byte limit across session and spill files.
+
 ## 0.10.0
 
 ### Minor Changes

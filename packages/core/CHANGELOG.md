@@ -1,5 +1,23 @@
 # @lite-agent/core
 
+## 0.11.0
+
+### Minor Changes
+
+- Add `jsonCodec()` and `reactCodec()` for local models without reliable native
+  tool calling. Prompt codecs rewrite tool history as text, buffer protocol
+  output, generate deterministic call ids, and can repair malformed responses
+  through the new `maxDecodeRetries` kernel option.
+
+- Add safe single-host runtime primitives: `Tool.security`, configurable
+  background limits, token-budget compaction, model/tool timing events, binary
+  snapshot metadata and per-session snapshot quotas.
+
+- Add opt-in durable permission decisions and safe crash recovery. Middleware
+  can append trusted sidecar events through the serialized checkpoint path;
+  `crashRecovery: "safe"` persists `tool_started` and synthesizes an interrupted
+  error result on resume without replaying side effects.
+
 ## 0.10.0
 
 ### Minor Changes

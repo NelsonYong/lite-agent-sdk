@@ -1,5 +1,14 @@
 # @lite-agent/sandbox-anthropic
 
+## 0.8.0
+
+### Minor Changes
+
+- Add eager `Sandbox.initialize()` for fail-closed startup checks and expose
+  read allowlists, local binding, Unix socket and sandbox-strength options from
+  `@anthropic-ai/sandbox-runtime`. Lazy wrapping and optional noop degradation
+  remain the default outside strict mode.
+
 ## 0.7.1
 
 ### Patch Changes
