@@ -102,3 +102,54 @@ test("permission audit uses the serialized append path before tool_result", asyn
   expect(types).toEqual(["user", "assistant", "permission_decision", "tool_result", "assistant"]);
   expect(events[2]).toMatchObject({ type: "permission_decision", decision: "allow", turn: 1 });
 });
+
+test("safe crash recovery synthesizes an interrupted result without executing the tool", async () => {
+  const cp = memoryCheckpointer();
+  await cp.append("recover", [
+    { type: "user", message: { role: "user", content: "start" } },
+    { type: "assistant", message: { role: "assistant", content: [{ type: "tool_call", id: "lost", name: "echo", input: { v: "x" } }] } },
+    { type: "tool_started", id: "lost", name: "echo", turn: 1 },
+  ]);
+  let ran = false;
+  const guarded = { ...echo, execute: () => { ran = true; return "bad"; } };
+  const provider = fakeProvider([{ text: "recovered", message: { role: "assistant", content: [textBlock("recovered")] } }]);
+  const gen = runKernel(baseCfg({
+    provider, tools: [guarded], checkpointer: cp, crashRecovery: "safe",
+  }), "continue", new AbortController().signal, "recover");
+  const events: AgentEvent[] = [];
+  let next = await gen.next();
+  while (!next.done) { events.push(next.value); next = await gen.next(); }
+
+  expect(ran).toBe(false);
+  expect(events).toContainEqual(expect.objectContaining({ type: "tool_recovered", id: "lost", name: "echo" }));
+  const stored = [];
+  for await (const event of cp.read("recover")) stored.push(event.event);
+  expect(stored[3]).toMatchObject({ type: "tool_result", result: { id: "lost", isError: true } });
+});
+
+test("session snapshot quota marks excess snapshots as truncated", async () => {
+  const cp = memoryCheckpointer();
+  const snapshots = defineTool({
+    name: "snapshots",
+    description: "snapshots",
+    schema: z.object({}),
+    async execute(_input, ctx) {
+      await ctx.recordSnapshot?.("a.txt", "1234", undefined, "utf8");
+      await ctx.recordSnapshot?.("b.txt", "5678", undefined, "utf8");
+      return "ok";
+    },
+  });
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "s1", name: "snapshots", input: {} }] } },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  await run(runKernel(baseCfg({
+    provider, tools: [snapshots], checkpointer: cp, maxSnapshotBytesPerSession: 5,
+  }), "go", new AbortController().signal, "quota"));
+  const events = [];
+  for await (const event of cp.read("quota")) if (event.event.type === "file_snapshot") events.push(event.event);
+  expect(events).toEqual([
+    expect.objectContaining({ path: "a.txt", before: "1234", truncated: undefined }),
+    expect.objectContaining({ path: "b.txt", before: null, truncated: true }),
+  ]);
+});

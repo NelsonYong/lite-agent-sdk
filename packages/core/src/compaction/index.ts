@@ -11,6 +11,8 @@ export { reactiveCompaction, reactiveTrim } from "./reactive";
 export type { ReactiveCompactionOptions, ReactiveTrimOptions } from "./reactive";
 export { llmCompactor } from "./llm";
 export type { LlmCompactorOptions } from "./llm";
+export { tokenBudgetCompactor } from "./tokenBudget";
+export type { TokenBudgetCompactorOptions } from "./tokenBudget";
 export { memorySpillStore, toolResultBudgetPass } from "./budget";
 export type { SpillStore, ToolResultBudgetOptions } from "./budget";
 export { SPILL_PREFIX } from "./types";

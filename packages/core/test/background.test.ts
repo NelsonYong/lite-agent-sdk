@@ -131,3 +131,22 @@ test("read returns null for an unknown or joinable id; listDetached lists live d
   expect(bg.read("bg_nope")).toBeNull();
   expect(bg.listDetached()).toEqual([{ id: h.id, label: "srv" }]);
 });
+
+test("limits concurrent tasks and times out work", async () => {
+  const bg = createBackgroundTasks({
+    emit: () => {}, signal: noSignal(), limits: { maxDetached: 1, maxTaskMs: 5 },
+  });
+  bg.spawn({ label: "one", kind: "detached", run: () => new Promise<string>(() => {}) });
+  expect(() => bg.spawn({ label: "two", kind: "detached", run: async () => "x" })).toThrow(/limit reached/);
+  await new Promise((resolve) => setTimeout(resolve, 15));
+  expect(bg.takeCompleted()[0]).toMatchObject({ label: "one", isError: true, content: expect.stringContaining("timed out") });
+});
+
+test("total task limit applies across joinable and detached work", () => {
+  const bg = createBackgroundTasks({
+    emit: () => {}, signal: noSignal(), limits: { maxTotal: 1 },
+  });
+  bg.spawn({ label: "one", kind: "joinable", run: () => new Promise<string>(() => {}) });
+  expect(() => bg.spawn({ label: "two", kind: "detached", run: async () => "x" })).toThrow(/task limit reached/);
+  bg.cancelAll();
+});

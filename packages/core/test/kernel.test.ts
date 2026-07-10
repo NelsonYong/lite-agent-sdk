@@ -31,7 +31,8 @@ test("text-only response yields a clean stop sequence", async () => {
     runKernel(baseCfg({ provider }), "hello", new AbortController().signal, "s1"),
   );
   expect(events.map((e) => e.type)).toEqual([
-    "turn_start", "text_delta", "text_delta", "message", "turn_end", "done",
+    "turn_start", "model_call_start", "text_delta", "text_delta", "model_call_end",
+    "message", "turn_end", "done",
   ]);
   expect(result.text).toBe("hi");
   expect(result.stopReason).toBe("stop");
@@ -50,8 +51,10 @@ test("a tool call is executed and fed back, then the model stops", async () => {
     runKernel(baseCfg({ provider, tools: [echo] }), "hi", new AbortController().signal, "s1"),
   );
   expect(events.map((e) => e.type)).toEqual([
-    "turn_start", "message", "tool_use", "tool_result", "turn_end",
-    "turn_start", "text_delta", "text_delta", "text_delta", "text_delta", "message", "turn_end", "done",
+    "turn_start", "model_call_start", "model_call_end", "message", "tool_use",
+    "tool_call_start", "tool_call_end", "tool_result", "turn_end",
+    "turn_start", "model_call_start", "text_delta", "text_delta", "text_delta", "text_delta",
+    "model_call_end", "message", "turn_end", "done",
   ]);
   const toolResult = events.find((e) => e.type === "tool_result");
   expect(toolResult).toMatchObject({ type: "tool_result", result: { name: "echo", content: "yo" } });

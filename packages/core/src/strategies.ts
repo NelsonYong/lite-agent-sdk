@@ -12,8 +12,11 @@ export interface ModelProvider {
 }
 
 export interface ToolCallCodec {
+  /** Prompt codecs buffer protocol text until it has been decoded. */
+  readonly streaming?: "passthrough" | "buffer";
   encode(req: ModelRequest, tools: ToolSpec[]): ModelRequest;
   decode(message: AssistantMessage): { text: string; calls: ToolCall[] };
+  repairPrompt?(error: Error, attempt: number, tools: ToolSpec[]): Message;
 }
 
 // Slim context handed to Tool.execute. Approval/Input are wired in Phase 3.
@@ -28,15 +31,30 @@ export interface ToolContext {
   readonly call?: ToolCall;
   /** Record a file's pre-mutation content into the session log (for restore). Provided by
    *  the kernel only when a checkpointer is active; file-mutating tools call it before writing. */
-  recordSnapshot?(path: string, before: string | null, truncated?: boolean): void;
+  recordSnapshot?(
+    path: string,
+    before: string | null,
+    truncated?: boolean,
+    encoding?: "utf8" | "base64",
+  ): void | Promise<void>;
+}
+
+export interface ToolSecurity {
+  /** Network reachability used by strict/offline assemblers. */
+  network: "none" | "loopback" | "private" | "unrestricted";
+  filesystem?: "none" | "workspace" | "unrestricted";
+  sideEffects?: "none" | "workspace" | "external";
 }
 
 export interface Tool<I = unknown> {
   name: string;
   description: string;
   schema: ZodType<I>;
+  security?: ToolSecurity;
   execute(input: I, ctx: ToolContext): Promise<string> | string;
 }
+
+export type TokenEstimator = (messages: Message[]) => number | Promise<number>;
 
 // --- Strategies implemented in later phases; declared here so types are stable. ---
 export type CompactResult = {
@@ -72,6 +90,7 @@ export interface SandboxWrapOptions {
 export interface Sandbox {
   readonly id: string;
   wrap(command: string, opts: SandboxWrapOptions): Promise<string> | string;
+  initialize?(): Promise<void> | void;
   dispose?(): Promise<void> | void;
 }
 

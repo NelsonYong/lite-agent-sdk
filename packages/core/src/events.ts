@@ -38,9 +38,15 @@ export class CheckpointConflictError extends AgentError {
 
 type AgentEventBody =
   | { type: "turn_start"; turn: number }
+  | { type: "diagnostic"; level: "info" | "warning" | "error"; code: string; message: string }
+  | { type: "model_call_start"; turn: number; model: string }
+  | { type: "model_call_end"; turn: number; model: string; durationMs: number; usage?: Usage; error?: string }
   | { type: "text_delta"; text: string }
   | { type: "message"; message: AssistantMessage }
   | { type: "tool_use"; call: ToolCall }
+  | { type: "tool_call_start"; call: ToolCall; turn: number }
+  | { type: "tool_call_end"; id: string; name: string; turn: number; durationMs: number; isError: boolean }
+  | { type: "tool_recovered"; id: string; name: string; turn: number }
   | { type: "approval_request"; call: ToolCall; reason?: string }
   | { type: "approval_resolved"; id: string; decision: "allow" | "deny"; by: string }
   | { type: "permission_decision"; call: ToolCall; decision: "allow" | "deny" | "ask"; ruleId?: string; reason?: string; simulated?: boolean; by: "policy" | "user" | "auto" }

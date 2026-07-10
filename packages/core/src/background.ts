@@ -64,10 +64,19 @@ export interface BackgroundDeps {
   emit: (e: AgentEvent) => void;
   /** The run's abort signal; cancels all tasks when it fires. */
   signal: AbortSignal;
+  limits?: BackgroundLimits;
+}
+
+export interface BackgroundLimits {
+  maxTotal?: number;
+  maxJoinable?: number;
+  maxDetached?: number;
+  bufferBytes?: number;
+  maxTaskMs?: number;
 }
 
 /** Per detached task: 1 MB ring (drop-oldest) + an absolute read cursor. */
-const BUFFER_CAP = 1_000_000;
+const DEFAULT_BUFFER_CAP = 1_000_000;
 
 interface Detached {
   label: string;
@@ -83,6 +92,11 @@ interface Running {
 }
 
 export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
+  const maxTotal = deps.limits?.maxTotal ?? Number.POSITIVE_INFINITY;
+  const maxJoinable = deps.limits?.maxJoinable ?? Number.POSITIVE_INFINITY;
+  const maxDetached = deps.limits?.maxDetached ?? Number.POSITIVE_INFINITY;
+  const bufferCap = deps.limits?.bufferBytes ?? DEFAULT_BUFFER_CAP;
+  const maxTaskMs = deps.limits?.maxTaskMs;
   const running = new Map<string, Running>();
   const detached = new Map<string, Detached>();
   const completed: BackgroundCompletion[] = [];
@@ -102,7 +116,7 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
     if (!d) return;
     d.written += chunk.length;
     d.buffer += chunk;
-    if (d.buffer.length > BUFFER_CAP) d.buffer = d.buffer.slice(d.buffer.length - BUFFER_CAP);
+    if (d.buffer.length > bufferCap) d.buffer = d.buffer.slice(d.buffer.length - bufferCap);
   };
 
   const finish = (id: string, label: string, content: string, isError: boolean) => {
@@ -116,6 +130,9 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
 
   return {
     spawn({ label, kind = "joinable", run }) {
+      if (running.size >= maxTotal) throw new Error(`background task limit reached (${maxTotal})`);
+      const cap = kind === "joinable" ? maxJoinable : maxDetached;
+      if (countKind(kind) >= cap) throw new Error(`background ${kind} task limit reached (${cap})`);
       const id = `bg_${(seq++).toString(36)}_${randomBytes(3).toString("hex")}`;
       const ac = new AbortController();
       const onRunAbort = () => ac.abort();
@@ -123,13 +140,26 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
       running.set(id, { ac, kind });
       if (kind === "detached") detached.set(id, { label, buffer: "", written: 0, read: 0, done: false });
       void (async () => {
+        let timer: ReturnType<typeof setTimeout> | undefined;
         try {
-          const out = await run(ac.signal, deps.emit, (chunk) => write(id, chunk));
+          const work = run(ac.signal, deps.emit, (chunk) => write(id, chunk));
+          const out = maxTaskMs === undefined
+            ? await work
+            : await Promise.race([
+                work,
+                new Promise<string>((_resolve, reject) => {
+                  timer = setTimeout(() => {
+                    ac.abort();
+                    reject(new Error(`background task timed out after ${maxTaskMs}ms`));
+                  }, maxTaskMs);
+                }),
+              ]);
           finish(id, label, out, false);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
           finish(id, label, `Error: ${msg}`, true);
         } finally {
+          if (timer) clearTimeout(timer);
           deps.signal.removeEventListener("abort", onRunAbort);
         }
       })();
