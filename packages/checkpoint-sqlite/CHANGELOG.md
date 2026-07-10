@@ -1,5 +1,13 @@
 # @lite-agent/checkpoint-sqlite
 
+## 0.8.0
+
+### Minor Changes
+
+- Add configurable `synchronous` and busy-timeout durability, schema version
+  validation, optional startup `PRAGMA quick_check`, and a public
+  `checkIntegrity()` diagnostic while retaining WAL and optimistic concurrency.
+
 ## 0.7.1
 
 ### Patch Changes
