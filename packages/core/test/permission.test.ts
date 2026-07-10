@@ -7,6 +7,7 @@ import type { AgentContext, ToolCallContext } from "../src/middleware";
 import type { AgentEvent } from "../src/events";
 import type { ToolResult } from "../src/types";
 import type { ApprovalHandler } from "../src/strategies";
+import type { SessionEvent } from "../src/checkpoint";
 
 function ctxFor(name: string, emit: (e: AgentEvent) => void): ToolCallContext {
   const base: AgentContext = {
@@ -254,6 +255,44 @@ test("redaction: secrets masked in the permission_decision event; tool gets real
   expect(redactedCmd).toContain("[redacted]");
   expect(redactedCmd).not.toContain("sk-ABCDEF1234567890abcdef");
   expect(seen).toContain("sk-ABCDEF1234567890abcdef"); // real input reached the tool
+});
+
+test("permission audit persists the redacted decision when enabled", async () => {
+  const recorded: SessionEvent[] = [];
+  const ctx = ctxFor("bash", () => {});
+  ctx.call.input = { command: "authorization: Bearer sk-ABCDEF1234567890abcdef" };
+  Object.assign(ctx, {
+    recordSessionEvent: async (event: SessionEvent) => { recorded.push(event); },
+  });
+
+  await composeToolCall(
+    [permission(policy({ allow: ["bash"] }), undefined, { audit: true })],
+    ctx,
+    okExec,
+  )();
+
+  expect(recorded).toHaveLength(1);
+  expect(recorded[0]).toMatchObject({
+    type: "permission_decision",
+    decision: "allow",
+    by: "policy",
+    turn: 1,
+  });
+  const audit = recorded[0] as Extract<SessionEvent, { type: "permission_decision" }>;
+  expect((audit.call.input as { command: string }).command).toContain("[redacted]");
+  expect((audit.call.input as { command: string }).command).not.toContain("sk-ABCDEF1234567890abcdef");
+});
+
+test("permission audit is disabled by default", async () => {
+  const recorded: SessionEvent[] = [];
+  const ctx = ctxFor("bash", () => {});
+  Object.assign(ctx, {
+    recordSessionEvent: async (event: SessionEvent) => { recorded.push(event); },
+  });
+
+  await composeToolCall([permission(policy({ allow: ["bash"] }))], ctx, okExec)();
+
+  expect(recorded).toEqual([]);
 });
 
 test("defaultRedactor masks bearer/sk/emails and leaves plain text alone", () => {

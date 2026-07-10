@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { mkdtempSync, existsSync, readFileSync } from "node:fs";
+import { mkdtempSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fakeProvider, textBlock, memoryCheckpointer } from "@lite-agent/core";
@@ -22,6 +22,27 @@ test("restore reverts a file written via write_file", async () => {
 
   await agent.restore(id, 0, { files: true, conversation: false });
   expect(existsSync(join(dir, "f.txt"))).toBe(false);
+});
+
+test("restore recreates a file deleted via delete_file", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "la-restore-delete-"));
+  const cp = memoryCheckpointer();
+  writeFileSync(join(dir, "f.txt"), "before delete");
+  const agent = createLiteAgent({
+    model: fakeProvider([
+      { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "delete_file", input: { path: "f.txt" } }] } },
+      { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+    ]),
+    workdir: dir,
+    checkpointer: cp,
+  });
+  const id = agent.sessionId;
+
+  await agent.send("delete it");
+  expect(existsSync(join(dir, "f.txt"))).toBe(false);
+
+  await agent.restore(id, 0, { files: true, conversation: false });
+  expect(readFileSync(join(dir, "f.txt"), "utf8")).toBe("before delete");
 });
 
 test("restore can truncate the conversation", async () => {

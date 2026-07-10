@@ -73,7 +73,10 @@ export async function* runKernel(
   function* drain(): Generator<AgentEvent> {
     while (queue.length) yield queue.shift()!;
   }
-  const mkCtx = (turn: number): AgentContext => ({ sessionId, messages, turn, signal, emit, state });
+  const recordSessionEvent = cp ? (event: SessionEvent) => append(event) : undefined;
+  const mkCtx = (turn: number): AgentContext => ({
+    sessionId, messages, turn, signal, emit, recordSessionEvent, state,
+  });
 
   await append(...inputMessages.map((m): SessionEvent => ({ type: "user", message: m })));
 

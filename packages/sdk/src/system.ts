@@ -21,7 +21,7 @@ ${modelLine}
 - Always work inside ${opts.workdir}; never access paths outside it.
 
 ## Files
-- To read a file, use read_file (not cat/head/tail). To create or change files, use write_file / edit_file (not shell redirection or sed). File-tool paths are relative to ${opts.workdir}.
+- To read a file, use read_file (not cat/head/tail). To create, change, or delete files, use write_file / edit_file / delete_file (not shell redirection, sed, or rm). File-tool paths are relative to ${opts.workdir}.
 - Use bash for running commands and for searching or listing files (grep, find, ls).
 
 ## Task Planning

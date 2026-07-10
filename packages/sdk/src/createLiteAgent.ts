@@ -114,6 +114,8 @@ export interface CreateLiteAgentConfig {
   redact?: Redactor;
   /** Permission enforcement mode. "dry-run" records decisions without blocking. Default "enforce". */
   permissionMode?: "enforce" | "dry-run";
+  /** Persist redacted permission decisions in the session event log. Default false. */
+  permissionAudit?: boolean;
   onApproval?: ApprovalHandler;
   onAskUser?: InputHandler;
 }
@@ -295,7 +297,11 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     // proactive compaction (beforeModel) + reactive overflow net (wrapModelCall)
     ...(compactor ? [compaction(compactor), reactiveCompaction()] : []),
     ...(cfg.permission
-      ? [permission(cfg.permission, cfg.onApproval, { redact: cfg.redact, mode: cfg.permissionMode })]
+      ? [permission(cfg.permission, cfg.onApproval, {
+          redact: cfg.redact,
+          mode: cfg.permissionMode,
+          audit: cfg.permissionAudit,
+        })]
       : []),
     ...(cfg.use ?? []),
     ...(taskStore ? [taskReminder(taskStore)] : []),

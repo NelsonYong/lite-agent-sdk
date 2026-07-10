@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import type { Stats } from "node:fs";
 import { dirname, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { defineTool } from "@lite-agent/core";
@@ -84,6 +85,16 @@ function readOrHint(root: string, requested: string, full: string): string {
   }
 }
 
+/** statSync, but ENOENT becomes the same actionable hint used by read/edit. */
+function statOrHint(root: string, requested: string, full: string): Stats {
+  try {
+    return statSync(full);
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new Error(notFoundHint(root, requested, full));
+    throw e;
+  }
+}
+
 export function fileTools(workdir: string): Tool[] {
   const root = resolve(workdir);
   const safePath = makeSafePath(workdir);
@@ -148,5 +159,22 @@ export function fileTools(workdir: string): Tool[] {
     },
   });
 
-  return [readFile, writeFile, editFile];
+  const deleteFile = defineTool({
+    name: "delete_file",
+    description:
+      "Delete a file. `path` is relative to the workspace root (an absolute path inside the workspace also works). When session checkpointing is enabled, files within the snapshot size limit are captured before deletion so `restore()` can recreate them. Prefer this over rm in bash.",
+    schema: z.object({ path: z.string() }),
+    execute: ({ path }, ctx) => {
+      const fp = safePath(path);
+      const size = statOrHint(root, path, fp).size;
+      if (ctx.recordSnapshot) {
+        if (size > MAX_SNAPSHOT_BYTES) ctx.recordSnapshot(path, null, true);
+        else ctx.recordSnapshot(path, readFileSync(fp, "utf8"));
+      }
+      unlinkSync(fp);
+      return `Deleted ${path}`;
+    },
+  });
+
+  return [readFile, writeFile, editFile, deleteFile];
 }

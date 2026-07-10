@@ -16,7 +16,7 @@ export function bashCommand(spec: string, effect: Decision): PermissionRule {
 export function filePath(glob: string, effect: Decision): PermissionRule {
   return {
     description: `path ${glob}`,
-    tool: ["read_file", "write_file", "edit_file"],
+    tool: ["read_file", "write_file", "edit_file", "delete_file"],
     when: { path: { glob } },
     effect,
   };

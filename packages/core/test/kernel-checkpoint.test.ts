@@ -10,6 +10,7 @@ import { textBlock } from "../src/types";
 import { z } from "zod";
 import type { ModelProvider } from "../src/strategies";
 import type { AgentEvent, RunResult } from "../src/events";
+import { permission, policy } from "../src/permission";
 
 function baseCfg(over: Partial<KernelConfig>): KernelConfig {
   return { provider: { id: "x", async *stream() {} }, codec: nativeCodec(), tools: [], middleware: [], model: "fake", maxTurns: 10, sandbox: noopSandbox(), ...over };
@@ -80,4 +81,24 @@ test("a tool's recordSnapshot persists a file_snapshot before its tool_result", 
   const iResult = types.indexOf("tool_result");
   expect(iSnap).toBeGreaterThanOrEqual(0);
   expect(iSnap).toBeLessThan(iResult);
+});
+
+test("permission audit uses the serialized append path before tool_result", async () => {
+  const cp = memoryCheckpointer();
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "echo", input: { v: "A" } }] } },
+    { text: "ok", message: { role: "assistant", content: [textBlock("ok")] } },
+  ]);
+  await run(runKernel(baseCfg({
+    provider,
+    tools: [echo],
+    middleware: [permission(policy({ allow: ["echo"] }), undefined, { audit: true })],
+    checkpointer: cp,
+  }), "hi", new AbortController().signal, "audit-session"));
+
+  const events = [];
+  for await (const e of cp.read("audit-session")) events.push(e.event);
+  const types = events.map((e) => e.type);
+  expect(types).toEqual(["user", "assistant", "permission_decision", "tool_result", "assistant"]);
+  expect(events[2]).toMatchObject({ type: "permission_decision", decision: "allow", turn: 1 });
 });

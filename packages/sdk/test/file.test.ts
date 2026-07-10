@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import type { ToolContext } from "@lite-agent/core";
@@ -39,6 +39,18 @@ test("write_file/edit_file record pre-mutation snapshots", async () => {
     { p: "n.txt", b: null, t: undefined },
     { p: "n.txt", b: "v1", t: undefined },
   ]);
+});
+
+test("delete_file removes a file and records its pre-delete snapshot", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "la-delete-"));
+  const [, , , remove] = fileTools(dir);
+  writeFileSync(join(dir, "old.txt"), "keep me");
+  const snaps: { p: string; b: string | null; t?: boolean }[] = [];
+  const snapCtx: ToolContext = { ...ctx, recordSnapshot: (p, b, t) => snaps.push({ p, b, t }) };
+
+  expect(await remove!.execute({ path: "old.txt" }, snapCtx)).toBe("Deleted old.txt");
+  expect(existsSync(join(dir, "old.txt"))).toBe(false);
+  expect(snaps).toEqual([{ p: "old.txt", b: "keep me", t: undefined }]);
 });
 
 test("read_file returns an actionable hint for a wrong path (not a raw ENOENT)", async () => {
