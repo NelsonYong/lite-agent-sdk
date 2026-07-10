@@ -18,6 +18,7 @@ export function askUserTool(): Tool {
       options: z.array(z.string()).optional(),
       multiSelect: z.boolean().optional(),
     }),
+    security: { network: "none", filesystem: "none", sideEffects: "external" },
     execute: async ({ question, options, multiSelect }, ctx) => {
       if (!ctx.input)
         return "Error: ask_user is unavailable (no input handler configured).";

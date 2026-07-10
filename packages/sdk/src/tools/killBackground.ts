@@ -8,6 +8,7 @@ export function killBackgroundTool(): Tool {
     description:
       "Cancel a running background task by its id (the bg_… id reported when it started). Use this to stop a background command or subagent batch that is hung or no longer needed.",
     schema: z.object({ id: z.string() }),
+    security: { network: "none", filesystem: "none", sideEffects: "external" },
     execute: async ({ id }, ctx) => {
       if (!ctx.background) return "Background tasks are disabled.";
       return ctx.background.cancel(id)

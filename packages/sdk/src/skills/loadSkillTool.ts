@@ -9,6 +9,7 @@ export function loadSkillTool(loader: SkillLoader): Tool {
     description:
       "Load a skill's full instructions by name before tackling an unfamiliar task.",
     schema: z.object({ name: z.string() }),
+    security: { network: "none", filesystem: "unrestricted", sideEffects: "none" },
     execute: ({ name }) => loader.getContent(name),
   });
 }

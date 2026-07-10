@@ -1,4 +1,7 @@
-import { mkdirSync, readFileSync, existsSync, appendFileSync, writeFileSync, readdirSync, statSync, unlinkSync } from "node:fs";
+import {
+  appendFileSync, closeSync, existsSync, fsyncSync, mkdirSync, openSync, readFileSync,
+  readdirSync, statSync, unlinkSync, writeFileSync,
+} from "node:fs";
 import { join } from "node:path";
 import type { Checkpointer, SessionEvent, StoredEvent, SessionInfo } from "@lite-agent/core";
 import { storeEvents, CheckpointConflictError } from "@lite-agent/core";
@@ -6,6 +9,10 @@ import { storeEvents, CheckpointConflictError } from "@lite-agent/core";
 export interface FileCheckpointerOptions {
   /** Directory holding one append-only `<sessionId>.jsonl` event log per session. */
   dir: string;
+  /** Truncate one malformed final record, preserving every complete prior event. */
+  repairTail?: boolean;
+  /** fsync each append before it is acknowledged. */
+  durable?: boolean;
 }
 
 const SUFFIX = ".jsonl";
@@ -22,10 +29,24 @@ export function fileCheckpointer(opts: FileCheckpointerOptions): Checkpointer {
   const linesOf = (id: string): StoredEvent[] => {
     const file = fileFor(id);
     if (!existsSync(file)) return [];
-    return readFileSync(file, "utf8")
-      .split("\n")
-      .filter((l) => l.trim() !== "")
-      .map((l) => JSON.parse(l) as StoredEvent);
+    const lines = readFileSync(file, "utf8").split("\n");
+    const parsed: StoredEvent[] = [];
+    const nonEmpty = lines.map((line, index) => ({ line, index })).filter(({ line }) => line.trim() !== "");
+    for (let i = 0; i < nonEmpty.length; i++) {
+      const { line, index } = nonEmpty[i]!;
+      try {
+        const event = JSON.parse(line) as StoredEvent;
+        if (!Number.isInteger(event.seq) || event.seq <= 0 || typeof event.event?.type !== "string")
+          throw new Error("invalid StoredEvent shape");
+        parsed.push(event);
+      } catch (error) {
+        const isTail = i === nonEmpty.length - 1;
+        if (!opts.repairTail || !isTail)
+          throw new Error(`Corrupt checkpoint record ${index + 1} in ${file}: ${(error as Error).message}`);
+        writeFileSync(file, parsed.length ? parsed.map((event) => JSON.stringify(event)).join("\n") + "\n" : "");
+      }
+    }
+    return parsed;
   };
   const headOf = (id: string): number => {
     const cached = heads.get(id);
@@ -42,7 +63,13 @@ export function fileCheckpointer(opts: FileCheckpointerOptions): Checkpointer {
         throw new CheckpointConflictError(sessionId, expectedHead, head);
       const stored = storeEvents(sessionId, head, events);
       mkdirSync(opts.dir, { recursive: true });
-      appendFileSync(fileFor(sessionId), stored.map((e) => JSON.stringify(e)).join("\n") + "\n");
+      const body = stored.map((e) => JSON.stringify(e)).join("\n") + "\n";
+      if (opts.durable) {
+        const fd = openSync(fileFor(sessionId), "a");
+        try { writeFileSync(fd, body); fsyncSync(fd); } finally { closeSync(fd); }
+      } else {
+        appendFileSync(fileFor(sessionId), body);
+      }
       const newHead = stored.length ? stored[stored.length - 1]!.seq : head;
       heads.set(sessionId, newHead);
       return newHead;

@@ -12,13 +12,20 @@ export {
   bashTool,
   fileTools,
   makeSafePath,
+  resolveSafePath,
+  atomicWriteFile,
   askUserTool,
   taskTools,
   agentTool,
   killBackgroundTool,
   bashOutputTool,
 } from "./tools";
+export type { BashToolOptions, FileToolsOptions } from "./tools";
 export { bashCommand, filePath } from "./permission/specifiers";
+export { permissionFilePolicy } from "./permission/files";
+export type { PermissionFileOptions, PermissionFileStatus, FilePermissionPolicy } from "./permission/files";
+export { jsonlEventSink, recordEventStream } from "./observability";
+export type { EventRecord, EventSink, JsonlEventSinkOptions } from "./observability";
 export { SkillLoader } from "./skills/loader";
 export { loadSkillTool } from "./skills/loadSkillTool";
 export { jsonlStore, newSessionId, isSessionStore } from "./store";

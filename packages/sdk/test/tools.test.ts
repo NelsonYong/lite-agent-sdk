@@ -50,3 +50,25 @@ test("bash runs the command unchanged under noopSandbox", async () => {
     await bashTool(process.cwd()).execute({ command: "echo plain" }, noopCtx),
   ).toBe("plain");
 });
+
+test("bash enforces wall-time, output, and environment limits", async () => {
+  const limited = bashTool(process.cwd(), {
+    timeoutMs: 20,
+    maxOutputBytes: 5,
+    env: { PATH: process.env.PATH },
+  });
+  expect(await limited.execute({ command: "printf 123456" }, ctx)).toMatch(/output exceeded/);
+  expect(await limited.execute({ command: "sleep 1" }, ctx)).toMatch(/timed out/);
+  expect(await limited.execute({ command: "printf %s \"$SECRET_NOT_ALLOWED\"" }, ctx)).toBe("(no output)");
+});
+
+test("bash terminates a process tree that exceeds its memory budget", async () => {
+  if (process.platform === "win32") return;
+  const limited = bashTool(process.cwd(), {
+    timeoutMs: 5000,
+    maxOutputBytes: 1000,
+    memoryBytes: 1024 * 1024,
+  });
+  const out = await limited.execute({ command: "node -e \"setInterval(() => {}, 1000)\"" }, ctx);
+  expect(out).toMatch(/memory (exceeded|monitoring unavailable)/);
+});
