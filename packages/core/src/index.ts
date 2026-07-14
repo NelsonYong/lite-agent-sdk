@@ -10,6 +10,11 @@ export { defineTool, toToolSpec } from "./tools/define";
 export { fakeProvider } from "./testing/fakeProvider";
 export type { FakeTurn } from "./testing/fakeProvider";
 export { checkpointerConformance } from "./testing/checkpointerConformance";
+export { providerConformance } from "./testing/providerConformance";
+export type {
+  ProviderConformanceFactory,
+  ProviderConformanceScenario,
+} from "./testing/providerConformance";
 
 export { composeModelCall, composeToolCall, runLifecycle } from "./middleware";
 export type { AgentContext, ToolCallContext, Middleware, ModelCall, ToolExec } from "./middleware";
