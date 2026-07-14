@@ -39,6 +39,7 @@
   "scripts": {
     "build": "tsup src/index.ts --format esm --dts --clean --tsconfig tsconfig.build.json",
     "test": "vitest run",
+    "test:compat": "vitest run --config vitest.compat.config.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
