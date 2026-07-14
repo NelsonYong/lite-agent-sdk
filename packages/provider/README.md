@@ -55,6 +55,49 @@ Both `anthropic(opts)` and `openai(opts)` accept:
 | `client` | Inject a custom/mock client (structural — used for offline tests). |
 | `maxRetries` | The underlying SDK's own retry count. **Default `0`** so retry policy is owned by the core `retry()` middleware instead of compounding. |
 
-The package root re-exports both factories and their option types (`AnthropicProviderOptions`, `OpenAIProviderOptions`), plus the low-level `toAnthropicParams` / `toOpenAIParams` / `translateStream` mappers if you need them.
+The package root exports both factories and their option/client types
+(`AnthropicProviderOptions`, `AnthropicClientLike`, `OpenAIProviderOptions`,
+`OpenAIClientLike`). Request mappers and stream translators are internal adapter
+details and are not public package-root exports.
+
+## Support levels
+
+| Level | Meaning |
+| --- | --- |
+| Maintained adapter | Repository-owned request mapping and stream translation; passes the offline shared conformance suite. |
+| Maintained preset | Repository-owned endpoint/configuration preset using a maintained adapter; runtime and model capabilities still vary. |
+| Compatible endpoint | User-supplied endpoint expected to speak the protocol; best-effort until that exact runtime/model profile is probed. |
+
+| Integration | Level | Notes |
+| --- | --- | --- |
+| Anthropic Messages | Maintained adapter | Text streaming, tool calls, normalized usage, abort propagation, and `ProviderError` normalization are covered offline. |
+| OpenAI Chat Completions | Maintained adapter | The same shared offline contract is applied. |
+| Ollama, vLLM, LM Studio, llama.cpp | Maintained preset in [`@lite-agent/local`](../local) | Uses the OpenAI-compatible adapter; native tool and usage support depend on the selected runtime and model. |
+| Other OpenAI-compatible endpoints | Compatible endpoint | Not verified by default; run the profile below against the exact endpoint and model. |
+
+"Compatible" is not a blanket certification. Servers differ in streaming,
+`stream_options`, tool-choice, usage, and error behavior.
+
+## Probe an OpenAI-compatible endpoint
+
+The probe is deliberately excluded from normal tests and runs only through its
+dedicated command:
+
+```bash
+LITE_AGENT_COMPAT_BASE_URL=http://127.0.0.1:11434/v1 \
+LITE_AGENT_COMPAT_MODEL=qwen3:8b \
+pnpm --filter @lite-agent/provider test:compat
+```
+
+`LITE_AGENT_COMPAT_API_KEY` is optional and defaults to `local`.
+`LITE_AGENT_COMPAT_FORCED_TOOL` accepts `true` or `false` (default `false`);
+other non-empty values are rejected before client construction. Set it to
+`true` to add a stronger profile that forces the named `echo` tool. Passing
+that profile proves named forced-tool selection; it does not claim that every
+native tool-choice mode is supported.
+
+The adapters currently differ on malformed streamed tool JSON: Anthropic
+surfaces a provider error, while OpenAI falls back to an empty input object and
+lets downstream tool-schema validation reject it.
 
 See the [monorepo root](../..) for architecture.
