@@ -2,7 +2,12 @@ import { expect, test } from "vitest";
 import { mkdtempSync, readFileSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fakeProvider, textBlock } from "@lite-agent/core";
+import {
+  fakeProvider,
+  memoryCheckpointer,
+  memoryStore,
+  textBlock,
+} from "@lite-agent/core";
 import { createLiteAgent } from "../src/createLiteAgent";
 import { resolveProjectPaths } from "../src/paths";
 
@@ -38,4 +43,50 @@ test("listSessions/deleteSession work through the checkpointer", async () => {
   expect((await agent.listSessions()).some((s) => s.id === sid)).toBe(true);
   await agent.deleteSession(sid);
   expect((await agent.listSessions()).some((s) => s.id === sid)).toBe(false);
+});
+
+test("an explicit checkpointer overrides a legacy store and sessions:false", async () => {
+  const checkpointer = memoryCheckpointer();
+  const store = memoryStore();
+  const agent = createLiteAgent({
+    model: fakeProvider([
+      { text: "ok", message: { role: "assistant", content: [textBlock("ok")] } },
+    ]),
+    workdir: wd(),
+    checkpointer,
+    store,
+    sessions: false,
+    cleanup: false,
+    compactor: false,
+  });
+  const id = agent.sessionId;
+
+  await agent.send("through checkpointer");
+
+  expect(await checkpointer.head(id)).toBe(2);
+  expect(await store.load(id)).toBeNull();
+  expect((await agent.listSessions()).map((session) => session.id)).toContain(id);
+});
+
+test("a legacy store overrides sessions:false", async () => {
+  const store = memoryStore();
+  const agent = createLiteAgent({
+    model: fakeProvider([
+      { text: "ok", message: { role: "assistant", content: [textBlock("ok")] } },
+    ]),
+    workdir: wd(),
+    store,
+    sessions: false,
+    cleanup: false,
+    compactor: false,
+  });
+  const id = agent.sessionId;
+
+  await agent.send("through store");
+
+  expect(await store.load(id)).toContainEqual({
+    role: "user",
+    content: "through store",
+  });
+  await expect(agent.listSessions()).resolves.toEqual([]);
 });

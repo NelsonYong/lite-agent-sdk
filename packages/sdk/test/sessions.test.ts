@@ -2,7 +2,12 @@ import { expect, test } from "vitest";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fakeProvider, textBlock, memoryStore } from "@lite-agent/core";
+import {
+  fakeProvider,
+  memoryCheckpointer,
+  memoryStore,
+  textBlock,
+} from "@lite-agent/core";
 import { createLiteAgent } from "../src/createLiteAgent";
 import { jsonlStore } from "../src/store";
 
@@ -113,4 +118,25 @@ test("an injected session-capable store still drives listSessions/deleteSession"
   expect((await agent.listSessions()).some((s) => s.id === sid)).toBe(true);
   await agent.deleteSession(sid);
   expect((await agent.listSessions()).some((s) => s.id === sid)).toBe(false);
+});
+
+test("run captures the current session before its first next call", async () => {
+  const checkpointer = memoryCheckpointer();
+  const agent = createLiteAgent({
+    model: reply("ok"),
+    workdir: freshWorkdir(),
+    checkpointer,
+    cleanup: false,
+    compactor: false,
+  });
+  agent.resume("captured-before-run");
+
+  const run = agent.run("hello");
+  agent.resume("selected-after-run");
+  for await (const _event of run) {
+    // Drain the run; the assertion is on the persisted session id.
+  }
+
+  expect(await checkpointer.head("captured-before-run")).toBe(2);
+  expect(await checkpointer.head("selected-after-run")).toBe(0);
 });
