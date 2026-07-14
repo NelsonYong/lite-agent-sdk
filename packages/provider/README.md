@@ -66,7 +66,7 @@ details and are not public package-root exports.
 | --- | --- |
 | Maintained adapter | Repository-owned request mapping and stream translation; passes the offline shared conformance suite. |
 | Maintained preset | Repository-owned endpoint/configuration preset using a maintained adapter; runtime and model capabilities still vary. |
-| Compatible endpoint | User-supplied endpoint expected to speak the protocol; best-effort until that exact runtime/model profile is probed. |
+| Compatible endpoint | User-supplied endpoint expected to speak the protocol; best-effort until that exact runtime/model profile passes the opt-in probe. |
 
 | Integration | Level | Notes |
 | --- | --- | --- |
@@ -98,6 +98,6 @@ native tool-choice mode is supported.
 
 The adapters currently differ on malformed streamed tool JSON: Anthropic
 surfaces a provider error, while OpenAI falls back to an empty input object and
-lets downstream tool-schema validation reject it.
+defers validity to downstream tool-schema validation, which may reject it.
 
 See the [monorepo root](../..) for architecture.
