@@ -65,11 +65,11 @@ for await (const ev of query({ prompt: "你好！", model: claude, modelName: "c
 | --- | --- |
 | 维护中的适配器 | 仓库负责请求映射和流转换，并通过离线共享合约测试。 |
 | 维护中的预设 | 仓库基于维护中的适配器提供端点/配置预设；具体能力仍取决于运行时和模型。 |
-| 兼容端点 | 用户提供、预期实现相同协议的端点；在探测其确切运行时/模型组合前仅为尽力兼容。 |
+| 兼容端点 | 用户提供、预期实现相同协议的端点；在其确切运行时/模型组合通过显式启用的探测前仅为尽力兼容。 |
 
 | 集成 | 等级 | 说明 |
 | --- | --- | --- |
-| Anthropic Messages | 维护中的适配器 | 离线覆盖文本流、工具调用、归一化 usage、取消传播和 `ProviderError`。 |
+| Anthropic Messages | 维护中的适配器 | 离线覆盖文本流、工具调用、归一化 usage、取消传播和 `ProviderError` 归一化。 |
 | OpenAI Chat Completions | 维护中的适配器 | 应用相同的离线共享合约。 |
 | Ollama、vLLM、LM Studio、llama.cpp | [`@lite-agent/local`](../local) 中维护的预设 | 复用 OpenAI 兼容适配器；原生工具和 usage 能力取决于运行时及模型。 |
 | 其他 OpenAI 兼容端点 | 兼容端点 | 默认未经验证；请对确切端点和模型运行下面的探测。 |
@@ -94,6 +94,7 @@ pnpm --filter @lite-agent/provider test:compat
 模式都可用。
 
 两个适配器目前对流式工具 JSON 损坏的处理不同：Anthropic 会抛出 provider
-错误；OpenAI 会退化为空输入对象，再由下游工具 schema 校验拒绝。
+错误；OpenAI 会退化为空输入对象，并将有效性判断交由下游工具 schema 校验，
+该校验可能会拒绝它。
 
 架构说明见 [monorepo 根目录](../..)。
