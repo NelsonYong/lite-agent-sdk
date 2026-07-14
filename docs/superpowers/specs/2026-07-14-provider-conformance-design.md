@@ -75,6 +75,29 @@ No kernel, codec, or middleware change is needed.
 - No new runtime dependency, provider SDK, provider factory, or normalized
   model capability is introduced.
 
+### Implementation discipline
+
+The implementation must remain deliberately small and follow the patterns the
+repository already uses:
+
+- **Strategy** remains the existing `ModelProvider`; do not add another provider
+  interface, base class, registry, capability resolver, or plugin framework.
+- **Adapter** remains each provider's current mapping + stream translator; do
+  not refactor production adapters merely to share test code.
+- **Contract Test** mirrors the flat `checkpointerConformance` case-array style;
+  do not introduce a test DSL, class hierarchy, builder, or generic fixture
+  engine.
+- **Dependency Injection** uses the existing `client` option for deterministic
+  provider tests; do not add a second injection mechanism.
+- Prefer a few explicit provider-specific fixture helpers over an abstraction
+  whose only purpose is removing small amounts of test duplication.
+- Every new type and file must be required by a current acceptance criterion.
+  Future Gemini or community adapters must not drive speculative API surface.
+
+Good design here means clear boundaries and observable contracts, not more
+layers. If the implementation needs materially more machinery than the file
+impact in section 10, stop and revisit the design before adding it.
+
 ## 4. Approaches considered
 
 ### A. Add Gemini immediately
@@ -153,11 +176,13 @@ The required cases are:
 4. **Usage** — the final chunk carries the exact normalized input/output token
    counts supplied by the fixture.
 5. **Abort propagation** — the `abort` fixture keeps its fake backend pending
-   until the adapter's cancellation mechanism fires. After aborting the signal
-   passed to `provider.stream()`, the iteration must settle, either by completing
-   or rejecting, within 1,000 ms. The suite does not require the adapter to
-   forward the same signal object; converting it to a vendor-specific
-   cancellation primitive is valid.
+   until the adapter's cancellation mechanism fires, and remains pending when
+   no cancellation mechanism reaches it. The suite first asserts that iteration
+   has not settled, then aborts the signal passed to `provider.stream()`; the
+   iteration must subsequently settle, either by completing or rejecting,
+   within 1,000 ms. The suite does not require the adapter to forward the same
+   signal object; converting it to a vendor-specific cancellation primitive is
+   valid.
 6. **Error normalization** — failures before output and failures during stream
    iteration reject with `ProviderError`; a numeric HTTP `status` is preserved.
 
@@ -219,7 +244,8 @@ Missing `LITE_AGENT_COMPAT_BASE_URL` or `LITE_AGENT_COMPAT_MODEL` fails
 immediately with a configuration error, before constructing a client. Because
 only the dedicated config includes the smoke file, default package and
 workspace tests cannot activate it accidentally, even when compatibility
-environment variables happen to exist.
+environment variables happen to exist. A non-empty forced-tool value other
+than the exact strings `true` or `false` is also a configuration error.
 
 When the probe is enabled, its base profile sends a short deterministic text
 request and verifies:
@@ -238,7 +264,9 @@ calls but not this stronger control. Local models using `jsonCodec` or
 `reactCodec` do not need to run the forced-tool profile.
 
 The dedicated command and documentation make the opt-in network behavior
-explicit. No credentials, endpoint outputs, or prompts are persisted.
+explicit. Each provider stream receives a request timeout shorter than the
+Vitest case timeout, so a failed probe cancels its underlying HTTP request. No
+credentials, endpoint outputs, or prompts are persisted.
 
 ## 8. Compatibility levels and documentation
 
