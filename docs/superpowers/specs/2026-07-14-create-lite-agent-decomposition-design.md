@@ -91,11 +91,11 @@ dependencies needed by the facade. It owns:
 It returns a small, explicit record rather than a mutable container:
 
 ```ts
-interface LiteAgentRuntime {
-  core: Agent;
-  checkpointer?: Checkpointer;
-  compactor?: Compactor;
-  takeOutput?: (sessionId: string) => unknown;
+export interface LiteAgentRuntime {
+  readonly core: Agent;
+  readonly checkpointer?: Checkpointer;
+  readonly compactor?: Compactor;
+  readonly takeOutput?: (sessionId: string) => unknown;
 }
 ```
 
@@ -160,7 +160,9 @@ the stateful facade.
 
 ### Compactor composition
 
-- `compactor: false` disables compaction.
+- `compactor: false` disables the structural compactor. An independently
+  configured `contextBudget` still enables token-budget compaction and the
+  reactive overflow net, matching current behavior.
 - An explicit compactor wins over the deterministic default.
 - When configured, token-budget compaction runs after structural compaction.
 - The default structural compactor continues to receive the spill store and
@@ -172,6 +174,7 @@ The order remains:
 
 ```text
 compaction
+-> reactive compaction
 -> permission
 -> user middleware
 -> task reminder
@@ -242,9 +245,12 @@ pin the assembly behavior not covered today:
 - custom/default duplicate tool-name behavior;
 - `disallowedTools` filtering;
 - `final_answer` surviving allow/deny filtering;
+- the raw result shape when structured output is disabled;
 - explicit checkpointer, legacy store, and `sessions:false` precedence;
 - structural then token-budget compactor composition;
-- compaction, permission, user middleware, and task-reminder ordering;
+- `compactor:false` combined with an active `contextBudget`;
+- compaction, reactive compaction, permission, user middleware, and
+  task-reminder ordering;
 - child-agent inheritance and removal of recursion, interactivity, and
   structured output; and
 - custom system prompt plus structured-output suffix behavior.
@@ -258,8 +264,10 @@ or couple to the new internal modules.
 
 1. Add the missing characterization tests and establish a green baseline.
 2. Move public contracts and extract the stateful facade.
-3. Extract compactor, checkpointer, middleware, and core-agent assembly.
-4. Extract tool, prompt, structured-output, and subagent assembly last.
+3. Move tool, prompt, structured-output, compactor, checkpointer, middleware,
+   and core-agent assembly together, preserving their existing statement order.
+4. Reduce `createLiteAgent.ts` to path resolution, cleanup, recursive spawn,
+   assembly, and facade construction.
 5. Run focused SDK tests after each extraction.
 6. Build `@lite-agent/sdk` before validating `@lite-agent/local`, because
    workspace dependents consume built `dist` artifacts.
