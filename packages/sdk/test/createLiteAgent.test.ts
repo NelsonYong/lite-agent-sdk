@@ -2,9 +2,26 @@ import { expect, test } from "vitest";
 import { mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fakeProvider, textBlock, memoryStore, defaultCompactor, ProviderError } from "@lite-agent/core";
-import type { Message } from "@lite-agent/core";
+import { z } from "zod";
+import {
+  defaultCompactor,
+  defineTool,
+  fakeProvider,
+  memoryStore,
+  ProviderError,
+  textBlock,
+} from "@lite-agent/core";
+import type {
+  Compactor,
+  Message,
+  Middleware,
+  ModelProvider,
+  ModelRequest,
+  PermissionPolicy,
+} from "@lite-agent/core";
 import { createLiteAgent } from "../src/createLiteAgent";
+import { resolveProjectPaths } from "../src/paths";
+import { fileTaskStore } from "../src/tasks/store";
 
 test("runs with default tools wired", async () => {
   const agent = createLiteAgent({
@@ -171,4 +188,249 @@ test("a configured sandbox wraps bash commands end-to-end", async () => {
     if (ev.type === "tool_result") results.push(ev.result.content);
   expect(results.join("")).toContain("wrapped-by-sandbox");
   expect(results.join("")).not.toContain("original");
+});
+
+test("a user tool overrides a same-named default tool", async () => {
+  const seen: ModelRequest[] = [];
+  const inner = fakeProvider([
+    {
+      message: {
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: "t1", name: "read_file", input: { path: "missing" } },
+        ],
+      },
+    },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  const model: ModelProvider = {
+    id: "recording",
+    stream(request, signal) {
+      seen.push(request);
+      return inner.stream(request, signal);
+    },
+  };
+  const override = defineTool({
+    name: "read_file",
+    description: "custom read override",
+    schema: z.object({ path: z.string() }),
+    execute: () => "custom read",
+  });
+  const agent = createLiteAgent({
+    model,
+    workdir: process.cwd(),
+    tools: [override],
+    sessions: false,
+    tasks: false,
+    agents: false,
+    cleanup: false,
+    compactor: false,
+  });
+
+  const results: string[] = [];
+  for await (const event of agent.run("go")) {
+    if (event.type === "tool_result") results.push(event.result.content);
+  }
+
+  expect(seen[0]!.tools?.filter((entry) => entry.name === "read_file")).toHaveLength(2);
+  expect(results).toEqual(["custom read"]);
+});
+
+test("disallowedTools removes a registered tool", async () => {
+  const model = fakeProvider([
+    {
+      message: {
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: "t1", name: "read_file", input: { path: "missing" } },
+        ],
+      },
+    },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  const agent = createLiteAgent({
+    model,
+    workdir: process.cwd(),
+    disallowedTools: ["read_file"],
+    sessions: false,
+    tasks: false,
+    agents: false,
+    cleanup: false,
+    compactor: false,
+  });
+
+  const results: string[] = [];
+  for await (const event of agent.run("go")) {
+    if (event.type === "tool_result") results.push(event.result.content);
+  }
+
+  expect(results).toEqual(["Error: unknown tool 'read_file'"]);
+});
+
+test("token-budget compaction runs after structural compaction", async () => {
+  const order: string[] = [];
+  const structuralMessages: Message[] = [{ role: "user", content: "STRUCTURAL" }];
+  const structural: Compactor = {
+    async maybeCompact(messages) {
+      order.push(`structural:${String(messages[0]?.content)}`);
+      return { messages: structuralMessages };
+    },
+  };
+  const agent = createLiteAgent({
+    model: fakeProvider([
+      { text: "ok", message: { role: "assistant", content: [textBlock("ok")] } },
+    ]),
+    workdir: process.cwd(),
+    sessions: false,
+    tasks: false,
+    agents: false,
+    cleanup: false,
+    compactor: structural,
+    contextBudget: {
+      maxTokens: 10,
+      estimator(messages) {
+        order.push(`budget:${String(messages[0]?.content)}`);
+        return 1;
+      },
+    },
+  });
+
+  await agent.send("ORIGINAL");
+
+  expect(order).toEqual(["structural:ORIGINAL", "budget:STRUCTURAL"]);
+});
+
+test("contextBudget remains active when structural compaction is disabled", async () => {
+  let estimates = 0;
+  const agent = createLiteAgent({
+    model: fakeProvider([
+      { text: "ok", message: { role: "assistant", content: [textBlock("ok")] } },
+    ]),
+    workdir: process.cwd(),
+    sessions: false,
+    tasks: false,
+    agents: false,
+    cleanup: false,
+    compactor: false,
+    contextBudget: {
+      maxTokens: 10,
+      estimator() {
+        estimates += 1;
+        return 1;
+      },
+    },
+  });
+
+  await agent.send("go");
+
+  expect(estimates).toBeGreaterThan(0);
+});
+
+test("assembles compaction, permission, user middleware, and task reminder in order", async () => {
+  const workdir = mkdtempSync(join(tmpdir(), "mw-order-"));
+  const home = mkdtempSync(join(tmpdir(), "mw-home-"));
+  const taskStore = fileTaskStore({
+    dir: resolveProjectPaths({ workdir, home }).tasksDir,
+    listId: "default",
+  });
+  await taskStore.create({ subject: "pending task", description: "d" });
+
+  const order: string[] = [];
+  const compactor: Compactor = {
+    async maybeCompact(messages) {
+      order.push("compaction");
+      return { messages };
+    },
+  };
+  const permissionPolicy: PermissionPolicy = {
+    check() {
+      order.push("permission");
+      return "allow";
+    },
+  };
+  const user: Middleware = {
+    name: "user",
+    beforeModel() {
+      order.push("user:beforeModel");
+    },
+    async *wrapModelCall(ctx, next) {
+      const hasReminder = ctx.messages.some(
+        (message) =>
+          typeof message.content === "string" &&
+          message.content.includes("<system-reminder>"),
+      );
+      order.push(`user:model:${hasReminder ? "reminder" : "plain"}`);
+      yield* next();
+    },
+    async wrapToolCall(_ctx, next) {
+      order.push("user:tool");
+      return next();
+    },
+  };
+  const probe = defineTool({
+    name: "probe",
+    description: "probe",
+    schema: z.object({}),
+    execute: () => {
+      order.push("tool");
+      return "ok";
+    },
+  });
+  const inner = fakeProvider([
+    {
+      message: {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "t1", name: "probe", input: {} }],
+      },
+    },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  let modelCalls = 0;
+  const model: ModelProvider = {
+    id: "order",
+    async *stream(request, signal) {
+      modelCalls += 1;
+      const hasReminder = request.messages.some(
+        (message) =>
+          typeof message.content === "string" &&
+          message.content.includes("<system-reminder>"),
+      );
+      order.push(`provider:${hasReminder ? "reminder" : "plain"}`);
+      if (modelCalls === 1) throw new ProviderError("prompt too long", 413);
+      yield* inner.stream(request, signal);
+    },
+  };
+
+  const agent = createLiteAgent({
+    model,
+    workdir,
+    home,
+    cleanup: false,
+    sessions: false,
+    spill: false,
+    agents: false,
+    background: false,
+    compactor,
+    permission: permissionPolicy,
+    use: [user],
+    tools: [probe],
+  });
+
+  await agent.send("go");
+
+  expect(order).toEqual([
+    "compaction",
+    "user:beforeModel",
+    "user:model:plain",
+    "provider:reminder",
+    "user:model:plain",
+    "provider:reminder",
+    "permission",
+    "user:tool",
+    "tool",
+    "compaction",
+    "user:beforeModel",
+    "user:model:plain",
+    "provider:reminder",
+  ]);
 });

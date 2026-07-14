@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
 import { fakeProvider, textBlock } from "@lite-agent/core";
+import type { ModelProvider } from "@lite-agent/core";
 import { createLiteAgent } from "../src/createLiteAgent";
 
 const workdir = () => mkdtempSync(join(tmpdir(), "out-"));
@@ -64,4 +65,70 @@ test("invalid final_answer arguments are rejected by the schema (no output captu
   const agent = createLiteAgent({ model: fp, ...base(), outputSchema: schema });
   const res = await drain(agent.run("go"));
   expect(res.output).toBeUndefined();
+});
+
+test("final_answer survives both allow and deny filters", async () => {
+  const schema = z.object({ answer: z.string() });
+  const model = fakeProvider([
+    {
+      message: {
+        role: "assistant",
+        content: [
+          { type: "tool_call", id: "f1", name: "final_answer", input: { answer: "ready" } },
+        ],
+      },
+    },
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  const agent = createLiteAgent({
+    model,
+    ...base(),
+    outputSchema: schema,
+    allowedTools: [],
+    disallowedTools: ["final_answer"],
+  });
+
+  expect((await agent.send("go")).output).toEqual({ answer: "ready" });
+});
+
+test("outputSchema appends its suffix to a custom system prompt", async () => {
+  let seenSystem: string | undefined;
+  const inner = fakeProvider([
+    { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+  ]);
+  const model: ModelProvider = {
+    id: "system-recorder",
+    stream(request, signal) {
+      seenSystem = request.system;
+      return inner.stream(request, signal);
+    },
+  };
+  const agent = createLiteAgent({
+    model,
+    ...base(),
+    system: "CUSTOM SYSTEM",
+    outputSchema: z.object({ answer: z.string() }),
+  });
+
+  await agent.send("go");
+
+  expect(seenSystem).toBe(
+    "CUSTOM SYSTEM\n\n## Final answer\n" +
+      "When you have fully completed the task, you MUST call the `final_answer` tool " +
+      "exactly once with your result. Do not put the final result in a normal message — " +
+      "only the `final_answer` tool call is read as the answer.",
+  );
+});
+
+test("without outputSchema preserves the raw result object shape", async () => {
+  const agent = createLiteAgent({
+    model: fakeProvider([
+      { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
+    ]),
+    ...base(),
+  });
+
+  const result = await agent.send("go");
+
+  expect(Object.hasOwn(result, "output")).toBe(false);
 });
