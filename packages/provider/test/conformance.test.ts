@@ -1,9 +1,23 @@
 import { test } from "vitest";
-import { providerConformance } from "@lite-agent/core";
+import {
+  providerConformance,
+  type ProviderConformanceFactory,
+} from "@lite-agent/core";
+import { anthropicConformance } from "./support/anthropicConformance";
 import { openaiConformance } from "./support/openaiConformance";
 
-for (const contract of providerConformance) {
-  test(`openai provider: ${contract.name}`, async () => {
-    await contract.run(openaiConformance);
-  });
+const providers: Array<{
+  name: string;
+  make: ProviderConformanceFactory;
+}> = [
+  { name: "openai", make: openaiConformance },
+  { name: "anthropic", make: anthropicConformance },
+];
+
+for (const provider of providers) {
+  for (const contract of providerConformance) {
+    test(`${provider.name} provider: ${contract.name}`, async () => {
+      await contract.run(provider.make);
+    });
+  }
 }
