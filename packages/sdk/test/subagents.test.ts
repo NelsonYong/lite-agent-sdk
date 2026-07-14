@@ -1,8 +1,26 @@
-import { expect, test } from "vitest";
-import { mkdtempSync, writeFileSync, readdirSync, readFileSync } from "node:fs";
+import { expect, test, vi } from "vitest";
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { fakeProvider, textBlock } from "@lite-agent/core";
+import { z } from "zod";
+import {
+  defineTool,
+  fakeProvider,
+  memoryCheckpointer,
+  memoryStore,
+  policy,
+  textBlock,
+} from "@lite-agent/core";
+import type {
+  AgentEvent,
+  ModelProvider,
+  ModelRequest,
+} from "@lite-agent/core";
 import { createLiteAgent } from "../src/createLiteAgent";
 import { resolveProjectPaths } from "../src/paths";
 import { fileTaskStore } from "../src/tasks/store";
@@ -109,4 +127,242 @@ test("a subagent shares the project task list with its parent", async () => {
   const paths = resolveProjectPaths({ workdir: wd });
   const store = fileTaskStore({ dir: paths.tasksDir, listId: "default" });
   expect(store.list().some((t) => t.subject === "from child")).toBe(true);
+});
+
+test("a child applies definition overrides and strips parent-only facilities", async () => {
+  const wd = workdir();
+  const dir = mkdtempSync(join(tmpdir(), "subagent-def-"));
+  writeFileSync(
+    join(dir, "worker.md"),
+    "---\nname: worker\ndescription: worker agent\n" +
+      "tools: probe, Agent, ask_user\nmodel: child-model\n---\nCHILD BODY",
+  );
+
+  let ran = false;
+  const probe = defineTool({
+    name: "probe",
+    description: "probe",
+    schema: z.object({}),
+    execute: () => {
+      ran = true;
+      return "probe ran";
+    },
+  });
+  const requests: ModelRequest[] = [];
+  const inner = fakeProvider([
+    {
+      message: {
+        role: "assistant",
+        content: [{
+          type: "tool_call",
+          id: "p1",
+          name: "Agent",
+          input: {
+            tasks: [{
+              subagent_type: "worker",
+              prompt: "child prompt",
+              resume: "agent-worker-overrides",
+            }],
+            run_in_background: false,
+          },
+        }],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "c1", name: "probe", input: {} }],
+      },
+    },
+    { text: "child done", message: { role: "assistant", content: [textBlock("child done")] } },
+    { text: "parent done", message: { role: "assistant", content: [textBlock("parent done")] } },
+  ]);
+  const model: ModelProvider = {
+    id: "recorder",
+    stream(request, signal) {
+      requests.push(request);
+      return inner.stream(request, signal);
+    },
+  };
+  const agent = createLiteAgent({
+    model,
+    modelName: "parent-model",
+    workdir: wd,
+    agentsDir: dir,
+    tools: [probe],
+    allowedTools: ["Agent"],
+    onAskUser: { request: async () => ({ text: "parent answer" }) },
+    outputSchema: z.object({ answer: z.string() }),
+    temperature: 0.25,
+    topP: 0.75,
+    toolChoice: "auto",
+    seed: 17,
+    maxTokens: 128,
+    tasks: false,
+    spill: false,
+    background: false,
+    sessions: false,
+    cleanup: false,
+    compactor: false,
+  });
+
+  await collectResults(agent.run("start"));
+
+  const childRequest = requests[1]!;
+  expect(ran).toBe(true);
+  expect(childRequest.model).toBe("child-model");
+  expect(childRequest.temperature).toBe(0.25);
+  expect(childRequest.topP).toBe(0.75);
+  expect(childRequest.toolChoice).toBe("auto");
+  expect(childRequest.seed).toBe(17);
+  expect(childRequest.maxTokens).toBe(128);
+  expect(childRequest.system).toBe(
+    `You are the "worker" subagent operating in ${wd}. ` +
+      "Return your final answer as your last message.\n\nCHILD BODY",
+  );
+  expect(childRequest.tools?.map((entry) => entry.name)).toEqual(["probe"]);
+  expect(childRequest.system).not.toContain("## Final answer");
+});
+
+test("subagentPermission gates child tools without sharing the parent approval handler", async () => {
+  let ran = false;
+  const approval = vi.fn(async (): Promise<"allow" | "deny"> => "allow");
+  const probe = defineTool({
+    name: "probe",
+    description: "probe",
+    schema: z.object({}),
+    execute: () => {
+      ran = true;
+      return "probe ran";
+    },
+  });
+  const model = fakeProvider([
+    {
+      message: {
+        role: "assistant",
+        content: [{
+          type: "tool_call",
+          id: "p1",
+          name: "Agent",
+          input: {
+            tasks: [{
+              subagent_type: "worker",
+              prompt: "child prompt",
+              resume: "agent-worker-permission",
+            }],
+            run_in_background: false,
+          },
+        }],
+      },
+    },
+    {
+      message: {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "c1", name: "probe", input: {} }],
+      },
+    },
+    { text: "child done", message: { role: "assistant", content: [textBlock("child done")] } },
+    { text: "parent done", message: { role: "assistant", content: [textBlock("parent done")] } },
+  ]);
+  const agent = createLiteAgent({
+    model,
+    workdir: workdir(),
+    agentsDir: agentsDir("worker"),
+    tools: [probe],
+    subagentPermission: policy({ ask: ["probe"] }),
+    onApproval: { request: approval },
+    sessions: false,
+    tasks: false,
+    spill: false,
+    background: false,
+    cleanup: false,
+    compactor: false,
+  });
+  const events: AgentEvent[] = [];
+  for await (const event of agent.run("start")) events.push(event);
+
+  expect(ran).toBe(false);
+  expect(approval).not.toHaveBeenCalled();
+  expect(events).toContainEqual(
+    expect.objectContaining({
+      agentId: "agent-worker-permission",
+      type: "tool_result",
+      result: expect.objectContaining({
+        name: "probe",
+        isError: true,
+        content: "Error: denied by user",
+      }),
+    }),
+  );
+});
+
+test("subagents inherit explicit checkpointers and legacy stores", async () => {
+  const checkpointer = memoryCheckpointer();
+  const withCheckpointer = createLiteAgent({
+    model: fakeProvider([
+      {
+        message: {
+          role: "assistant",
+          content: [{
+            type: "tool_call",
+            id: "p1",
+            name: "Agent",
+            input: {
+              tasks: [{
+                subagent_type: "worker",
+                prompt: "cp prompt",
+                resume: "agent-worker-cp",
+              }],
+            },
+          }],
+        },
+      },
+      { text: "child done", message: { role: "assistant", content: [textBlock("child done")] } },
+      { text: "parent done", message: { role: "assistant", content: [textBlock("parent done")] } },
+    ]),
+    workdir: workdir(),
+    agentsDir: agentsDir("worker"),
+    checkpointer,
+    sessions: false,
+    cleanup: false,
+    compactor: false,
+  });
+  await collectResults(withCheckpointer.run("start"));
+  expect(await checkpointer.head("agent-worker-cp")).toBeGreaterThan(0);
+
+  const store = memoryStore();
+  const withStore = createLiteAgent({
+    model: fakeProvider([
+      {
+        message: {
+          role: "assistant",
+          content: [{
+            type: "tool_call",
+            id: "p2",
+            name: "Agent",
+            input: {
+              tasks: [{
+                subagent_type: "worker",
+                prompt: "store prompt",
+                resume: "agent-worker-store",
+              }],
+            },
+          }],
+        },
+      },
+      { text: "child done", message: { role: "assistant", content: [textBlock("child done")] } },
+      { text: "parent done", message: { role: "assistant", content: [textBlock("parent done")] } },
+    ]),
+    workdir: workdir(),
+    agentsDir: agentsDir("worker"),
+    store,
+    sessions: false,
+    cleanup: false,
+    compactor: false,
+  });
+  await collectResults(withStore.run("start"));
+  expect(await store.load("agent-worker-store")).toContainEqual({
+    role: "user",
+    content: "store prompt",
+  });
 });
