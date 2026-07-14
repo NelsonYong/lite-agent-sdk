@@ -7,45 +7,28 @@ import {
   defaultCompactor,
   tokenBudgetCompactor,
   legacyStoreAdapter,
-  foldEvents,
-  estimateTokens,
-  AgentError,
 } from "@lite-agent/core";
 import type {
-  Agent,
-  AgentEvent,
-  ApprovalHandler,
   Checkpointer,
   Compactor,
-  InputHandler,
-  Message,
   Middleware,
-  ModelProvider,
-  PermissionPolicy,
-  Redactor,
-  RunOptions,
-  RunResult,
-  Sandbox,
-  Store,
   Tool,
-  ToolCallCodec,
-  ToolChoice,
-  BackgroundLimits,
-  TokenEstimator,
 } from "@lite-agent/core";
-import type { ZodType } from "zod";
-import { existsSync, unlinkSync } from "node:fs";
-import { atomicWriteFile, resolveSafePath } from "./tools/file";
-import type { FileToolsOptions } from "./tools/file";
-import type { BashToolOptions } from "./tools/bash";
+import { createLiteAgentFacade } from "./liteAgent";
+import type { CreateLiteAgentConfig, LiteAgent } from "./liteAgent";
+
+export type {
+  CreateLiteAgentConfig,
+  LiteAgent,
+  LiteAgentResult,
+} from "./liteAgent";
+
 import { tool } from "./tool";
 import { defaultTools, askUserTool } from "./tools";
 import { SkillLoader } from "./skills/loader";
 import { loadSkillTool } from "./skills/loadSkillTool";
 import { buildSystemPrompt } from "./system";
 import { resolveProjectPaths } from "./paths";
-import { newSessionId } from "./store";
-import type { SessionInfo } from "./store";
 import { fileCheckpointer } from "./checkpoint";
 import { fileSpillStore, readSpilledTool } from "./spill";
 import { sweepStale } from "./cleanup";
@@ -58,119 +41,6 @@ import { agentTool } from "./tools/agent";
 import type { Spawn } from "./tools/agent";
 import { killBackgroundTool } from "./tools/killBackground";
 import { bashOutputTool } from "./tools/bashOutput";
-
-export interface CreateLiteAgentConfig {
-  model: ModelProvider;
-  modelName?: string;
-  workdir: string;
-  skillsDir?: string;
-  tools?: Tool[];
-  /** Tool-call protocol. Default nativeCodec. */
-  codec?: ToolCallCodec;
-  system?: string;
-  allowedTools?: string[];
-  disallowedTools?: string[];
-  maxTurns?: number;
-  maxTokens?: number;
-  /** Sampling temperature, forwarded to the provider. Inherited by subagents. */
-  temperature?: number;
-  /** Nucleus sampling (top_p), forwarded to the provider. Inherited by subagents. */
-  topP?: number;
-  /** Tool-selection mode for the model. Inherited by subagents. */
-  toolChoice?: ToolChoice;
-  /** Reproducibility seed (OpenAI only; ignored by Anthropic). Inherited by subagents. */
-  seed?: number;
-  /**
-   * Require a structured final answer. When set, a `final_answer` tool (whose
-   * parameters are this schema) is registered and the model is instructed to call
-   * it when done; the validated arguments surface as `result.output`. Must be an
-   * object schema. Not inherited by subagents.
-   */
-  outputSchema?: ZodType;
-  /** Max tool calls run concurrently per turn (default 10; 1 = sequential). Inherited by subagents. */
-  maxParallelTools?: number;
-  /** Prompt-codec repair attempts after malformed output. Default 2. */
-  maxDecodeRetries?: number;
-  use?: Middleware[];
-  sandbox?: Sandbox;
-  /** Event-sourced persistence backend. Default: fileCheckpointer under the project's sessions dir. Overrides `store`. */
-  checkpointer?: Checkpointer;
-  store?: Store;
-  /** Override the global home (default `$LITE_AGENT_HOME` || `~/.lite-agent`). */
-  home?: string;
-  /** Persist sessions under the project's sessions dir (default fileCheckpointer). Default true. Ignored when `checkpointer`/`store` is set. */
-  sessions?: boolean;
-  /** Spill oversized tool_results to disk + register `read_spilled`. Default true. */
-  spill?: boolean | { budgetBytes?: number };
-  /** Persistent Tasks API (TaskCreate/Update/Get/List) + per-turn reminder. Default true. */
-  tasks?: boolean;
-  /** Task-list id under tasksDir. Default `$LITE_AGENT_TASK_LIST_ID` || "default". */
-  taskListId?: string;
-  /** File-defined subagents + the `Agent` dispatch tool. Default true. */
-  agents?: boolean;
-  /** Extra agents dir, appended last so it overrides global + project. */
-  agentsDir?: string;
-  /** Permission policy applied to subagent runs. Default: none (lenient — sandbox still applies). */
-  subagentPermission?: PermissionPolicy;
-  /** Non-blocking background tasks (bash run_in_background + background subagents) + the KillBackground tool. Default true. */
-  background?: boolean;
-  backgroundLimits?: BackgroundLimits;
-  /** Default file-tool hardening and snapshot settings. */
-  fileTools?: FileToolsOptions;
-  /** Bash timeout, output, environment, and security metadata. */
-  bash?: BashToolOptions;
-  /** Safe mode persists tool starts and closes interrupted calls on resume. */
-  crashRecovery?: "off" | "safe";
-  /** Maximum retained snapshot bytes in one session. */
-  maxSnapshotBytesPerSession?: number;
-  /** Proactive compactor. Default deterministic `defaultCompactor`; `false` disables compaction. */
-  compactor?: Compactor | false;
-  /** Hard context budget applied after structural compaction. */
-  contextBudget?: { maxTokens: number; estimator?: TokenEstimator };
-  /** Sweep stale spill/session files once at startup. Default true (30 days). */
-  cleanup?: boolean | { maxAgeDays?: number; maxBytes?: number };
-  permission?: PermissionPolicy;
-  /** Redactor for permission audit payloads. Default: core `defaultRedactor`. */
-  redact?: Redactor;
-  /** Permission enforcement mode. "dry-run" records decisions without blocking. Default "enforce". */
-  permissionMode?: "enforce" | "dry-run";
-  /** Persist redacted permission decisions in the session event log. Default false. */
-  permissionAudit?: boolean;
-  onApproval?: ApprovalHandler;
-  onAskUser?: InputHandler;
-}
-
-/** A run result, plus the validated structured answer when `outputSchema` is set. */
-export type LiteAgentResult = RunResult & { output?: unknown };
-
-export interface LiteAgent extends Agent {
-  run(input: string | Message[], opts?: RunOptions): AsyncGenerator<AgentEvent, LiteAgentResult>;
-  send(input: string | Message[], opts?: RunOptions): Promise<LiteAgentResult>;
-  /** The session id `run`/`send` use when none is passed in `opts`. */
-  readonly sessionId: string;
-  /** Switch the current session to an existing id (lenient — unknown id starts empty). */
-  resume(id: string): void;
-  /** Rotate to a brand-new empty session; returns the new id. Does not delete the old transcript. */
-  clear(): string;
-  /** Delete a persisted session transcript. Requires a session-capable store. */
-  deleteSession(id: string): Promise<void>;
-  /** List persisted sessions (id + mtime, most-recent first). Requires a session-capable store. */
-  listSessions(): Promise<SessionInfo[]>;
-  /** List the rewind anchors (one per user prompt) for a session, oldest-first. Each entry's
-   *  `seq` is the value to pass to `restore` to roll back to just BEFORE that prompt (so the
-   *  prompt and everything after it are undone) — pass it straight through: `restore(id, cp.seq)`. */
-  listCheckpoints(id: string): Promise<{ seq: number; prompt: string; ts: string }[]>;
-  /** Roll a session back to the state right after event `toSeq`: revert files snapshotted after
-   *  it (`files`) and/or truncate the conversation to it (`conversation`). Both default true.
-   *  Sets the current session to `id`. Conversation rollback needs an event-sourced checkpointer
-   *  with `truncate` (the default file/sqlite backends; a legacy `store` cannot). */
-  restore(id: string, toSeq: number, opts?: { conversation?: boolean; files?: boolean }): Promise<void>;
-  /** Manually compact the current session: compress the conversation, persist the result,
-   *  emit progress + a completion notification, then stop. No model answer is produced.
-   *  Optional `instructions` steer this compaction (Claude Code's `/compact <instructions>`) —
-   *  passed to the compactor to bias what's preserved; only LLM-summary compactors act on it. */
-  compact(instructions?: string): AsyncGenerator<AgentEvent, { before: number; after: number }>;
-}
 
 export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
   const paths = resolveProjectPaths({ workdir: cfg.workdir, home: cfg.home });
@@ -370,116 +240,16 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     input: cfg.onAskUser,
   });
 
-  // Stateful session ownership lives here (sdk), not in the primitive core agent.
-  let currentSessionId = newSessionId();
-  const noSessions = (): Promise<never> =>
-    Promise.reject(
-      new AgentError("session management requires a checkpointer (it is disabled when sessions:false)"),
-    );
+  const takeOutput = cfg.outputSchema
+    ? (sessionId: string): unknown => {
+        const output = outputs.get(sessionId);
+        outputs.delete(sessionId);
+        return output;
+      }
+    : undefined;
 
-  // Drive the core run, then (when outputSchema is set) attach the captured answer.
-  const run = (input: string | Message[], opts?: RunOptions): AsyncGenerator<AgentEvent, LiteAgentResult> => {
-    const sessionId = opts?.sessionId ?? currentSessionId;
-    const gen = core.run(input, { ...opts, sessionId });
-    if (!cfg.outputSchema) return gen;
-    return (async function* () {
-      let res = await gen.next();
-      while (!res.done) {
-        yield res.value;
-        res = await gen.next();
-      }
-      const output = outputs.get(sessionId);
-      outputs.delete(sessionId);
-      return { ...res.value, output };
-    })();
-  };
-
-  return {
-    run,
-    async send(input, opts) {
-      const gen = run(input, opts);
-      let r = await gen.next();
-      while (!r.done) r = await gen.next();
-      return r.value;
-    },
-    get sessionId() {
-      return currentSessionId;
-    },
-    resume(id: string) {
-      currentSessionId = id;
-    },
-    clear() {
-      currentSessionId = newSessionId();
-      return currentSessionId;
-    },
-    deleteSession: (id: string) => (checkpointer ? checkpointer.delete(id) : noSessions()),
-    listSessions: () => (checkpointer ? checkpointer.list() : noSessions()),
-    listCheckpoints: async (id: string) => {
-      if (!checkpointer) return noSessions();
-      const out: { seq: number; prompt: string; ts: string }[] = [];
-      for await (const e of checkpointer.read(id)) {
-        if (e.event.type === "user" && typeof e.event.message.content === "string") {
-          // `seq - 1` = the restore target that lands just BEFORE this prompt (undoing it
-          // and everything after), so `restore(id, cp.seq)` matches "rewind to this prompt".
-          out.push({ seq: e.seq - 1, prompt: e.event.message.content, ts: e.ts });
-        }
-      }
-      return out;
-    },
-    restore: async (id: string, toSeq: number, opts?: { conversation?: boolean; files?: boolean }) => {
-      if (!checkpointer) return noSessions();
-      const files = opts?.files ?? true;
-      const conversation = opts?.conversation ?? true;
-      if (files) {
-        const earliest = new Map<string, { before: string | null; truncated?: boolean; encoding?: "utf8" | "base64" }>();
-        for await (const e of checkpointer.read(id, { sinceSeq: toSeq })) {
-          if (e.event.type === "file_snapshot" && !earliest.has(e.event.path)) {
-            earliest.set(e.event.path, {
-              before: e.event.before, truncated: e.event.truncated, encoding: e.event.encoding,
-            });
-          }
-        }
-        for (const [path, snap] of earliest) {
-          if (snap.truncated) continue;
-          const fp = resolveSafePath(cfg.workdir, path, {
-            mode: snap.before === null ? "delete" : "write",
-            symlinks: "deny",
-          });
-          if (snap.before === null) { if (existsSync(fp)) unlinkSync(fp); }
-          else {
-            const body = snap.encoding === "base64" ? Buffer.from(snap.before, "base64") : snap.before;
-            atomicWriteFile(fp, body);
-          }
-        }
-      }
-      if (conversation) {
-        if (!checkpointer.truncate)
-          throw new AgentError("conversation restore requires a checkpointer that supports truncate");
-        await checkpointer.truncate(id, toSeq);
-      }
-      currentSessionId = id;
-    },
-    async *compact(instructions) {
-      if (!checkpointer) { await noSessions(); return { before: 0, after: 0 }; }
-      if (!compactor) throw new AgentError("compact requires a compactor (it is disabled when compactor:false)");
-      const id = currentSessionId;
-      const stored = [];
-      for await (const e of checkpointer.read(id)) stored.push(e);
-      const messages = foldEvents(stored.map((s) => s.event));
-      const before = estimateTokens(messages);
-      yield { type: "compaction", kind: "manual", phase: "start", before, after: before };
-      const result = await compactor.maybeCompact(messages, { inputTokens: 0, outputTokens: 0 }, instructions);
-      const after = estimateTokens(result.messages);
-      if (result.messages !== messages) {
-        const head = stored.length ? stored[stored.length - 1]!.seq : 0;
-        await checkpointer.append(
-          id,
-          [{ type: "summary", messages: result.messages, throughSeq: head, before, after }],
-          head,
-        );
-      }
-      yield { type: "compaction", kind: "manual", phase: "done", before, after };
-      return { before, after };
-    },
-  };
+  return createLiteAgentFacade(
+    { core, checkpointer, compactor, takeOutput },
+    cfg.workdir,
+  );
 }
