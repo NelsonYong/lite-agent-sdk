@@ -12,3 +12,4 @@ node_modules
 .agent
 .worktrees
 .superpowers
+doc_build

@@ -18,6 +18,7 @@ packages/                     # published SDK packages (versioned per changed pa
   local/                      # @lite-agent/local — strict single-host local-model/runtime assembly
 examples/
   cli/                        # @lite-agent/example-cli (private) — interactive REPL demo; owns its .env + skills/
+docs-site/                    # @lite-agent/docs (private) — Rspress bilingual docs site → GitHub Pages
 docs/superpowers/             # specs/ (design docs) + plans/ (TDD implementation plans)
 ```
 
@@ -29,13 +30,14 @@ Run from the repo root (it is a **private workspace root** — orchestration onl
 - **Test all:** `pnpm test` → `pnpm -r test` (vitest)
 - **Typecheck all:** `pnpm typecheck` → `pnpm -r typecheck` (`tsc --noEmit`)
 - **Run the demo:** `pnpm dev` → `pnpm --filter @lite-agent/example-cli dev` (`tsx src/main.ts`)
+- **Docs site:** `pnpm docs:dev` / `pnpm docs:build` / `pnpm docs:preview` → `pnpm --filter @lite-agent/docs <dev|build|preview>` (Rspress; build output `docs-site/doc_build`, base from `DOCS_BASE`). Deployed via `.github/workflows/deploy-docs.yml` on pushes to `main` touching `docs-site/**`.
 - **One package:** `pnpm --filter @lite-agent/<name> <test|build|typecheck>` · single test: `pnpm --filter @lite-agent/core test -- <namefilter>`
 - **Versioning:** update changed package versions + English `CHANGELOG.md` files manually; `pnpm release:changed` previews registry publishing and `--yes` publishes.
 - **Package manager:** pnpm (pinned 10.12.4). Node >= 20.
 
 > **Build-before-test choreography (non-obvious):** packages import each other via their **built `dist/`** (package.json `exports` → `./dist/index.js`; `dist` is git-ignored, no src alias). So changing a package's source and then testing/typechecking a _dependent_ package (or the example) reads **stale dist** unless you rebuild the changed package first. Safe full check: `pnpm -r build && pnpm -r test && pnpm -r typecheck`. `pnpm -r` builds in topological order.
 
-The example reads config from `examples/cli/.env` (see `.env.example`): `ANTHROPIC_API_KEY`, `BASE_URL`, `MODEL_ID`, optional `MONITOR_PORT`.
+The example reads config from `examples/cli/.env` (see `.env.example`): `LITE_AGENT_MODEL_ID`, `LITE_AGENT_MODEL_API_KEY`, `LITE_AGENT_BASE_URL`, optional `LITE_AGENT_MODEL_PROTOCOL`.
 
 ## Architecture
 

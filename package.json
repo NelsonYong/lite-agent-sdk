@@ -14,6 +14,9 @@
     "test": "pnpm -r test",
     "typecheck": "pnpm -r typecheck",
     "dev": "pnpm --filter @lite-agent/example-cli dev",
+    "docs:dev": "pnpm --filter @lite-agent/docs dev",
+    "docs:build": "pnpm --filter @lite-agent/docs build",
+    "docs:preview": "pnpm --filter @lite-agent/docs preview",
     "release:changed": "node scripts/publish.mjs"
   },
   "devDependencies": {
