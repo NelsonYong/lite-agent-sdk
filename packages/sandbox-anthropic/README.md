@@ -2,9 +2,7 @@
 
 **English** | [简体中文](./README.zh-CN.md)
 
-An OS-level `Sandbox` adapter for [`@lite-agent/core`](../core), backed by [`@anthropic-ai/sandbox-runtime`](https://github.com/anthropics/sandbox-runtime) (macOS **Seatbelt** / Linux **bubblewrap**).
-
-A `Sandbox` rewrites a shell command so it runs inside an OS boundary with restricted filesystem and network access. The core `bash` tool wraps its command through `ctx.sandbox` before executing — so combined with the permission gate (a pre-exec decision) you get defense-in-depth: the sandbox contains what the gate lets through.
+OS-level `Sandbox` adapter for [`@lite-agent/core`](../core), backed by [`@anthropic-ai/sandbox-runtime`](https://github.com/anthropics/sandbox-runtime). It confines agent-run shell commands inside an OS boundary — macOS **Seatbelt** or Linux **bubblewrap** — with restricted filesystem and network access.
 
 ## Install
 
@@ -12,7 +10,7 @@ A `Sandbox` rewrites a shell command so it runs inside an OS boundary with restr
 pnpm add @lite-agent/sandbox-anthropic
 ```
 
-## Usage
+## Quick start
 
 Pass the sandbox to `createLiteAgent` / `query`:
 
@@ -34,13 +32,25 @@ const agent = createLiteAgent({
 });
 ```
 
-## Graceful degradation
+## Features
 
-If the OS sandbox can't initialize (no bubblewrap, native Windows, unsupported env), `sandboxRuntime` **degrades to a no-op** — commands run unwrapped and `onUnavailable(err)` fires once. Set `requireSandbox: true` to throw instead of degrading.
+- **OS-enforced boundary** — commands execute under Seatbelt (macOS) or bubblewrap (Linux), not application-level checks.
+- **Filesystem control** — allow/deny lists for read and write paths; `~/.ssh` and `~/.aws` are denied by default.
+- **Network control** — domain allow/deny lists; all outbound traffic is blocked unless allowed.
+- **Defense-in-depth** — the core `bash` tool wraps every command through `ctx.sandbox` before executing, so the sandbox contains whatever the permission gate lets through.
+- **Graceful degradation** — if the OS sandbox can't initialize (no bubblewrap, native Windows, unsupported env), it degrades to a no-op and fires `onUnavailable(err)` once; set `requireSandbox: true` to throw instead.
+- **Zero-dependency interface** — implements the `Sandbox` strategy from `@lite-agent/core`, so any tool using `ctx.sandbox` works with it unchanged.
 
-## Options
+## API
 
-`sandboxRuntime(opts)` → `Sandbox`:
+| Symbol | Description |
+| --- | --- |
+| `sandboxRuntime(opts)` | Create a `Sandbox` backed by `@anthropic-ai/sandbox-runtime`. |
+| `SandboxRuntimeOptions` | Options accepted by `sandboxRuntime` (see below). |
+
+The returned `Sandbox` (interface defined in `@lite-agent/core`) exposes `initialize()`, `wrap(command)`, and `dispose()`; the kernel calls them for you. When no `sandbox` is configured, core defaults to `noopSandbox()` — commands run unwrapped.
+
+### `SandboxRuntimeOptions`
 
 | Option | Default | Description |
 | --- | --- | --- |
@@ -51,9 +61,17 @@ If the OS sandbox can't initialize (no bubblewrap, native Windows, unsupported e
 | `allowedDomains` | `[]` | Network domains allowed. |
 | `deniedDomains` | `[]` | Network domains denied. |
 | `allowLocalBinding` | `false` | Allow sandboxed commands to bind local ports. |
+| `allowUnixSockets` | `[]` | Unix socket paths the command may access. |
+| `allowAllUnixSockets` | `false` | Allow access to all Unix sockets. |
+| `enableWeakerNestedSandbox` | `false` | Weaken isolation when already running inside a sandbox. |
+| `enableWeakerNetworkIsolation` | `false` | Weaken network isolation (for environments where full isolation is impossible). |
+| `allowAppleEvents` | `false` | Allow Apple Events (macOS automation) from sandboxed commands. |
 | `requireSandbox` | `false` | `false` → degrade to noop if init fails; `true` → throw. |
 | `onUnavailable` | — | Called once when degrading to noop. |
 
-For no boundary at all, core ships `noopSandbox()` (the default when no `sandbox` is set).
+## Related
 
-See the [monorepo root](../..) for architecture.
+- [`@lite-agent/core`](../core) — the `Sandbox` strategy interface and `noopSandbox` default.
+- [`@lite-agent/sdk`](../sdk) — `createLiteAgent` / `query`, which accept a `sandbox` option.
+- [`@lite-agent/provider`](../provider) — model providers to pair with.
+- [lite-agent monorepo](../..) — architecture and full package list.

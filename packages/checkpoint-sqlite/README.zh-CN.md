@@ -2,9 +2,7 @@
 
 [English](./README.md) | **简体中文**
 
-面向 [`@lite-agent/core`](../core) 的 SQLite（WAL）`Checkpointer` 后端 —— 为单机、多进程场景提供事件溯源的会话持久化。
-
-[`@lite-agent/sdk`](../sdk) 中默认的 checkpointer 是基于文件的（每个会话一个 JSONL）。本适配器改为把同样的事件日志存进 SQLite 数据库，采用 **WAL 日志模式**和 `BEGIN IMMEDIATE` 写入路径，使单机上的多个进程能够并发追加 —— 冲突的追加会干净地抛出 `CheckpointConflictError`，而不会损坏日志。
+面向 `@lite-agent/core` 的 SQLite（WAL）[`Checkpointer`](../core) 后端 —— 为单机、多进程场景提供事件溯源的会话持久化。当一台机器上的多个进程需要共享会话、`@lite-agent/sdk` 默认的基于文件的存储不够用时，请选择本包。
 
 ## 安装
 
@@ -12,11 +10,11 @@
 pnpm add @lite-agent/checkpoint-sqlite
 ```
 
-> 依赖 `better-sqlite3`（原生模块 —— 安装时会编译）。
+> 依赖 `better-sqlite3`（原生模块 —— 安装时会编译）。运行时需要 `@lite-agent/core`。
 
-## 用法
+## 快速开始
 
-把 checkpointer 传给 `createLiteAgent` / `query`；它会覆盖默认的文件存储：
+把 checkpointer 传给 `createLiteAgent` / `query`，它会覆盖默认的文件存储：
 
 ```ts
 import { createLiteAgent } from "@lite-agent/sdk";
@@ -38,15 +36,25 @@ await agent.send("你好！");
 checkpointer.close(); // 用完后关闭
 ```
 
+## 特性
+
+- **即插即用的 `Checkpointer`** —— 完整契约：`append`、`read`、`head`、`list`、`delete`、`truncate`。
+- **多进程安全** —— WAL 日志模式 + `BEGIN IMMEDIATE` 写入路径，支持单机上多进程并发追加。
+- **冲突干净抛出** —— 冲突的追加抛出 `CheckpointConflictError`，而不会损坏日志。
+- **支持时间旅行** —— `truncate` 支撑会话恢复 / 回退（restore）。
+- **持久性可调** —— `synchronous`、`busyTimeoutMs`，以及可选的启动时完整性检查。
+- **经过验证** —— 通过 core 的 `checkpointerConformance` 测试套件。
+
 ## API
 
-`sqliteCheckpointer({ file })` → `SqliteCheckpointer`（core 的 `Checkpointer` 再加 `checkIntegrity()` / `close()`）：
+| 符号 | 说明 |
+| --- | --- |
+| `sqliteCheckpointer(opts)` | 创建 `SqliteCheckpointer`。选项：`file`（路径或 `":memory:"`）、`synchronous`（`"normal"` \| `"full"`）、`busyTimeoutMs`（默认 5000）、`integrityCheckOnOpen`（启动时执行 `PRAGMA quick_check`）。 |
+| `SqliteCheckpointer` | core 的 `Checkpointer`，另加 `checkIntegrity(): { ok, detail }` 与 `close()`。 |
+| `SqliteCheckpointerOptions` | `sqliteCheckpointer` 接受的选项类型。 |
 
-- `file` —— SQLite 数据库文件路径，或用 `":memory:"` 得到一个临时（内存）数据库。
-- `synchronous` —— `"normal"`（默认）或更强持久性的 `"full"`。
-- `busyTimeoutMs` —— 写锁等待超时（默认 5000 ms）。
-- `integrityCheckOnOpen` —— 启动时执行 `PRAGMA quick_check`，损坏则失败。
+## 相关
 
-它实现了完整的 `Checkpointer` 契约 —— `append`（乐观并发，由 `expectedHead` 守护）、`read`、`head`、`list`、`delete`，以及 `truncate`（因此会话时间旅行 / `restore` 可用）—— 并通过 core 的 `checkpointerConformance` 测试套件验证。
-
-架构说明见 [monorepo 根目录](../..)。
+- [`@lite-agent/core`](../core) —— 内核与 `Checkpointer` 接口。
+- [`@lite-agent/sdk`](../sdk) —— `createLiteAgent` / `query`；默认的基于文件的 checkpointer。
+- [lite-agent monorepo](../..) —— 架构与设计文档。

@@ -2,11 +2,9 @@
 
 **English** | [简体中文](./README.zh-CN.md)
 
-The pluggable, event-driven agent kernel. A lean, provider-agnostic core built from swappable **strategy** interfaces, an onion **middleware** pipeline, and a typed **event** stream. It knows nothing about any specific model, permission UI, or storage — those are plugged in.
+The pluggable, event-driven agent kernel for lite-agent: a lean, provider-agnostic core built from swappable strategy interfaces, an onion middleware pipeline, and a typed event stream. Use it to build your own agent from primitives — for a batteries-included setup (tools, skills, subagents, sessions), use [`@lite-agent/sdk`](../sdk) instead.
 
-Its public API is shaped after [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/claude-agent-sdk-typescript), but the kernel is self-built so it can also drive local small models via pluggable tool-call codecs.
-
-For a batteries-included setup (real tools, skills, subagents, sessions, permission gate), use [`@lite-agent/sdk`](../sdk) — it composes this core. Reach for `@lite-agent/core` directly when you want to build your own agent from the primitives.
+Its public API is shaped after [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/claude-agent-sdk-typescript), but the kernel is self-built, so it can also drive local small models via pluggable tool-call codecs.
 
 ## Install
 
@@ -38,31 +36,44 @@ console.log(result.text);
 
 `fakeProvider` is a built-in test double. For a real model, pass a `ModelProvider` from [`@lite-agent/provider`](../provider) (`anthropic()` / `openai()`).
 
-## The kernel
+## Features
 
-`runKernel(cfg, input, signal, sessionId)` is an `async function*` yielding `AgentEvent`s. Each turn: `codec.encode` the request → `provider.stream` (wrapped by `wrapModelCall` middleware) → accumulate text/usage → `codec.decode` into tool calls → run each through the `wrapToolCall` chain around `tool.execute` → feed results back → loop until the model stops calling tools or `maxTurns` is hit. Abort is observed at turn boundaries.
+- **Provider-agnostic kernel** — knows nothing about any specific model, permission UI, or storage; those are plugged in.
+- **Nine swappable strategies** — `ModelProvider` · `ToolCallCodec` · `Tool` · `Compactor` · `PermissionPolicy` · `ApprovalHandler` · `InputHandler` · `Store` · `Sandbox`. One implementation per role, hot-swappable.
+- **Onion middleware** — wrap model calls and tool executions, plus lifecycle hooks; compose layers declaratively.
+- **Typed event stream** — every run yields `AgentEvent`s (`turn_start`, `text_delta`, `tool_use`, `tool_result`, `approval_request`, `compaction`, `done`, …) for full observability.
+- **Context management** — compaction toolkit (snip/micro passes, reactive trim, LLM summarizer, token budgets, spill store) and a `ContextEngine` with planner/archiver hooks.
+- **Event-sourced checkpoints** — session persistence and time-travel via the `Checkpointer` interface; in-memory implementation included, durable backends in sibling packages.
+- **Permission middleware** — composable policies with rule matching and sensitive-data redaction.
+- **Steering & background tasks** — inject input mid-run with `SteerController`, spawn background work with `createBackgroundTasks`.
+- **Pluggable sandbox** — default `noopSandbox`; an OS-level boundary lives in [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic).
+- **Testing utilities** — `fakeProvider` plus conformance suites for providers and checkpointers.
 
-## Nine swappable strategies
+## API
 
-One implementation per role, hot-swappable:
+| Symbol | Description |
+| --- | --- |
+| `createAgent` / `Agent` | Assemble an agent from strategies; `run()` streams events, `send()` awaits the `RunResult`. |
+| `defineTool` / `toToolSpec` | Define zod-typed tools and convert them to model-facing specs. |
+| `nativeCodec` / `jsonCodec` / `reactCodec` | Tool-call codecs: native function calling, JSON prompting, ReAct text. |
+| `composeModelCall` / `composeToolCall` / `runLifecycle` | Fold middleware around model calls / tool executions; run lifecycle hooks. |
+| `permission` / `policy` / `strictPolicy` / `composePolicies` / `defaultRedactor` | Permission middleware and composable policies with redaction. |
+| `retry` | Retry middleware for model calls. |
+| `compaction` / `defaultCompactor` / `reactiveCompaction` / `reactiveTrim` / `llmCompactor` / `tokenBudgetCompactor` | Context compaction middleware and compactor implementations. |
+| `snipPass` / `microPass` / `splitTurns` / `runPipeline` / `estimateTokens` / `memorySpillStore` / `toolResultBudgetPass` | Building blocks for custom compaction pipelines. |
+| `ContextEngine` / `createContextEngine` / `projectContext` | Automatic context management with planner/archiver hooks and projected views. |
+| `memoryCheckpointer` / `foldEvents` / `storeEvents` / `legacyStoreAdapter` / `memoryStore` | Event-sourced session persistence primitives (in-memory). |
+| `noopSandbox` | The default no-boundary sandbox. |
+| `SteerController` / `createBackgroundTasks` | Inject input mid-run; spawn and manage background tasks. |
+| `fakeProvider` / `checkpointerConformance` / `providerConformance` | Test double and conformance test suites. |
+| `AgentError` + `ProviderError` / `ToolError` / `CodecError` / `MaxTurnsError` / `AbortError` / `CheckpointConflictError` | Error hierarchy. |
+| Types: `ModelProvider`, `ToolCallCodec`, `Tool`, `Compactor`, `PermissionPolicy`, `ApprovalHandler`, `InputHandler`, `Store`, `Sandbox`, `Message`, `ContentBlock`, `AgentEvent`, `RunResult`, … | All strategy interfaces, normalized message types, and the event union. |
 
-`ModelProvider` · `ToolCallCodec` · `Tool` · `Compactor` · `PermissionPolicy` · `ApprovalHandler` · `InputHandler` · `Store` · `Sandbox`.
+## Related
 
-## Design mnemonic
-
-- **Strategy** — *swap a part*: `ModelProvider`, `ToolCallCodec`, `Tool`, `Compactor`, `PermissionPolicy`, `ApprovalHandler`, `InputHandler`, `Store`, `Sandbox`.
-- **Middleware** — *add a layer*: `wrapModelCall`, `wrapToolCall`, and lifecycle hooks (`beforeAgent` / `afterAgent` / `beforeModel`). Fold with `composeModelCall` / `composeToolCall`.
-- **Event** — *observe only*: a typed `AgentEvent` stream (`turn_start`, `text_delta`, `message`, `tool_use`, `tool_result`, `approval_request|resolved`, `input_request|resolved`, `compaction`, `turn_end`, `error`, `done`).
-
-## What's exported
-
-- **Assembly** — `createAgent`, `defineTool` / `toToolSpec`, `nativeCodec`, `jsonCodec`, `reactCodec`.
-- **Middleware** — `permission` + `policy`, `retry`, `compaction` and the compaction toolkit (`defaultCompactor`, `reactiveCompaction`, `llmCompactor`, spill store, …), `composeModelCall` / `composeToolCall`.
-- **Persistence** — event-sourced `Checkpointer` primitives: `memoryCheckpointer`, `foldEvents`, `storeEvents`, `legacyStoreAdapter`, plus `memoryStore`. (For durable backends see [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) or the SDK's file checkpointer.)
-- **Sandbox** — `noopSandbox` (the default no-boundary sandbox; OS-level boundary lives in [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic)).
-- **Steering** — `SteerController` for injecting input mid-run.
-- **Errors** — `AgentError` + `ProviderError` / `ToolError` / `CodecError` / `MaxTurnsError` / `AbortError` / `CheckpointConflictError`.
-- **Testing** — `fakeProvider`, `checkpointerConformance`.
-- **Types** — normalized `Message` / `ContentBlock` / `ToolCall` / `ToolResult` / `UserQuestion` / `UserAnswer`, all strategy interfaces, and the `AgentEvent` union.
-
-See the [monorepo root](../..) for the full architecture write-up.
+- [`@lite-agent/sdk`](../sdk) — batteries-included agent composed from this core (tools, skills, subagents, sessions, permission gate).
+- [`@lite-agent/provider`](../provider) — `ModelProvider` implementations (`anthropic()`, `openai()`).
+- [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) — durable `Checkpointer` backend.
+- [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic) — OS-level sandbox boundary.
+- [`@lite-agent/local`](../local) — local-model support.
+- [Monorepo root](../..) — full architecture write-up.

@@ -2,12 +2,7 @@
 
 **English** | [简体中文](./README.zh-CN.md)
 
-Model providers for lite-agent. One package ships two `ModelProvider` strategies for [`@lite-agent/core`](../core):
-
-- **`anthropic()`** — maps normalized requests to the [Anthropic Messages API](https://docs.claude.com/en/api/messages) (wrapping `@anthropic-ai/sdk`).
-- **`openai()`** — maps them to [OpenAI Chat Completions](https://platform.openai.com/docs/api-reference/chat) (also works against OpenAI-compatible / local endpoints).
-
-Each provider translates the provider SSE into `ModelChunk`s, wraps SDK errors in `ProviderError` (preserving `.status`), and exposes an injectable `client` seam for offline tests.
+Model providers for lite-agent: ready-to-use `ModelProvider` strategies that connect [`@lite-agent/core`](../core) to the Anthropic Messages API and to OpenAI Chat Completions (including OpenAI-compatible and local endpoints).
 
 ## Install
 
@@ -15,89 +10,52 @@ Each provider translates the provider SSE into `ModelChunk`s, wraps SDK errors i
 pnpm add @lite-agent/provider
 ```
 
-## Usage
+## Quick start
 
-Hand a provider to `createLiteAgent` / `query` (from [`@lite-agent/sdk`](../sdk)) or to `createAgent` (from core):
-
-```ts
-import { anthropic, openai } from "@lite-agent/provider";
-
-// Anthropic — reads ANTHROPIC_API_KEY and BASE_URL from env by default.
-const claude = anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
-  baseURL: process.env.BASE_URL,
-});
-
-// OpenAI (or any OpenAI-compatible / local endpoint like Ollama, vLLM, LM Studio).
-// Reads OPENAI_API_KEY and OPENAI_BASE_URL from env by default.
-const gpt = openai({
-  apiKey: process.env.OPENAI_API_KEY,
-  baseURL: "http://localhost:11434/v1", // e.g. a local server
-});
-```
+Hand a provider to `query` from [`@lite-agent/sdk`](../sdk) (or to `createAgent` from core):
 
 ```ts
+import { anthropic } from "@lite-agent/provider";
 import { query } from "@lite-agent/sdk";
+
+// Reads ANTHROPIC_API_KEY and BASE_URL from env by default.
+const claude = anthropic();
 
 for await (const ev of query({ prompt: "Hello!", model: claude, modelName: "claude-sonnet-4-6" })) {
   if (ev.type === "text_delta") process.stdout.write(ev.text);
 }
 ```
 
-## Options
+```ts
+import { openai } from "@lite-agent/provider";
 
-Both `anthropic(opts)` and `openai(opts)` accept:
-
-| Option | Description |
-| --- | --- |
-| `apiKey` | API key. Falls back to `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`. |
-| `baseURL` | Override the endpoint. Falls back to `BASE_URL` / `OPENAI_BASE_URL`. |
-| `client` | Inject a custom/mock client (structural — used for offline tests). |
-| `maxRetries` | The underlying SDK's own retry count. **Default `0`** so retry policy is owned by the core `retry()` middleware instead of compounding. |
-
-The package root exports both factories and their option/client types
-(`AnthropicProviderOptions`, `AnthropicClientLike`, `OpenAIProviderOptions`,
-`OpenAIClientLike`). Request mappers and stream translators are internal adapter
-details and are not public package-root exports.
-
-## Support levels
-
-| Level | Meaning |
-| --- | --- |
-| Maintained adapter | Repository-owned request mapping and stream translation; passes the offline shared conformance suite. |
-| Maintained preset | Repository-owned endpoint/configuration preset using a maintained adapter; runtime and model capabilities still vary. |
-| Compatible endpoint | User-supplied endpoint expected to speak the protocol; best-effort until that exact runtime/model profile passes the opt-in probe. |
-
-| Integration | Level | Notes |
-| --- | --- | --- |
-| Anthropic Messages | Maintained adapter | Text streaming, tool calls, normalized usage, abort propagation, and `ProviderError` normalization are covered offline. |
-| OpenAI Chat Completions | Maintained adapter | The same shared offline contract is applied. |
-| Ollama, vLLM, LM Studio, llama.cpp | Maintained preset in [`@lite-agent/local`](../local) | Uses the OpenAI-compatible adapter; native tool and usage support depend on the selected runtime and model. |
-| Other OpenAI-compatible endpoints | Compatible endpoint | Not verified by default; run the profile below against the exact endpoint and model. |
-
-"Compatible" is not a blanket certification. Servers differ in streaming,
-`stream_options`, tool-choice, usage, and error behavior.
-
-## Probe an OpenAI-compatible endpoint
-
-The probe is deliberately excluded from normal tests and runs only through its
-dedicated command:
-
-```bash
-LITE_AGENT_COMPAT_BASE_URL=http://127.0.0.1:11434/v1 \
-LITE_AGENT_COMPAT_MODEL=qwen3:8b \
-pnpm --filter @lite-agent/provider test:compat
+// OpenAI or any OpenAI-compatible endpoint (Ollama, vLLM, LM Studio, ...).
+// Reads OPENAI_API_KEY and OPENAI_BASE_URL from env by default.
+const gpt = openai({ baseURL: "http://localhost:11434/v1" });
 ```
 
-`LITE_AGENT_COMPAT_API_KEY` is optional and defaults to `local`.
-`LITE_AGENT_COMPAT_FORCED_TOOL` accepts `true` or `false` (default `false`);
-other non-empty values are rejected before client construction. Set it to
-`true` to add a stronger profile that forces the named `echo` tool. Passing
-that profile proves named forced-tool selection; it does not claim that every
-native tool-choice mode is supported.
+## Features
 
-The adapters currently differ on malformed streamed tool JSON: Anthropic
-surfaces a provider error, while OpenAI falls back to an empty input object and
-defers validity to downstream tool-schema validation, which may reject it.
+- **`anthropic()`** — maps normalized requests to the [Anthropic Messages API](https://docs.claude.com/en/api/messages), wrapping `@anthropic-ai/sdk`.
+- **`openai()`** — maps them to [OpenAI Chat Completions](https://platform.openai.com/docs/api-reference/chat); also works against OpenAI-compatible / local endpoints.
+- Translates provider SSE streams into normalized `ModelChunk`s (text deltas, tool calls, usage).
+- Wraps SDK errors in `ProviderError`, preserving the HTTP `.status`.
+- Injectable `client` seam (structural typing) for offline tests with mock clients.
+- `maxRetries` defaults to `0`, so retry policy is owned by the core `retry()` middleware instead of compounding.
+- Passes the repo's offline shared conformance suite; an opt-in probe (`pnpm --filter @lite-agent/provider test:compat`) verifies other OpenAI-compatible endpoints on demand.
 
-See the [monorepo root](../..) for architecture.
+## API
+
+| Symbol | Description |
+| --- | --- |
+| `anthropic(options?)` | Create a `ModelProvider` for the Anthropic Messages API. |
+| `openai(options?)` | Create a `ModelProvider` for OpenAI Chat Completions or compatible endpoints. |
+| `AnthropicProviderOptions`, `OpenAIProviderOptions` | Factory options: `apiKey` and `baseURL` (env fallback), `client`, `maxRetries`. |
+| `AnthropicClientLike`, `OpenAIClientLike` | Structural client types accepted by the `client` option. |
+
+## Related
+
+- [`@lite-agent/core`](../core) — provider-agnostic agent kernel (strategies, middleware, event stream).
+- [`@lite-agent/sdk`](../sdk) — high-level `query` / `createLiteAgent` API.
+- [`@lite-agent/local`](../local) — maintained presets for local runtimes (Ollama, vLLM, LM Studio, llama.cpp).
+- [Monorepo root](../..) — architecture overview.

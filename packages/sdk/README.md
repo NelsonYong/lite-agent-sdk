@@ -2,9 +2,7 @@
 
 **English** | [简体中文](./README.zh-CN.md)
 
-Batteries-included agent SDK built on [`@lite-agent/core`](../core). It assembles the kernel with a working tool set (bash + file ops), skills, subagents, a persistent task list, a built system prompt, sessions, compaction, and an optional permission gate — exposed through a small [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/claude-agent-sdk-typescript)-shaped API (`query` / `createLiteAgent` / `tool`).
-
-Pair it with a [`@lite-agent/provider`](../provider) for the model. Everything is optional and swappable — the batteries are just sensible defaults over the core strategies.
+Batteries-included agent SDK over [`@lite-agent/core`](../core): a working tool set, skills, subagents, sessions, and a permission gate behind a small [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/claude-agent-sdk-typescript)-shaped API (`query` / `createLiteAgent` / `tool`). Pair it with a [`@lite-agent/provider`](../provider) for the model — every battery is a toggleable default over the core strategies.
 
 ## Install
 
@@ -12,80 +10,92 @@ Pair it with a [`@lite-agent/provider`](../provider) for the model. Everything i
 pnpm add @lite-agent/sdk @lite-agent/provider zod
 ```
 
-## Quick start — `query()`
-
-The one-shot facade. Streams a typed `AgentEvent` stream and returns a `RunResult`.
+## Quick start
 
 ```ts
-import { query } from "@lite-agent/sdk";
+import { query, tool } from "@lite-agent/sdk";
 import { anthropic } from "@lite-agent/provider";
+import { z } from "zod";
+
+const weather = tool(
+  "get_weather",
+  "Get the weather for a city",
+  z.object({ city: z.string() }),
+  async ({ city }) => `It's sunny in ${city}.`,
+);
 
 for await (const ev of query({
-  prompt: "List the files here and summarize what this project does.",
+  prompt: "What's the weather in Tokyo?",
   model: anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }),
   modelName: "claude-sonnet-4-6",
-  cwd: process.cwd(),
+  tools: [weather],
+  allowedTools: ["get_weather", "read_file"],
 })) {
   if (ev.type === "text_delta") process.stdout.write(ev.text);
 }
 ```
 
-## `createLiteAgent()` — a stateful agent
+`query()` streams typed `AgentEvent`s and resolves to a `LiteAgentResult`. For multi-turn work, `createLiteAgent(cfg)` returns a stateful `LiteAgent` that owns a current session — `send()`, `resume(id)`, `clear()`, `listSessions()`, `deleteSession(id)`, time-travel via `listCheckpoints(id)` / `restore(id, seq)`, and manual `compact()`.
 
-Owns a current session, so `send` / `run` are multi-turn by default. Add your own tools with `tool()`, and gate dangerous ones with a permission `policy`.
+### Long-lived background turns
+
+Interactive consumers can subscribe once and keep receiving events after an
+individual `run()` or `send()` has returned:
 
 ```ts
-import { createLiteAgent, tool, policy } from "@lite-agent/sdk";
-import { anthropic } from "@lite-agent/provider";
-import { z } from "zod";
-
-const agent = createLiteAgent({
-  model: anthropic(),
-  modelName: "claude-sonnet-4-6",
-  workdir: process.cwd(),
-  tools: [
-    tool(
-      "get_weather",
-      "Get the weather for a city",
-      z.object({ city: z.string() }),
-      async ({ city }) => `It's sunny in ${city}.`,
-    ),
-  ],
-  // Ask before running side-effecting built-ins; everything else runs freely.
-  permission: policy({ ask: ["bash", "write_file", "edit_file", "delete_file"] }),
-  permissionAudit: true, // persist redacted decisions in the session event log
-  onApproval: { request: async (call) => "allow" }, // your UI decides
+const agent = createLiteAgent({ model, workdir: process.cwd() });
+const unsubscribe = agent.subscribe(({ sessionId, source, event }) => {
+  render(sessionId, source, event); // includes autonomous background turns
 });
 
-await agent.send("Remember my name is Nelson.");
-const result = await agent.send("What's my name, and what's the weather in Tokyo?");
-console.log(result.text); // same session — it remembers
+await agent.send("Start the long review in the background");
+await agent.send("Meanwhile, answer this separate question");
+
+// On application shutdown:
+unsubscribe();
+await agent.close();
 ```
 
-Session management on the returned `LiteAgent`: `sessionId`, `resume(id)`, `clear()`, `listSessions()`, `deleteSession(id)`, plus time-travel — `listCheckpoints(id)` / `restore(id, seq)` (rewinds files and/or conversation) and a manual `compact()`.
+Ordinary `Agent` calls remain blocking. `run_in_background: true` on `Agent` or
+`bash` returns immediately and keeps working across later turns of the same live
+session. Completion wakes the originating session automatically; user and
+completion turns for one session are serialized. In-flight work does not survive
+a process restart. `query()` remains one-shot and closes its temporary background
+work; use `createLiteAgent()` plus `subscribe()` for long-lived interaction.
 
-## What's in the box
+## Features
 
-Assembled by `createLiteAgent` (each toggleable):
-
-- **Default tools** — `bash`, `read_file`, `write_file`, `edit_file`, `delete_file`, all scoped to `workdir`. Mutating file tools use atomic writes and record bounded UTF-8/base64 pre-change snapshots so session restore can undo text or binary writes, edits, and deletions.
-- **Skills** — `SKILL.md` files (YAML frontmatter) loaded from `~/.lite-agent/skills`, `<workdir>/.lite-agent/skills`, and an explicit `skillsDir`; injected on demand via `load_skill`.
-- **Subagents** — a parallel-capable `Agent` dispatch tool with a built-in `general-purpose` agent; add your own as `agents/*.md`. (`agents: false` to disable.)
-- **Tasks** — a persistent task list (`TaskCreate/Update/Get/List`) with a per-turn reminder. (`tasks: false` to disable.)
-- **Sessions** — event-sourced persistence via a `fileCheckpointer` under the project dir; swap in [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) or any `Checkpointer`.
-- **Compaction** — a deterministic default compactor (no LLM call) plus a reactive overflow net; disk-**spill** for oversized tool results.
-- **Permission gate** — `policy({ allow, ask, deny })` matched by tool-name glob (`deny > ask > allow`); pair with `onApproval` for human-in-the-loop. Set `permissionAudit: true` to persist redacted `permission_decision` sidecars (off by default). Durable audit requires an event-sourced `Checkpointer`; legacy `Store` adapters retain only model messages.
+- **Default tools** — `bash`, `read_file`, `write_file`, `edit_file`, `delete_file`, scoped to `workdir`, with atomic writes and pre-change snapshots so session restore can undo them.
+- **Skills** — `SKILL.md` files loaded from `~/.lite-agent/skills`, `<workdir>/.lite-agent/skills`, or `skillsDir`; injected on demand via `load_skill`.
+- **Subagents** — parallel-capable `Agent` dispatch tool with a built-in `general-purpose` agent; add your own as `agents/*.md` (`agents: false` to disable).
+- **Tasks** — persistent task list (`TaskCreate/Update/Get/List`) with a per-turn reminder (`tasks: false` to disable).
+- **Sessions** — event-sourced persistence via `fileCheckpointer`; swap in [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) or any `Checkpointer`.
+- **Compaction** — deterministic default compactor (no LLM call), reactive overflow net, and disk spill for oversized tool results.
+- **Permission gate** — `policy({ allow, ask, deny })` matched by tool-name glob (`deny > ask > allow`); pair with `onApproval` for human-in-the-loop and `permissionAudit: true` to persist redacted decisions.
 - **Sandbox** — pass a `Sandbox` (e.g. [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic)) to run `bash` inside an OS boundary.
-- **`ask_user`** — registered when `onAskUser` is set, letting the model ask you questions mid-run.
+- **Human input** — an `ask_user` tool is registered when `onAskUser` is set, letting the model ask questions mid-run.
 - **Structured output** — set `outputSchema` (a Zod object) to force a validated final answer, surfaced as `result.output`.
-- **Local hardening primitives** — configurable prompt codec/repair, context budget, file/snapshot limits, crash recovery, managed permission files, and rotating hash-chained event sinks. For strict defaults use [`@lite-agent/local`](../local).
+- **Background tasks** — enabled by default (`background: false` disables them); background Agent/Bash work continues across turns, with `bash_output` / `kill_background` for observation and control.
+- **Local hardening** — configurable prompt codec/repair, context budget, snapshot limits, crash recovery, and hash-chained event sinks; strict defaults via [`@lite-agent/local`](../local).
 
 ## API
 
-- `query(opts)` → `AsyncGenerator<AgentEvent, LiteAgentResult>` — one-shot.
-- `createLiteAgent(cfg)` → `LiteAgent` — stateful, session-owning agent.
-- `tool(name, description, schema, handler)` — define a tool from a Zod schema.
-- `buildSystemPrompt(opts)` — the default system prompt builder.
-- Re-exports everything from [`@lite-agent/core`](../core) (types, events, strategies, middleware helpers).
+| Symbol | Description |
+| --- | --- |
+| `query(opts)` | One-shot agent run — `AsyncGenerator<AgentEvent, LiteAgentResult>`. |
+| `createLiteAgent(cfg)` | Stateful, session-owning agent (`LiteAgent`) with `subscribe()` and `close()`. |
+| `tool(name, description, schema, handler)` | Define a tool from a Zod schema. |
+| `buildSystemPrompt(opts)` | The default system-prompt builder. |
+| `defaultTools`, `bashTool`, `fileTools`, `taskTools`, `agentTool`, `askUserTool`, `bashOutputTool`, `killBackgroundTool` | Built-in tool sets, individually importable. |
+| `policy`, `bashCommand`, `filePath`, `permissionFilePolicy` | Permission policies and content-level specifiers. |
+| `fileCheckpointer`, `jsonlStore`, `fileTaskStore`, `fileSpillStore`, `fileContextArchive` | File-backed persistence adapters. |
+| `jsonlEventSink`, `recordEventStream` | Event observability sinks. |
+| `SkillLoader`, `loadSkillTool`, `AgentLoader`, `builtinAgents` | Skill and subagent loading. |
+| `* from @lite-agent/core` | Full re-export of the kernel: types, events, strategies, middleware helpers. |
 
-See the [monorepo root](../..) for architecture, and [`examples/cli`](../../examples/cli) for a full interactive REPL wiring provider + sandbox + permission + `ask_user`.
+## Related
+
+- [`@lite-agent/core`](../core) — the provider-agnostic kernel this package assembles.
+- [`@lite-agent/provider`](../provider) — model providers (Anthropic, …).
+- [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) · [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic) · [`@lite-agent/local`](../local) — pluggable backends and hardening.
+- [Monorepo root](../..) — architecture overview; [`examples/cli`](../../examples/cli) — a full interactive REPL wiring provider + sandbox + permission + `ask_user`.
