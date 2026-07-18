@@ -1,94 +1,62 @@
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { defineConfig } from 'rspress/config';
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { defineConfig } from "@rspress/core";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
+const base = process.env.DOCS_BASE ?? "/";
+
 export default defineConfig({
-  root: 'docs',
-  base: process.env.DOCS_BASE ?? '/',
-  lang: 'en',
-  title: 'lite-agent',
+  root: "docs",
+  base,
+  lang: "en",
+  title: "Lite Agent",
   description:
-    'A pluggable, lightweight agent-core SDK — swappable strategies, onion middleware, typed event stream.',
-  icon: '/logo.svg',
-  logo: '/logo.svg',
-  logoText: 'lite-agent',
-  globalStyles: path.join(__dirname, 'styles', 'index.css'),
+    "A pluggable, lightweight agent-core SDK — swappable strategies, onion middleware, typed event stream.",
+  icon: "/logo.svg",
+  logo: "/logo.svg",
+  logoText: "Lite Agent",
+  globalStyles: path.join(__dirname, "styles", "index.css"),
+  // SSG-MD: emit llms.txt / llms-full.txt and per-page .md files
+  // (multilingual sites also get zh/llms.txt).
+  llms: true,
   locales: [
     {
-      lang: 'en',
-      label: 'English',
-      title: 'lite-agent',
+      lang: "en",
+      label: "English",
+      title: "lite-agent",
       description:
-        'A pluggable, lightweight agent-core SDK — swappable strategies, onion middleware, typed event stream.',
+        "A pluggable, lightweight agent-core SDK — swappable strategies, onion middleware, typed event stream.",
     },
     {
-      lang: 'zh',
-      label: '简体中文',
-      title: 'lite-agent',
+      lang: "zh",
+      label: "简体中文",
+      title: "lite-agent",
       description:
-        '可插拔、轻量的 Agent 内核 SDK —— 可替换策略、洋葱式中间件、类型化事件流。',
+        "可插拔、轻量的 Agent 内核 SDK —— 可替换策略、洋葱式中间件、类型化事件流。",
     },
   ],
   themeConfig: {
     darkMode: true,
     footer: {
-      message: 'Released under the ISC License.',
+      // Internal links are raw HTML — prefix them with the deploy base
+      // so they don't break under GitHub Pages' /<repo>/ path.
+      message:
+        '<div class="la-footer-links">' +
+        `<a href="${base}sdk/overview">SDK</a>` +
+        `<a href="${base}core/overview">Core</a>` +
+        `<a href="${base}examples/cli">Examples</a>` +
+        '<a href="https://github.com/NelsonYong/lite-agent-sdk">GitHub</a>' +
+        '<a href="https://github.com/NelsonYong/lite-agent-sdk/issues">Issues</a>' +
+        `<a href="${base}llms.txt">llms.txt</a>` +
+        "</div>" +
+        '<div class="la-footer-legal">Released under the MIT License · Copyright © 2026 lite-agent contributors</div>',
     },
     socialLinks: [
       {
-        icon: 'github',
-        mode: 'link',
-        content: 'https://github.com/NelsonYong/lite-agent-sdk',
-      },
-    ],
-    locales: [
-      {
-        lang: 'en',
-        label: 'English',
-        outlineTitle: 'On this page',
-        lastUpdatedText: 'Last updated',
-        nav: [
-          {
-            text: 'Guide',
-            link: '/guide/getting-started',
-            activeMatch: '/guide/',
-          },
-          {
-            text: 'Packages',
-            link: '/packages/sdk',
-            activeMatch: '/packages/',
-          },
-          {
-            text: 'Examples',
-            link: '/examples/cli',
-            activeMatch: '/examples/',
-          },
-        ],
-      },
-      {
-        lang: 'zh',
-        label: '简体中文',
-        outlineTitle: '本页目录',
-        lastUpdatedText: '最后更新',
-        nav: [
-          {
-            text: '指南',
-            link: '/zh/guide/getting-started',
-            activeMatch: '/zh/guide/',
-          },
-          {
-            text: '包',
-            link: '/zh/packages/sdk',
-            activeMatch: '/zh/packages/',
-          },
-          {
-            text: '示例',
-            link: '/zh/examples/cli',
-            activeMatch: '/zh/examples/',
-          },
-        ],
+        icon: "github",
+        mode: "link",
+        content: "https://github.com/NelsonYong/lite-agent-sdk",
       },
     ],
   },

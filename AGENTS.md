@@ -30,7 +30,7 @@ Run from the repo root (it is a **private workspace root** — orchestration onl
 - **Test all:** `pnpm test` → `pnpm -r test` (vitest)
 - **Typecheck all:** `pnpm typecheck` → `pnpm -r typecheck` (`tsc --noEmit`)
 - **Run the demo:** `pnpm dev` → `pnpm --filter @lite-agent/example-cli dev` (`tsx src/main.ts`)
-- **Docs site:** `pnpm docs:dev` / `pnpm docs:build` / `pnpm docs:preview` → `pnpm --filter @lite-agent/docs <dev|build|preview>` (Rspress; build output `docs-site/doc_build`, base from `DOCS_BASE`). Deployed via `.github/workflows/deploy-docs.yml` on pushes to `main` touching `docs-site/**`.
+- **Docs site:** `pnpm docs:dev` / `pnpm docs:build` / `pnpm docs:preview` → `pnpm --filter @lite-agent/docs <dev|build|preview>` (Rspress; build output `docs-site/doc_build`, base from `DOCS_BASE`). Docs are bilingual (`docs/en/` + `docs/zh/`), organized by capability into two nav sections — **SDK** (`sdk/`) and **Core** (`core/`) — plus `examples/`; nav lives in per-language root `_meta.json` and sidebar order/labels in per-directory `_meta.json` (do NOT set `nav`/`sidebar` in `rspress.config.ts` — that disables the auto-generation). Deployed via `.github/workflows/deploy-docs.yml` on pushes to `main` touching `docs-site/**`.
 - **One package:** `pnpm --filter @lite-agent/<name> <test|build|typecheck>` · single test: `pnpm --filter @lite-agent/core test -- <namefilter>`
 - **Versioning:** update changed package versions + English `CHANGELOG.md` files manually; `pnpm release:changed` previews registry publishing and `--yes` publishes.
 - **Package manager:** pnpm (pinned 10.12.4). Node >= 20.

@@ -2,37 +2,35 @@
 pageType: home
 
 hero:
-  name: lite-agent
-  text: 可插拔的 Agent 内核 SDK
-  tagline: 轻量内核 = 可替换策略 + 洋葱式中间件 + 类型化事件流。同一套 Agent，驱动任意模型 —— 从 Claude 到本地小模型。
-  image:
-    src: /logo.svg
-    alt: lite-agent
+  name: Lite Agent
+  text: 完整的 Agent 运行时
+  tagline: 开箱即用，也任你拆解 —— 三行 query() 跑起一个 agent，或用内核原语组装自己的。一套内核，驱动任意模型。
   actions:
     - theme: brand
       text: 快速开始
-      link: /zh/guide/getting-started
+      link: /zh/sdk/getting-started
     - theme: alt
       text: GitHub
       link: https://github.com/NelsonYong/lite-agent-sdk
 
 features:
   - title: Provider 无关
-    details: 一套归一化消息模型，覆盖 Anthropic、OpenAI 及 OpenAI 兼容的本地端点。换模型，不换 Agent。
-    icon: 🔌
+    details: Anthropic、OpenAI 与本地端点，一套消息模型。换模型，不换 Agent。
   - title: 九种可替换策略
-    details: ModelProvider、ToolCallCodec、Tool、Compactor、PermissionPolicy、ApprovalHandler、InputHandler、Store、Sandbox —— 每个角色一个实现，即插即换。
-    icon: 🧩
+    details: 从 ModelProvider 到 Sandbox，每个角色一个实现，即插即换。
   - title: 洋葱式中间件
-    details: 重试、权限、日志、压缩 —— 用 wrapModelCall / wrapToolCall 在模型与工具调用外层层叠加横切能力。
-    icon: 🧅
+    details: 重试、权限、压缩 —— 在每次调用外层层叠加。
   - title: 类型化事件流
-    details: 每次运行产出类型化的 AgentEvent 流：文本增量、工具调用、审批、压缩 —— 供日志、UI 与指标消费。
-    icon: 📡
+    details: 一次运行，一条 AgentEvent 流。日志、UI、指标，各取所需。
+  - title: 会话持久化
+    details: 事件溯源会话，可恢复、可回溯 —— 重启不丢，错了能回滚。
+  - title: 并行子代理
+    details: 隔离会话的子代理并行处理子任务，主上下文保持干净。
+  - title: 结构化输出
+    details: 一个 Zod schema，把最终回答变成类型化、可校验的数据。
   - title: 纵深防御
-    details: 执行前的 glob 权限门控，加上 bash 外围的操作系统级沙箱（macOS Seatbelt / Linux bubblewrap）。
-    icon: 🛡️
+    details: 执行前的权限门控，运行时的 OS 级沙箱。
   - title: 本地模型就绪
-    details: 可插拔的 tool-call 编解码器（native / JSON / ReAct）驱动本地小模型，并提供严格单机装配以获得最大控制力。
-    icon: 💻
+    details: 可插拔 codec，让本地小模型也会调用工具。
 ---
+

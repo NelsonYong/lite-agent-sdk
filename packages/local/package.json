@@ -2,7 +2,7 @@
   "name": "@lite-agent/local",
   "version": "0.2.0",
   "description": "Strict single-host local runtime for lite-agent: local models, SQLite, sandbox, managed permissions, and audit logs.",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

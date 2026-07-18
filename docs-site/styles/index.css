@@ -1,17 +1,343 @@
-/* Brand accent — indigo-violet, tuned for both light and dark surfaces. */
+/* ------------------------------------------------------------------
+ * Apple-style theme for lite-agent docs (Rspress v2).
+ * Principles applied from the apple-design skill:
+ *  - Typography: system font with optical sizing; size-specific
+ *    tracking (negative on headings, near-zero on body); leading
+ *    tracks size inversely.
+ *  - Materials: translucent chrome (backdrop-filter) with content
+ *    scrolling underneath; hairline dividers, not hard borders.
+ *  - Color: adaptive light/dark palette (Apple system blue).
+ *  - Motion: instant press feedback, short ease transitions,
+ *    cross-fade only when reduced motion is requested.
+ *  - Restraint: generous whitespace, soft radius, subtle shadows.
+ * ------------------------------------------------------------------ */
+
 :root {
-  --rp-c-brand: #6366f1;
-  --rp-c-brand-light: #818cf8;
-  --rp-c-brand-lighter: #a5b4fc;
-  --rp-c-brand-dark: #4f46e5;
-  --rp-c-brand-darker: #4338ca;
-  --rp-home-hero-name-background: linear-gradient(120deg, #6366f1 30%, #a855f7);
+  /* Apple system blue — light mode */
+  --rp-c-brand: #0071e3;
+  --rp-c-brand-light: #42a5f5;
+  --rp-c-brand-lighter: #7fc4ff;
+  --rp-c-brand-dark: #0060c9;
+  --rp-c-brand-darker: #004a99;
+  --rp-c-brand-soft: rgba(0, 113, 227, 0.08);
+
+  /* Neutral, paper-like surfaces */
+  --rp-c-bg: #ffffff;
+  --rp-c-bg-soft: #f5f5f7;
+  --rp-c-bg-mute: #ececf0;
+  --rp-c-divider: rgba(0, 0, 0, 0.08);
+  --rp-c-text-1: #1d1d1f;
+  --rp-c-text-2: #6e6e73;
+  --rp-c-text-3: #86868b;
+
+  --la-font-base: -apple-system, BlinkMacSystemFont, "SF Pro Text",
+    "SF Pro Icons", "Helvetica Neue", "PingFang SC", "Hiragino Sans GB",
+    "Microsoft YaHei", "Segoe UI", Roboto, sans-serif;
+  --la-font-mono: ui-monospace, "SF Mono", SFMono-Regular, Menlo, Consolas,
+    "Liberation Mono", monospace;
 }
 
 .dark {
-  --rp-c-brand: #818cf8;
-  --rp-c-brand-light: #a5b4fc;
-  --rp-c-brand-lighter: #c7d2fe;
-  --rp-c-brand-dark: #6366f1;
-  --rp-c-brand-darker: #4f46e5;
+  /* Apple system blue — dark mode */
+  --rp-c-brand: #0a84ff;
+  --rp-c-brand-light: #409cff;
+  --rp-c-brand-lighter: #7ab8ff;
+  --rp-c-brand-dark: #0066cc;
+  --rp-c-brand-darker: #004a99;
+  --rp-c-brand-soft: rgba(10, 132, 255, 0.14);
+
+  --rp-c-bg: #000000;
+  --rp-c-bg-soft: #161617;
+  --rp-c-bg-mute: #1d1d1f;
+  --rp-c-divider: rgba(255, 255, 255, 0.12);
+  --rp-c-text-1: #f5f5f7;
+  --rp-c-text-2: #a1a1a6;
+  --rp-c-text-3: #86868b;
+}
+
+/* ---- Typography ---------------------------------------------------- */
+
+body {
+  font-family: var(--la-font-base);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--la-font-base);
+  letter-spacing: -0.02em; /* tighten display text, per optical sizing */
+  line-height: 1.15;
+}
+
+h3, h4 {
+  letter-spacing: -0.01em;
+  line-height: 1.25;
+}
+
+code, pre, kbd, samp {
+  font-family: var(--la-font-mono);
+}
+
+/* ---- Materials: translucent chrome --------------------------------- */
+
+.rp-nav {
+  background: color-mix(in srgb, var(--rp-c-bg) 72%, transparent) !important;
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  border-bottom: none !important;
+  box-shadow: 0 0.5px 0 var(--rp-c-divider); /* hairline, not a hard border */
+}
+
+.rp-sidebar-menu {
+  background: transparent;
+}
+
+/* ---- Restraint: radius, spacing, shadows --------------------------- */
+
+.rp-doc div[class*="language-"] {
+  border-radius: 12px;
+  border: 0.5px solid var(--rp-c-divider);
+  box-shadow: none;
+}
+
+.rp-doc table {
+  border-radius: 12px;
+  overflow: hidden;
+}
+
+.rp-doc blockquote,
+.rp-doc div[class*="rspress-custom-block"],
+.rp-doc div[class*="rp-custom-block"],
+div[class*="custom-block"] {
+  border-radius: 12px;
+}
+
+/* ---- Home page: Apple product-page treatment ------------------------ */
+/* Plain surfaces, huge tight-tracked type, pill buttons, flat cards.   */
+
+/* Kill the default colored glow behind the hero — Apple uses plain
+   white/black and lets the type carry the page. */
+.rp-home-background {
+  display: none;
+}
+
+/* Centered hero, no side image */
+.rp-home-hero__container {
+  justify-content: center;
+  text-align: center;
+}
+
+.rp-home-hero__content {
+  margin-inline: auto;
+  align-items: center;
+  max-width: 52rem;
+}
+
+/* The product name: solid brand blue, not a rainbow gradient */
+.rp-home-hero__title-brand {
+  background: none !important;
+  -webkit-text-fill-color: var(--rp-c-brand) !important;
+  color: var(--rp-c-brand);
+  letter-spacing: -0.02em;
+}
+
+/* The headline: big, tight, near-black (near-white in dark) */
+.rp-home-hero__title {
+  letter-spacing: -0.03em;
+  line-height: 1.05;
+}
+
+.rp-home-hero__tagline {
+  color: var(--rp-c-text-2);
+  letter-spacing: -0.01em;
+  line-height: 1.5;
+}
+
+/* Pill buttons — Apple's 980px radius, solid brand blue (no gradient) */
+.rp-home-hero__action {
+  border-radius: 980px !important;
+  padding-inline: 1.4rem !important;
+  transition: transform 120ms ease, opacity 120ms ease,
+    background-color 160ms ease !important;
+}
+
+.rp-button--brand {
+  background: var(--rp-c-brand) !important;
+  background-image: none !important;
+}
+
+.rp-button--brand:hover {
+  background: var(--rp-c-brand-dark) !important;
+  background-image: none !important;
+}
+
+.rp-home-hero__action:active {
+  transform: scale(0.97); /* instant press feedback */
+}
+
+/* Feature cards: flat soft-gray panels, no border, no shadow play */
+.rp-home-feature__card {
+  border-radius: 18px;
+  border: none;
+  background: var(--rp-c-bg-soft);
+  box-shadow: none;
+  transition: background-color 200ms ease;
+}
+
+.rp-home-feature__card:hover {
+  transform: none;
+  box-shadow: none;
+}
+
+.rp-home-feature__title {
+  letter-spacing: -0.01em;
+}
+
+/* Home quickstart block: centered, quiet, code-first */
+.la-home-quickstart {
+  max-width: 44rem;
+  margin: 0 auto;
+  padding: 0 1.5rem 3rem;
+}
+
+.la-home-quickstart pre {
+  border-radius: 12px;
+  border: 0.5px solid var(--rp-c-divider);
+  background: var(--rp-c-bg-soft);
+  padding: 1rem 1.25rem;
+  overflow-x: auto;
+  font-family: var(--la-font-mono);
+  font-size: 0.85rem;
+  line-height: 1.6;
+}
+
+.la-home-quickstart pre + pre {
+  margin-top: 0.75rem;
+}
+
+.la-home-quickstart__cmd {
+  color: var(--rp-c-text-2);
+}
+
+.la-home-quickstart__code {
+  color: var(--rp-c-text-1);
+}
+
+/* Footer: compact single strip — links row + legal line, pinned to the
+   bottom of the viewport on short pages (root must fill the window). */
+html,
+body {
+  min-height: 100vh;
+}
+
+#__rspress_root {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.rp-home-footer {
+  margin-top: auto !important;
+  padding: 1.5rem 0 !important;
+}
+
+.rp-home-footer__message {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.4rem;
+  width: 100%;
+}
+
+.la-footer-links {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.25rem 1.25rem;
+}
+
+.la-footer-links a {
+  color: var(--rp-c-text-2);
+  font-size: 0.85rem;
+  text-decoration: none;
+}
+
+.la-footer-links a:hover {
+  color: var(--rp-c-brand);
+}
+
+.la-footer-legal {
+  color: var(--rp-c-text-3);
+  font-size: 0.8rem;
+}
+
+/* ---- Motion: instant, short, interruptible-feeling ------------------ */
+
+a,
+button {
+  transition: color 160ms ease, background-color 160ms ease,
+    opacity 160ms ease;
+}
+
+a:active,
+button:active {
+  opacity: 0.7; /* feedback lives on the press, and it's instant */
+}
+
+/* Hero: calm, confident entrance — a single short fade-rise */
+.rp-home-hero__title,
+.rp-home-hero__tagline,
+.rp-home-hero__actions {
+  animation: la-hero-in 480ms cubic-bezier(0.25, 0.1, 0.25, 1) both;
+}
+
+.rp-home-hero__tagline {
+  animation-delay: 60ms;
+}
+
+.rp-home-hero__actions {
+  animation-delay: 100ms;
+}
+
+@keyframes la-hero-in {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- Accessibility: reduced motion / transparency ------------------- */
+
+@media (prefers-reduced-motion: reduce) {
+  .rp-home-hero__title,
+  .rp-home-hero__tagline,
+  .rp-home-hero__actions {
+    animation: none; /* cross-fade or static, never slide/spring */
+  }
+  .rp-home-hero__action,
+  .rp-home-feature__card,
+  a,
+  button {
+    transition: opacity 160ms ease;
+    transform: none !important;
+  }
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .rp-nav {
+    background: var(--rp-c-bg) !important;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+}
+
+/* Theme switch: ease the dark↔light jump, no abrupt brightness cut */
+html {
+  transition: background-color 240ms ease;
 }

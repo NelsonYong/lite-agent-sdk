@@ -2,7 +2,7 @@
   "name": "@lite-agent/checkpoint-sqlite",
   "version": "0.8.0",
   "description": "SQLite (WAL) Checkpointer backend for @lite-agent/core — single-host multi-process event-sourced persistence.",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

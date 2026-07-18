@@ -1,10 +1,10 @@
 # examples/cli
 
-一个交互式 REPL 示例（`examples/cli`，包名 `@lite-agent/example-cli`），在 [`@lite-agent/sdk`](/zh/packages/sdk) 之上串起**全栈**：
+一个交互式 REPL 示例（`examples/cli`，包名 `@lite-agent/example-cli`），在 [`@lite-agent/sdk`](/zh/sdk/overview) 之上串起**全栈**：
 
-- 基于 `createLiteAgent` 的流式 agent 循环，由 [`@lite-agent/provider`](/zh/packages/provider) 提供的 provider 驱动
+- 基于 `createLiteAgent` 的流式 agent 循环，由 [`@lite-agent/provider`](/zh/core/providers) 提供的 provider 驱动
 - **权限门禁** —— 执行 `bash` / `write_file` / `edit_file` 前先询问
-- **OS 级沙箱**，来自 [`@lite-agent/sandbox-anthropic`](/zh/packages/sandbox-anthropic) —— 在不支持的环境中降级为 noop
+- **OS 级沙箱**，来自 [`@lite-agent/sandbox-anthropic`](/zh/sdk/control/sandbox) —— 在不支持的环境中降级为 noop
 - **`ask_user`** —— 模型可以反问你（自由文本或编号选项）
 - 会话管理 —— 在 REPL 内列出 / 恢复 / 清空 / 删除会话
 - 多行粘贴、`ESC` 中断当前运行
@@ -102,4 +102,4 @@ REPL 直接渲染 `agent.run()` 产出的类型化 `AgentEvent` 流：
 
 ## 作为接线参考
 
-如果你要基于 SDK 构建自己的 UI，`src/main.ts`（约 290 行，除各包和 `dotenv` 外没有依赖）展示了最小完整循环：从环境变量解析 provider → 用策略 + 处理器 + 沙箱调用 `createLiteAgent` → 消费 `agent.run()` 的 `AgentEvent` 流 → 通过处理器把审批 / 提问送回内核。循序渐进版本见[快速上手](/zh/guide/getting-started)。
+如果你要基于 SDK 构建自己的 UI，`src/main.ts`（约 290 行，除各包和 `dotenv` 外没有依赖）展示了最小完整循环：从环境变量解析 provider → 用策略 + 处理器 + 沙箱调用 `createLiteAgent` → 消费 `agent.run()` 的 `AgentEvent` 流 → 通过处理器把审批 / 提问送回内核。循序渐进版本见[快速上手](/zh/sdk/getting-started)。
