@@ -2,6 +2,10 @@
 
 **English** | [简体中文](./README.zh-CN.md)
 
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](./LICENSE)
+[![Node >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+[![Docs](https://img.shields.io/badge/docs-nelsonyong.github.io%2Flite--agent--sdk-blueviolet.svg)](https://nelsonyong.github.io/lite-agent-sdk/)
+
 A pluggable, lightweight **agent-core SDK**, structured as a pnpm monorepo. The kernel is provider-agnostic and built from swappable **strategy** interfaces + an onion **middleware** pipeline + a typed **event** stream. Its public API is shaped after [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/claude-agent-sdk-typescript) (`query` / `tool` / `allowedTools`), but the kernel is self-built so it can also drive local small models via pluggable tool-call codecs.
 
 ## Packages

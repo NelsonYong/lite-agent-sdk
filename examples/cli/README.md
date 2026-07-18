@@ -20,10 +20,11 @@ pnpm --filter @lite-agent/example-cli dev   # or: pnpm dev
 Configuration is read from this directory's `.env` (copy `.env.example` → `.env`):
 
 ```
-ANTHROPIC_API_KEY=...
-BASE_URL=...
-MODEL_ID=...
-MONITOR_PORT=8899   # optional
+LITE_AGENT_MODEL_ID=claude-sonnet-4-6
+LITE_AGENT_MODEL_API_KEY=sk-...
+LITE_AGENT_BASE_URL=https://api.anthropic.com
+# Optional: force the protocol (inferred from the model id otherwise).
+# LITE_AGENT_MODEL_PROTOCOL=anthropic
 ```
 
 The agent operates on the directory you launch it from (`process.cwd()`); skills are loaded from this example's own `skills/`.

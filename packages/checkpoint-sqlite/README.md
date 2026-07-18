@@ -2,9 +2,7 @@
 
 **English** | [简体中文](./README.zh-CN.md)
 
-A SQLite (WAL) `Checkpointer` backend for [`@lite-agent/core`](../core) — event-sourced session persistence for single-host, multi-process setups.
-
-The default checkpointer in [`@lite-agent/sdk`](../sdk) is file-based (one JSONL per session). This adapter stores the same event log in a SQLite database instead, using **WAL journaling** and a `BEGIN IMMEDIATE` write path so several processes on one host can append concurrently — a conflicting append throws `CheckpointConflictError` cleanly rather than corrupting the log.
+SQLite (WAL) [`Checkpointer`](../core) backend for `@lite-agent/core` — event-sourced session persistence for single-host, multi-process setups. Use it when several processes on one machine must share sessions, where the default file-based store in `@lite-agent/sdk` is not enough.
 
 ## Install
 
@@ -12,9 +10,9 @@ The default checkpointer in [`@lite-agent/sdk`](../sdk) is file-based (one JSONL
 pnpm add @lite-agent/checkpoint-sqlite
 ```
 
-> Depends on `better-sqlite3` (a native module — it compiles on install).
+> Depends on `better-sqlite3` (native module — compiles on install). `@lite-agent/core` is required at runtime.
 
-## Usage
+## Quick start
 
 Pass the checkpointer to `createLiteAgent` / `query`; it overrides the default file store:
 
@@ -33,20 +31,30 @@ const agent = createLiteAgent({
 });
 
 await agent.send("Hello!");
-// Sessions persist to sessions.db and are shared across processes on this host.
+// Sessions persist to sessions.db, shared across processes on this host.
 
 checkpointer.close(); // when you're done
 ```
 
+## Features
+
+- **Drop-in `Checkpointer`** — full contract: `append`, `read`, `head`, `list`, `delete`, `truncate`.
+- **Multi-process safe** — WAL journaling + `BEGIN IMMEDIATE` writes; concurrent appends from multiple processes on one host.
+- **Clean conflicts** — a conflicting append throws `CheckpointConflictError` instead of corrupting the log.
+- **Time-travel ready** — `truncate` supports session restore / rewinds.
+- **Durability knobs** — `synchronous`, `busyTimeoutMs`, and optional integrity check on open.
+- **Verified** — passes core's `checkpointerConformance` test suite.
+
 ## API
 
-`sqliteCheckpointer({ file })` → `SqliteCheckpointer` (a core `Checkpointer` plus `checkIntegrity()` / `close()`):
+| Symbol | Description |
+| --- | --- |
+| `sqliteCheckpointer(opts)` | Create a `SqliteCheckpointer`. Options: `file` (path or `":memory:"`), `synchronous` (`"normal"` \| `"full"`), `busyTimeoutMs` (default 5000), `integrityCheckOnOpen` (run `PRAGMA quick_check` at startup). |
+| `SqliteCheckpointer` | A core `Checkpointer` plus `checkIntegrity(): { ok, detail }` and `close()`. |
+| `SqliteCheckpointerOptions` | Options accepted by `sqliteCheckpointer`. |
 
-- `file` — path to the SQLite database, or `":memory:"` for an ephemeral DB.
-- `synchronous` — `"normal"` (default) or `"full"` for stricter durability.
-- `busyTimeoutMs` — writer wait timeout (default 5000 ms).
-- `integrityCheckOnOpen` — run `PRAGMA quick_check` and fail startup if corrupt.
+## Related
 
-It implements the full `Checkpointer` contract — `append` (optimistic, `expectedHead`-guarded), `read`, `head`, `list`, `delete`, and `truncate` (so session time-travel / `restore` works) — and is validated against core's `checkpointerConformance` test suite.
-
-See the [monorepo root](../..) for architecture.
+- [`@lite-agent/core`](../core) — kernel and the `Checkpointer` interface.
+- [`@lite-agent/sdk`](../sdk) — `createLiteAgent` / `query`; default file-based checkpointer.
+- [lite-agent monorepo](../..) — architecture and design docs.

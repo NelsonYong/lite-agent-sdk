@@ -2,6 +2,10 @@
 
 [English](./README.md) | **简体中文**
 
+[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](./LICENSE)
+[![Node >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+[![文档](https://img.shields.io/badge/docs-nelsonyong.github.io%2Flite--agent--sdk-blueviolet.svg)](https://nelsonyong.github.io/lite-agent-sdk/)
+
 一个可插拔、轻量的 **Agent 内核 SDK**，以 pnpm monorepo 组织。内核与具体模型无关，由可替换的**策略（strategy）**接口 + 洋葱式**中间件（middleware）**管道 + 类型化的**事件（event）**流构成。其公开 API 参照 [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/claude-agent-sdk-typescript)（`query` / `tool` / `allowedTools`）设计，但内核为自研，因此也能通过可插拔的 tool-call 编解码器（codec）驱动本地小模型。
 
 ## 包一览
