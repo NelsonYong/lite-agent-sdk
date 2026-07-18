@@ -65,7 +65,7 @@ export function sweepStale(opts: { home?: string; maxAgeDays?: number; maxBytes?
               }
             }
             const stat = statSync(fp);
-            if (stat.mtimeMs < cutoff) rmSync(fp);
+            if (stat.mtimeMs < cutoff) rmSync(fp, { recursive: stat.isDirectory(), force: true });
             else if (stat.isFile()) kept.push({ path: fp, size: stat.size, mtime: stat.mtimeMs });
           } catch {
             /* skip a file that vanished or can't be stat'd */

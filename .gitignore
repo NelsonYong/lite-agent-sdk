@@ -11,3 +11,4 @@ node_modules
 .team
 .agent
 .worktrees
+.superpowers

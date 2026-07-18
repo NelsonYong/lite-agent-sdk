@@ -7,6 +7,7 @@ import type { Spawn } from "./tools/agent";
 
 export type {
   CreateLiteAgentConfig,
+  ContextOptions,
   LiteAgent,
   LiteAgentResult,
 } from "./liteAgent";

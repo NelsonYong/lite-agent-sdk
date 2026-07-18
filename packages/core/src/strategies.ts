@@ -9,7 +9,25 @@ import type { BackgroundTasks } from "./background";
 export interface ModelProvider {
   readonly id: string;
   stream(req: ModelRequest, signal?: AbortSignal): AsyncIterable<ModelChunk>;
+  readonly context?: ProviderContextCapabilities;
 }
+
+export type ProviderPromptCache = { readonly mode: "automatic" };
+
+/** Provider-native request edit. Implementations may return the same request. */
+export type ProviderContextEdit = (
+  req: ModelRequest,
+  signal?: AbortSignal,
+) => ModelRequest | Promise<ModelRequest>;
+
+export type ProviderContextCapabilities = {
+  readonly contextWindow?: number;
+  readonly countTokens?: (req: ModelRequest, signal?: AbortSignal) => Promise<number>;
+  readonly clearToolUses?: ProviderContextEdit;
+  readonly clearThinking?: ProviderContextEdit;
+  readonly compact?: ProviderContextEdit;
+  readonly promptCache?: ProviderPromptCache;
+};
 
 export interface ToolCallCodec {
   /** Prompt codecs buffer protocol text until it has been decoded. */

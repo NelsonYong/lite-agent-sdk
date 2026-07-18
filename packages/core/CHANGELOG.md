@@ -1,5 +1,14 @@
 # @lite-agent/core
 
+## 0.12.0
+
+### Minor Changes
+
+- Add `providerConformance` testing contracts and related factory/scenario types
+  for validating `ModelProvider` adapters against the shared normalized stream
+  behavior: final `message_done` placement, text ordering, tool-call assembly,
+  usage reporting, abort settling, and `ProviderError` normalization.
+
 ## 0.11.0
 
 ### Minor Changes

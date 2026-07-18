@@ -1,5 +1,6 @@
 import type { AssistantMessage, Message, ToolCall, ToolResultBlock } from "./types";
 import type { Store } from "./strategies";
+import type { ContextView } from "./context";
 import { CheckpointConflictError } from "./events";
 
 /** One appended fact about a session. The canonical persisted unit. */
@@ -9,8 +10,10 @@ export type SessionEvent =
   | { type: "tool_started"; id: string; name: string; turn: number }
   | { type: "tool_result"; result: ToolResultBlock; turn: number }
   | { type: "file_snapshot"; path: string; before: string | null; truncated?: boolean; encoding?: "utf8" | "base64"; turn: number }
+  | { type: "artifact_verified"; path: string; revision?: string; command: string; result: string; turn: number }
   | { type: "permission_decision"; call: ToolCall; decision: "allow" | "deny" | "ask"; ruleId?: string; reason?: string; simulated?: boolean; by: "policy" | "user" | "auto"; turn: number }
-  | { type: "summary"; messages: Message[]; throughSeq: number; before: number; after: number };
+  | { type: "summary"; messages: Message[]; throughSeq: number; before: number; after: number }
+  | { type: "context_view"; view: ContextView; throughSeq: number };
 
 /** A SessionEvent as stored, with its monotonic seq and parent link. */
 export type StoredEvent = {
@@ -163,7 +166,7 @@ export function foldEvents(events: SessionEvent[]): Message[] {
       case "tool_result": pending.push(ev.result); break;
       case "user": case "assistant": flush(); messages.push(ev.message); break;
       case "summary": pending = []; messages = [...ev.messages]; break;
-      // tool_started / file_snapshot / permission_decision sidecars: not part of model context
+      // Tool/context sidecars are not part of the legacy model transcript.
     }
   }
   flush();

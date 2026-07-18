@@ -6,7 +6,7 @@ import type { Middleware } from "./middleware";
 import type { Message } from "./types";
 import type { AgentEvent, RunResult } from "./events";
 import { runKernel } from "./kernel";
-import type { KernelConfig } from "./kernel";
+import type { KernelConfig, KernelContextOptions } from "./kernel";
 import type { Checkpointer } from "./checkpoint";
 import { legacyStoreAdapter } from "./checkpoint";
 import type { SteerController } from "./steer";
@@ -41,6 +41,8 @@ export interface CreateAgentConfig {
   crashRecovery?: "off" | "safe";
   /** Maximum retained file-snapshot bytes per session. Default unlimited. */
   maxSnapshotBytesPerSession?: number;
+  /** Automatic context management; omitted enables the ContextEngine. */
+  context?: false | KernelContextOptions;
 }
 
 export type RunOptions = { signal?: AbortSignal; sessionId?: string; steer?: SteerController };
@@ -73,6 +75,7 @@ export function createAgent(cfg: CreateAgentConfig): Agent {
     maxDecodeRetries: cfg.maxDecodeRetries,
     crashRecovery: cfg.crashRecovery,
     maxSnapshotBytesPerSession: cfg.maxSnapshotBytesPerSession,
+    context: cfg.context,
   };
 
   const agent: Agent = {

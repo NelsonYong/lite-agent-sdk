@@ -54,6 +54,20 @@ type AgentEventBody =
   | { type: "input_resolved"; id: string; answer: UserAnswer }
   | { type: "tool_result"; result: ToolResult }
   | { type: "compaction"; kind: "micro" | "auto" | "manual"; before: number; after: number; phase?: "start" | "done" }
+  | {
+      type: "context_status";
+      sessionId: string;
+      level: 0 | 1 | 2 | 3 | 4 | 5;
+      reason: string;
+      beforeTokens: number;
+      afterTokens: number;
+      generation: number;
+      plannerUsed: boolean;
+      plannerFallback: boolean;
+      plannerLatencyMs: number;
+      archiveRefs: string[];
+      retry: boolean;
+    }
   | { type: "steer"; messages: Message[] }
   | { type: "background_completed"; completion: BackgroundCompletion }
   | { type: "turn_end"; turn: number; stopReason: StopReason }

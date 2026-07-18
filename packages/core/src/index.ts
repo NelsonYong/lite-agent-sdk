@@ -1,5 +1,6 @@
 export { createAgent } from "./createAgent";
 export type { Agent, CreateAgentConfig, RunOptions } from "./createAgent";
+export type { KernelConfig, KernelContextOptions } from "./kernel";
 
 export { nativeCodec } from "./codecs/native";
 export { jsonCodec } from "./codecs/json";
@@ -43,6 +44,7 @@ export { policy, strictPolicy, composePolicies, permission, defaultRedactor } fr
 export type { PolicyOptions, PermissionRule, MatchSpec, Condition, Redactor } from "./permission";
 export type {
   ModelProvider, ToolCallCodec, Tool, ToolContext, ToolSecurity, TokenEstimator,
+  ProviderContextCapabilities, ProviderContextEdit, ProviderPromptCache,
   Compactor, CompactResult, PermissionPolicy, PolicyContext, Decision, PolicyVerdict,
   ApprovalHandler, InputHandler, Store,
   Sandbox, SandboxWrapOptions,
@@ -55,5 +57,17 @@ export {
 
 export { foldEvents, memoryCheckpointer, storeEvents, legacyStoreAdapter } from "./checkpoint";
 export type { SessionEvent, StoredEvent, SessionInfo, Checkpointer } from "./checkpoint";
+
+export { projectContext } from "./context";
+export type {
+  ContextView, ContextSegment, Fact, StateEntry, StaticPrefixInput, ProjectContextOptions,
+} from "./context";
+
+export { ContextEngine, createContextEngine } from "./contextEngine";
+export type {
+  ContextEngineOptions, ContextArchive, ContextArchivePutResult,
+  ContextPlanner, ContextPlannerProvider, ContextPlannerInput,
+  ContextProposal, ContextProposalSegment, ContextStatus,
+} from "./contextEngine";
 
 export * from "./types";

@@ -11,7 +11,14 @@ test("translates text + tool_use stream into ModelChunks", async () => {
   const events = [
     {
       type: "message_start",
-      message: { usage: { input_tokens: 10, output_tokens: 0 } },
+      message: {
+        usage: {
+          input_tokens: 10,
+          output_tokens: 0,
+          cache_read_input_tokens: null,
+          cache_creation_input_tokens: null,
+        },
+      },
     },
     {
       type: "content_block_start",
@@ -48,7 +55,12 @@ test("translates text + tool_use stream into ModelChunks", async () => {
     {
       type: "message_delta",
       delta: { stop_reason: "tool_use" },
-      usage: { output_tokens: 7 },
+      usage: {
+        output_tokens: 7,
+        input_tokens: 10,
+        cache_read_input_tokens: 6,
+        cache_creation_input_tokens: 4,
+      },
     },
     { type: "message_stop" },
   ] as unknown as Anthropic.RawMessageStreamEvent[];
@@ -64,10 +76,41 @@ test("translates text + tool_use stream into ModelChunks", async () => {
   const done = chunks.at(-1);
   expect(done?.type).toBe("message_done");
   if (done?.type === "message_done") {
-    expect(done.usage).toEqual({ inputTokens: 10, outputTokens: 7 });
+    expect(done.usage).toEqual({
+      inputTokens: 10,
+      outputTokens: 7,
+      cacheReadTokens: 6,
+      cacheCreationTokens: 4,
+    });
     expect(done.message.content).toEqual([
       { type: "text", text: "Hello world" },
       { type: "tool_call", id: "t1", name: "add", input: { a: 1, b: 2 } },
     ]);
   }
+});
+
+test("keeps compaction and unknown native blocks typed for checkpoint round-trip", async () => {
+  const events = [
+    { type: "message_start", message: { usage: { input_tokens: 1, output_tokens: 0 } } },
+    { type: "content_block_start", index: 0, content_block: { type: "compaction", content: null } },
+    { type: "content_block_delta", index: 0, delta: { type: "compaction_delta", content: "summary" } },
+    { type: "content_block_stop", index: 0 },
+    { type: "content_block_start", index: 1, content_block: { type: "thinking", thinking: "private" } },
+    { type: "content_block_stop", index: 1 },
+    { type: "message_delta", delta: { stop_reason: "end_turn" }, usage: { output_tokens: 1 } },
+    { type: "message_stop" },
+  ] as unknown as Anthropic.RawMessageStreamEvent[];
+
+  const chunks: ModelChunk[] = [];
+  for await (const c of translateStream(gen(events))) chunks.push(c);
+
+  expect(chunks.at(-1)).toMatchObject({
+    type: "message_done",
+    message: {
+      content: [
+        { type: "compaction", content: "summary" },
+        { type: "native", provider: "anthropic", data: { type: "thinking", thinking: "private" } },
+      ],
+    },
+  });
 });

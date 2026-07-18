@@ -52,6 +52,7 @@ test("provider streams ModelChunks via an injected client and forwards params", 
 
   expect(captured?.model).toBe("m");
   expect(captured?.stream).toBe(true);
+  expect(captured?.cache_control).toEqual({ type: "ephemeral" });
   expect(chunks.at(-1)).toMatchObject({
     type: "message_done",
     message: { content: [{ type: "text", text: "hi" }] },
