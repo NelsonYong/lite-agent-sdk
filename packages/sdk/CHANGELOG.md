@@ -1,5 +1,13 @@
 # lite-agent
 
+## 0.11.1
+
+### Patch Changes
+
+- Refactor `createLiteAgent()` into a thin composition root backed by internal
+  assembly and session facade modules. Public APIs and runtime behavior are
+  unchanged, while the construction path is easier to maintain and extend.
+
 ## 0.11.0
 
 ### Minor Changes

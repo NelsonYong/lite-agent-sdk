@@ -21,6 +21,7 @@ import type {
   ToolChoice,
   TokenEstimator,
 } from "@lite-agent/core";
+import type { ContextPlannerProvider } from "@lite-agent/core";
 import type { ZodType } from "zod";
 import { existsSync, unlinkSync } from "node:fs";
 import { atomicWriteFile, resolveSafePath } from "./tools/file";
@@ -28,6 +29,11 @@ import type { FileToolsOptions } from "./tools/file";
 import type { BashToolOptions } from "./tools/bash";
 import { newSessionId } from "./store";
 import type { SessionInfo } from "./store";
+
+export type ContextOptions = {
+  planner?: ContextPlannerProvider;
+  windowTokens?: number;
+};
 
 export interface CreateLiteAgentConfig {
   model: ModelProvider;
@@ -70,7 +76,7 @@ export interface CreateLiteAgentConfig {
   home?: string;
   /** Persist sessions under the project's sessions dir (default fileCheckpointer). Default true. Ignored when `checkpointer`/`store` is set. */
   sessions?: boolean;
-  /** Spill oversized tool_results to disk + register `read_spilled`. Default true. */
+  /** @deprecated Use automatic `context` archive management. Kept as a one-release adapter. */
   spill?: boolean | { budgetBytes?: number };
   /** Persistent Tasks API (TaskCreate/Update/Get/List) + per-turn reminder. Default true. */
   tasks?: boolean;
@@ -93,9 +99,11 @@ export interface CreateLiteAgentConfig {
   crashRecovery?: "off" | "safe";
   /** Maximum retained snapshot bytes in one session. */
   maxSnapshotBytesPerSession?: number;
-  /** Proactive compactor. Default deterministic `defaultCompactor`; `false` disables compaction. */
+  /** Automatic context management. Omitted uses the SDK's ContextEngine defaults. */
+  context?: false | ContextOptions;
+  /** @deprecated Use `context`; explicitly supplying this selects the legacy adapter. */
   compactor?: Compactor | false;
-  /** Hard context budget applied after structural compaction. */
+  /** @deprecated Use `context.windowTokens`; explicitly supplying this selects the legacy adapter. */
   contextBudget?: { maxTokens: number; estimator?: TokenEstimator };
   /** Sweep stale spill/session files once at startup. Default true (30 days). */
   cleanup?: boolean | { maxAgeDays?: number; maxBytes?: number };
@@ -150,6 +158,13 @@ export interface LiteAgentRuntime {
   readonly compactor?: Compactor;
   /** Present only with outputSchema; returns and removes one session's capture. */
   readonly takeOutput?: (sessionId: string) => unknown;
+  /** Internal context control shared by automatic and manual compaction. */
+  readonly context?: {
+    measure(sessionId: string): Promise<number>;
+    compact(sessionId: string, instructions?: string): Promise<{ before: number; after: number }>;
+    invalidate(sessionId: string): void;
+    remove?(sessionId: string): void;
+  };
 }
 
 export function createLiteAgentFacade(
@@ -193,13 +208,18 @@ export function createLiteAgentFacade(
     },
     resume(id: string) {
       currentSessionId = id;
+      runtime.context?.invalidate(id);
     },
     clear() {
       currentSessionId = newSessionId();
       return currentSessionId;
     },
-    deleteSession: (id: string) =>
-      runtime.checkpointer ? runtime.checkpointer.delete(id) : noSessions(),
+    deleteSession: async (id: string) => {
+      if (!runtime.checkpointer) return noSessions();
+      await runtime.checkpointer.delete(id);
+      runtime.context?.remove?.(id);
+      runtime.context?.invalidate(id);
+    },
     listSessions: () =>
       runtime.checkpointer ? runtime.checkpointer.list() : noSessions(),
     listCheckpoints: async (id: string) => {
@@ -264,6 +284,7 @@ export function createLiteAgentFacade(
         }
         await runtime.checkpointer.truncate(id, toSeq);
       }
+      runtime.context?.invalidate(id);
       currentSessionId = id;
     },
     async *compact(instructions) {
@@ -271,10 +292,17 @@ export function createLiteAgentFacade(
         await noSessions();
         return { before: 0, after: 0 };
       }
+      const id = currentSessionId;
+      if (runtime.context) {
+        const before = await runtime.context.measure(id);
+        yield { type: "compaction", kind: "manual", phase: "start", before, after: before };
+        const result = await runtime.context.compact(id, instructions);
+        yield { type: "compaction", kind: "manual", phase: "done", before: result.before, after: result.after };
+        return result;
+      }
       if (!runtime.compactor) {
         throw new AgentError("compact requires a compactor (it is disabled when compactor:false)");
       }
-      const id = currentSessionId;
       const stored = [];
       for await (const entry of runtime.checkpointer.read(id)) stored.push(entry);
       const messages = foldEvents(stored.map((entry) => entry.event));

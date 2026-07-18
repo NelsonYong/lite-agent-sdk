@@ -1,5 +1,13 @@
 # @lite-agent/provider
 
+## 0.7.2
+
+### Patch Changes
+
+- Document provider support levels and add an opt-in `test:compat` command for
+  probing OpenAI-compatible endpoints against a live runtime/model profile.
+  Normal provider APIs and runtime behavior are unchanged.
+
 ## 0.7.1
 
 ### Patch Changes

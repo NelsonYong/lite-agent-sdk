@@ -1,6 +1,6 @@
 import pLimit from "p-limit";
 import type { ModelProvider, ToolCallCodec, Tool, Sandbox, InputHandler } from "./strategies";
-import type { AssistantMessage, Message, ToolCall, ToolChoice, ToolResult, ToolResultBlock, Usage } from "./types";
+import type { AssistantMessage, Message, ModelRequest, ToolCall, ToolChoice, ToolResult, ToolResultBlock, Usage } from "./types";
 import { isTextBlock, textBlock, toolResultBlock } from "./types";
 import type { AgentEvent, RunResult } from "./events";
 import { CodecError, ProviderError } from "./events";
@@ -10,6 +10,9 @@ import { channel } from "./channel";
 import { toToolSpec } from "./tools/define";
 import type { Checkpointer, SessionEvent, StoredEvent } from "./checkpoint";
 import { foldEvents } from "./checkpoint";
+import { ContextEngine } from "./contextEngine";
+import type { ContextArchive, ContextPlanner, ContextPlannerProvider, ContextStatus } from "./contextEngine";
+import type { StaticPrefixInput } from "./context";
 import type { SteerController } from "./steer";
 import { createBackgroundTasks } from "./background";
 import type { BackgroundCompletion, BackgroundLimits } from "./background";
@@ -40,7 +43,16 @@ export interface KernelConfig {
   maxDecodeRetries?: number;
   crashRecovery?: "off" | "safe";
   maxSnapshotBytesPerSession?: number;
+  /** Automatic context owner. Omitted enables it; false keeps legacy raw messages. */
+  context?: false | KernelContextOptions;
 }
+
+/** Runtime-only context knobs; pressure thresholds and archive paths stay internal. */
+export type KernelContextOptions = {
+  readonly windowTokens?: number;
+  readonly planner?: ContextPlanner | ContextPlannerProvider;
+  readonly archive?: ContextArchive | ((sessionId: string) => ContextArchive | undefined);
+};
 
 export async function* runKernel(
   cfg: KernelConfig,
@@ -49,6 +61,8 @@ export async function* runKernel(
   sessionId: string,
 ): AsyncGenerator<AgentEvent, RunResult> {
   const inputMessages: Message[] = typeof input === "string" ? [{ role: "user", content: input }] : [...input];
+  const toolMap = new Map(cfg.tools.map((t) => [t.name, t]));
+  const toolSpecs = cfg.tools.map(toToolSpec);
   let messages: Message[];
   const cp = cfg.checkpointer;
   let head = 0;
@@ -59,11 +73,54 @@ export async function* runKernel(
     history.push(...stored.map((s) => s.event));
     head = stored.length ? stored[stored.length - 1]!.seq : 0;
   }
+  // The low-level core keeps its historical raw-message behavior when no
+  // context option is supplied. The batteries-included SDK passes `{}` by
+  // default, so new SDK agents still get automatic context management.
+  const contextEnabled = cfg.context !== false && cfg.context !== undefined;
+  const contextOptions: KernelContextOptions | undefined =
+    typeof cfg.context === "object" ? cfg.context : undefined;
+  // Encode an empty transcript once to fingerprint the actual static prefix.
+  // JSON/ReAct codecs put their protocol instructions and tool catalog in
+  // `system`; those bytes must be protected just like the native system prompt.
+  const contextStaticPrefix: StaticPrefixInput = contextEnabled
+    ? (() => {
+        const encodedPrefix = cfg.codec.encode(modelRequest(cfg, []), toolSpecs);
+        return {
+          system: encodedPrefix.system,
+          tools: encodedPrefix.tools ?? toolSpecs,
+          codec: { id: cfg.codec.constructor?.name ?? "codec", streaming: cfg.codec.streaming },
+        };
+      })()
+    : {};
+  const engine = contextEnabled
+    ? new ContextEngine({
+        sessionId,
+        checkpointer: cp,
+        provider: cfg.provider,
+        windowTokens: contextOptions?.windowTokens,
+        planner: contextOptions?.planner,
+        archive: typeof contextOptions?.archive === "function"
+          ? contextOptions.archive(sessionId)
+          : contextOptions?.archive,
+        staticPrefix: contextStaticPrefix,
+      })
+    : undefined;
   // Serialize appends so concurrent in-turn tool_result appends can't race `head`.
   let chain: Promise<void> = Promise.resolve();
   const append = (...evs: SessionEvent[]): Promise<void> => {
-    if (!cp || evs.length === 0) return Promise.resolve();
-    const p = chain.then(async () => { head = await cp.append(sessionId, evs, head); });
+    if (evs.length === 0) return Promise.resolve();
+    if (!cp && !engine) return Promise.resolve();
+    const p = chain.then(async () => {
+      if (engine) {
+        const from = head;
+        await engine.append(evs);
+        history.push(...evs);
+        head = from + evs.length;
+      } else if (cp) {
+        head = await cp.append(sessionId, evs, head);
+        history.push(...evs);
+      }
+    });
     chain = p.then(() => undefined, () => undefined);
     return p;
   };
@@ -91,21 +148,24 @@ export async function* runKernel(
   const bg = cfg.background === false
     ? undefined
     : createBackgroundTasks({ emit, signal, limits: cfg.backgroundLimits });
-  const toolMap = new Map(cfg.tools.map((t) => [t.name, t]));
-  const toolSpecs = cfg.tools.map(toToolSpec);
   const state = new Map<string, unknown>();
   let usage: Usage = { inputTokens: 0, outputTokens: 0 };
 
   function* drain(): Generator<AgentEvent> {
     while (queue.length) yield queue.shift()!;
   }
-  const recordSessionEvent = cp ? (event: SessionEvent) => append(event) : undefined;
+  const recordSessionEvent = (cp || engine) ? (event: SessionEvent) => append(event) : undefined;
   const mkCtx = (turn: number): AgentContext => ({
     sessionId, messages, turn, signal, emit, recordSessionEvent, state,
   });
 
   try {
   await append(...inputMessages.map((m): SessionEvent => ({ type: "user", message: m })));
+  if (engine) {
+    const initial = await engine.snapshot();
+    messages = [...initial.messages];
+    if (cp) head = await cp.head(sessionId);
+  }
 
   await runLifecycle(cfg.middleware, "beforeAgent", mkCtx(0));
   yield* drain();
@@ -115,6 +175,7 @@ export async function* runKernel(
   for (let turn = 1; turn <= cfg.maxTurns; turn++) {
     // Phase 1: abort is observed only at turn boundaries.
     if (signal.aborted) { bg?.cancelAll(); stopReason = "aborted"; break; }
+    if (engine) messages = [...(await engine.snapshot()).messages];
     const ctx = mkCtx(turn);
     yield { type: "turn_start", turn };
 
@@ -136,38 +197,37 @@ export async function* runKernel(
 
     await runLifecycle(cfg.middleware, "beforeModel", ctx);
     yield* drain();
+    let contextGeneration: number | undefined;
+    if (engine) {
+      const durable = await engine.snapshot();
+      const overlay = ctx.messages.slice(durable.messages.length);
+      const encoded = cfg.codec.encode(modelRequest(cfg, durable.messages), toolSpecs);
+      const prepared = await engine.prepare(encoded, overlay);
+      ctx.messages = [...prepared.messages];
+      contextGeneration = prepared.generation;
+      if (cp) head = await cp.head(sessionId);
+      if (engine.status.level > 0) emitContextStatus(emit, engine.status);
+    }
     messages = ctx.messages;
 
     let calls: ToolCall[] = [];
     let decodeAttempts = 0;
+    let overflowRetries = 0;
     while (true) {
       // Encode inside the ModelCall so middleware retries and codec repairs use
       // the current messages rather than a stale request snapshot.
       const modelCall = composeModelCall(cfg.middleware, ctx, () =>
-        cfg.provider.stream(
-          cfg.codec.encode(
-            {
-              model: cfg.model,
-              system: cfg.system,
-              messages: ctx.messages,
-              maxTokens: cfg.maxTokens,
-              temperature: cfg.temperature,
-              topP: cfg.topP,
-              toolChoice: cfg.toolChoice,
-              seed: cfg.seed,
-            },
-            toolSpecs,
-          ),
-          signal,
-        ),
+        nativeContextCall(cfg, ctx, toolSpecs, engine, signal),
       );
 
       let assistant: AssistantMessage | undefined;
       let callUsage: Usage | undefined;
+      let streamed = false;
       const modelStarted = Date.now();
       yield { type: "model_call_start", turn, model: cfg.model };
       try {
         for await (const chunk of modelCall()) {
+          streamed = true;
           if (chunk.type === "text_delta") {
             if (cfg.codec.streaming !== "buffer") yield { type: "text_delta", text: chunk.text };
           } else {
@@ -176,6 +236,12 @@ export async function* runKernel(
             usage = {
               inputTokens: usage.inputTokens + chunk.usage.inputTokens,
               outputTokens: usage.outputTokens + chunk.usage.outputTokens,
+              ...(chunk.usage.cacheReadTokens !== undefined || usage.cacheReadTokens !== undefined
+                ? { cacheReadTokens: (usage.cacheReadTokens ?? 0) + (chunk.usage.cacheReadTokens ?? 0) }
+                : {}),
+              ...(chunk.usage.cacheCreationTokens !== undefined || usage.cacheCreationTokens !== undefined
+                ? { cacheCreationTokens: (usage.cacheCreationTokens ?? 0) + (chunk.usage.cacheCreationTokens ?? 0) }
+                : {}),
             };
           }
         }
@@ -186,6 +252,16 @@ export async function* runKernel(
           durationMs: Date.now() - modelStarted,
           error: error instanceof Error ? error.message : String(error),
         };
+        if (engine && !streamed && overflowRetries < 1 && isOverflowError(error)) {
+          overflowRetries++;
+          const compacted = await engine.compact("overflow");
+          ctx.messages = [...compacted.messages];
+          contextGeneration = compacted.generation;
+          if (cp) head = await cp.head(sessionId);
+          emitContextStatus(emit, engine.status);
+          yield* drain();
+          continue;
+        }
         throw error;
       }
       yield {
@@ -219,13 +295,18 @@ export async function* runKernel(
         continue;
       }
 
-      assistant = normalizedAssistant(decoded.text, decoded.calls);
+      assistant = normalizedAssistant(
+        decoded.text,
+        decoded.calls,
+        assistant.content.filter((block) => block.type === "compaction" || block.type === "native"),
+      );
       calls = decoded.calls;
       ctx.messages.push(assistant);
       if (cfg.codec.streaming === "buffer" && calls.length === 0 && decoded.text)
         yield { type: "text_delta", text: decoded.text };
       yield { type: "message", message: assistant };
       await append({ type: "assistant", message: assistant });
+      if (engine && contextGeneration !== undefined) await engine.presented(contextGeneration);
       break;
     }
 
@@ -348,12 +429,17 @@ export async function* runKernel(
   }
 }
 
-function normalizedAssistant(text: string, calls: ToolCall[]): AssistantMessage {
+function normalizedAssistant(
+  text: string,
+  calls: ToolCall[],
+  nativeBlocks: AssistantMessage["content"] = [],
+): AssistantMessage {
   return {
     role: "assistant",
     content: [
       ...(text ? [textBlock(text)] : []),
       ...calls.map((call) => ({ type: "tool_call" as const, ...call })),
+      ...nativeBlocks,
     ],
   };
 }
@@ -382,4 +468,66 @@ function backgroundNote(c: BackgroundCompletion): Message {
     role: "user",
     content: `<background-task-completed id="${c.id}" label="${label}"${status}>\n${c.content}\n</background-task-completed>`,
   };
+}
+
+function modelRequest(cfg: KernelConfig, messages: readonly Message[]) {
+  return {
+    model: cfg.model,
+    system: cfg.system,
+    messages: [...messages],
+    maxTokens: cfg.maxTokens,
+    temperature: cfg.temperature,
+    topP: cfg.topP,
+    toolChoice: cfg.toolChoice,
+    seed: cfg.seed,
+  };
+}
+
+async function* nativeContextCall(
+  cfg: KernelConfig,
+  ctx: AgentContext,
+  toolSpecs: ReturnType<typeof toToolSpec>[],
+  engine: ContextEngine | undefined,
+  signal: AbortSignal,
+): AsyncIterable<import("./types").ModelChunk> {
+  const req = await prepareNativeContextRequest(cfg, ctx, toolSpecs, engine, signal);
+  yield* cfg.provider.stream(req, signal);
+}
+
+async function prepareNativeContextRequest(
+  cfg: KernelConfig,
+  ctx: AgentContext,
+  toolSpecs: ReturnType<typeof toToolSpec>[],
+  engine: ContextEngine | undefined,
+  signal: AbortSignal,
+): Promise<ModelRequest> {
+  let req = cfg.codec.encode(modelRequest(cfg, ctx.messages), toolSpecs);
+  const level = engine?.status.level ?? 0;
+  const capabilities = cfg.provider.context;
+  if (level >= 1 && capabilities?.clearToolUses) req = await capabilities.clearToolUses(req, signal);
+  if (level >= 2 && capabilities?.clearThinking) req = await capabilities.clearThinking(req, signal);
+  if (level >= 4 && capabilities?.compact) req = await capabilities.compact(req, signal);
+  return req;
+}
+
+function isOverflowError(error: unknown): boolean {
+  if (!(error instanceof ProviderError)) return false;
+  return error.status === 413 || /prompt[\s_]?too[\s_]?long|context[\s_]?length|too many tokens|maximum context/i.test(error.message);
+}
+
+function emitContextStatus(emit: (event: AgentEvent) => void, status: ContextStatus): void {
+  emit({
+    type: "context_status",
+    sessionId: status.sessionId,
+    level: status.level,
+    reason: status.reason,
+    beforeTokens: status.beforeTokens,
+    afterTokens: status.afterTokens,
+    generation: status.generation,
+    plannerUsed: status.plannerUsed,
+    plannerFallback: status.plannerFallback,
+    plannerLatencyMs: status.plannerLatencyMs,
+    archiveRefs: [...status.archiveRefs],
+    retry: status.retry,
+  });
 }

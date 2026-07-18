@@ -24,6 +24,12 @@ export interface ProjectPaths {
   projectAgentsDir: string;
 }
 
+/** Session-local derived context sidecar: never shared across projects/sessions. */
+export function sessionContextDir(sessionsDir: string, sessionId: string): string {
+  const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  return join(sessionsDir, `${safe}.context`);
+}
+
 /** Pure: derive every path from `workdir` (+ optional home). No fs side effects. */
 export function resolveProjectPaths(opts: { workdir: string; home?: string }): ProjectPaths {
   const home = opts.home ?? liteAgentHome();

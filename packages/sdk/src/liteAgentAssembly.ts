@@ -2,11 +2,14 @@ import {
   compaction,
   createAgent,
   defaultCompactor,
+  ContextEngine,
+  estimateTokens,
   legacyStoreAdapter,
   nativeCodec,
   permission,
   reactiveCompaction,
   tokenBudgetCompactor,
+  toToolSpec,
 } from "@lite-agent/core";
 import type { Checkpointer, Compactor, Middleware, Tool } from "@lite-agent/core";
 import { tool } from "./tool";
@@ -16,6 +19,9 @@ import { loadSkillTool } from "./skills/loadSkillTool";
 import { buildSystemPrompt } from "./system";
 import { fileCheckpointer } from "./checkpoint";
 import { fileSpillStore, readSpilledTool } from "./spill";
+import { contextLookupTool, fileContextArchive } from "./contextArchive";
+import type { ContextArchive as FileContextArchive } from "./contextArchive";
+import { sessionContextDir } from "./paths";
 import { fileTaskStore } from "./tasks/store";
 import { taskTools } from "./tools/task";
 import { taskReminder } from "./tasks/reminder";
@@ -55,10 +61,35 @@ export function assembleLiteAgent({
   }
 
   const spillEnabled = cfg.spill !== false;
-  const spillStore = spillEnabled
+  const legacyContext = cfg.compactor !== undefined || cfg.contextBudget !== undefined || cfg.spill !== undefined;
+  const contextConfig = typeof cfg.context === "object" ? cfg.context : undefined;
+  let checkpointer: Checkpointer | undefined;
+  const spillStore = legacyContext && spillEnabled
     ? fileSpillStore({ dir: paths.spillDir })
     : undefined;
-  if (spillStore) tools.push(readSpilledTool(spillStore));
+  const archives = new Map<string, FileContextArchive>();
+  const archiveFor = (sessionId: string): FileContextArchive => {
+    const existing = archives.get(sessionId);
+    if (existing) return existing;
+    const archive = fileContextArchive({ dir: sessionContextDir(paths.sessionsDir, sessionId) });
+    archives.set(sessionId, archive);
+    return archive;
+  };
+  if (legacyContext && spillStore) tools.push(readSpilledTool(spillStore));
+  if (!legacyContext && cfg.context !== false) {
+    tools.push(contextLookupTool({
+      archiveFor,
+      name: "context",
+      generationFor: async (sessionId) => checkpointer?.head(sessionId) ?? 0,
+    }));
+    // One-release migration alias for callers/models that learned the old name.
+    tools.push(contextLookupTool({
+      archiveFor,
+      name: "read_spilled",
+      legacyMissing: true,
+      generationFor: async (sessionId) => checkpointer?.head(sessionId) ?? 0,
+    }));
+  }
 
   const tasksEnabled = cfg.tasks !== false;
   const taskStore = tasksEnabled
@@ -130,8 +161,24 @@ export function assembleLiteAgent({
       "only the `final_answer` tool call is read as the answer.";
   }
 
-  const structuralCompactor =
-    cfg.compactor === false
+  const codec = cfg.codec ?? nativeCodec();
+  const toolSpecs = tools.map(toToolSpec);
+  const contextStaticPrefix = () => {
+    const encoded = codec.encode({
+      model: cfg.modelName ?? cfg.model.id,
+      system,
+      messages: [],
+    }, toolSpecs);
+    return {
+      system: encoded.system,
+      tools: encoded.tools ?? toolSpecs,
+      codec: { id: codec.constructor?.name ?? "codec", streaming: codec.streaming },
+    };
+  };
+
+  const structuralCompactor = !legacyContext
+    ? undefined
+    : cfg.compactor === false
       ? undefined
       : cfg.compactor ??
         defaultCompactor({
@@ -139,7 +186,7 @@ export function assembleLiteAgent({
           budgetBytes:
             typeof cfg.spill === "object" ? cfg.spill.budgetBytes : undefined,
         });
-  const budgetCompactor = cfg.contextBudget
+  const budgetCompactor = legacyContext && cfg.contextBudget
     ? tokenBudgetCompactor(cfg.contextBudget)
     : undefined;
   const compactor: Compactor | undefined =
@@ -163,13 +210,16 @@ export function assembleLiteAgent({
         }
       : structuralCompactor ?? budgetCompactor;
 
-  const checkpointer: Checkpointer | undefined =
+  checkpointer =
     cfg.checkpointer ??
     (cfg.store
       ? legacyStoreAdapter(cfg.store)
       : cfg.sessions === false
         ? undefined
         : fileCheckpointer({ dir: paths.sessionsDir }));
+
+  // `checkpointer` is declared above the tool closure at runtime; the tool is
+  // invoked later, after assembly has completed, so this binding is safe.
 
   const use: Middleware[] = [
     ...(compactor ? [compaction(compactor), reactiveCompaction()] : []),
@@ -189,7 +239,7 @@ export function assembleLiteAgent({
   const core = createAgent({
     model: cfg.model,
     modelName: cfg.modelName,
-    codec: cfg.codec ?? nativeCodec(),
+    codec,
     tools,
     use,
     system,
@@ -208,7 +258,53 @@ export function assembleLiteAgent({
     sandbox: cfg.sandbox,
     checkpointer,
     input: cfg.onAskUser,
+    context: legacyContext || cfg.context === false
+      ? false
+      : {
+          windowTokens: contextConfig?.windowTokens,
+          planner: contextConfig?.planner,
+          archive: archiveFor,
+        },
   });
+
+  const context = !legacyContext && cfg.context !== false
+    ? {
+        measure: async (sessionId: string) => {
+          const engine = new ContextEngine({
+            sessionId,
+            checkpointer,
+            provider: cfg.model,
+            windowTokens: contextConfig?.windowTokens,
+            planner: contextConfig?.planner,
+            archive: archiveFor(sessionId),
+            staticPrefix: contextStaticPrefix(),
+          });
+          const view = await engine.snapshot();
+          return estimateTokens([...view.messages]);
+        },
+        compact: async (sessionId: string, instructions?: string) => {
+          const engine = new ContextEngine({
+            sessionId,
+            checkpointer,
+            provider: cfg.model,
+            windowTokens: contextConfig?.windowTokens,
+            planner: contextConfig?.planner,
+            archive: archiveFor(sessionId),
+            staticPrefix: contextStaticPrefix(),
+          });
+          const beforeView = await engine.snapshot();
+          const before = estimateTokens([...beforeView.messages]);
+          const afterView = await engine.compact("manual", instructions);
+          return { before, after: estimateTokens([...afterView.messages]) };
+        },
+        invalidate: (sessionId: string) => {
+          archives.delete(sessionId);
+        },
+        remove: (sessionId: string) => {
+          archives.delete(sessionId);
+        },
+      }
+    : undefined;
 
   const takeOutput = cfg.outputSchema
     ? (sessionId: string): unknown => {
@@ -218,5 +314,5 @@ export function assembleLiteAgent({
       }
     : undefined;
 
-  return { core, checkpointer, compactor, takeOutput };
+  return { core, checkpointer, compactor: legacyContext ? compactor : undefined, takeOutput, context };
 }

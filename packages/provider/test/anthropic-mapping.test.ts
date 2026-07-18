@@ -38,6 +38,7 @@ test("hoists system, maps blocks, builds tools, strips $schema, defaults max_tok
   expect(p.system).toBe("you are x");
   expect(p.max_tokens).toBe(4096);
   expect(p.stream).toBe(true);
+  expect(p.cache_control).toBeUndefined();
   expect(p.messages).toEqual([
     { role: "user", content: "hi" },
     {
@@ -65,6 +66,27 @@ test("hoists system, maps blocks, builds tools, strips $schema, defaults max_tok
   ]);
 });
 
+test("adds top-level automatic prompt caching only when requested", () => {
+  const p = toAnthropicParams(
+    { model: "m", messages: [{ role: "user", content: "hi" }] },
+    { promptCache: true },
+  );
+
+  expect(p.cache_control).toEqual({ type: "ephemeral" });
+});
+
+test("anchors prompt caching on the static system prefix", () => {
+  const p = toAnthropicParams(
+    { model: "m", system: "stable", messages: [{ role: "user", content: "changing" }] },
+    { promptCache: true },
+  );
+
+  expect(p.system).toEqual([
+    { type: "text", text: "stable", cache_control: { type: "ephemeral" } },
+  ]);
+  expect(p.cache_control).toBeUndefined();
+});
+
 test("uses provided maxTokens and omits tools/system when absent", () => {
   const p = toAnthropicParams({
     model: "m",
@@ -74,6 +96,25 @@ test("uses provided maxTokens and omits tools/system when absent", () => {
   expect(p.max_tokens).toBe(100);
   expect(p.tools).toBeUndefined();
   expect(p.system).toBeUndefined();
+});
+
+test("round-trips native compaction blocks instead of flattening them to text", () => {
+  const p = toAnthropicParams({
+    model: "m",
+    messages: [
+      {
+        role: "assistant",
+        content: [{ type: "compaction", content: "server summary" }],
+      },
+    ],
+  });
+
+  expect(p.messages).toEqual([
+    {
+      role: "assistant",
+      content: [{ type: "compaction", content: "server summary" }],
+    },
+  ]);
 });
 
 test("forwards temperature/top_p, maps tool_choice variants, ignores unsupported seed", () => {

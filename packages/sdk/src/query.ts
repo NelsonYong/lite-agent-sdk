@@ -23,6 +23,7 @@ import type { BashToolOptions } from "./tools/bash";
 import type { ZodType } from "zod";
 import { createLiteAgent } from "./createLiteAgent";
 import type { LiteAgentResult } from "./createLiteAgent";
+import type { ContextOptions } from "./liteAgent";
 
 export interface QueryOptions {
   prompt: string | Message[];
@@ -53,6 +54,7 @@ export interface QueryOptions {
   store?: Store;
   compactor?: Compactor | false;
   contextBudget?: { maxTokens: number; estimator?: TokenEstimator };
+  context?: false | ContextOptions;
   home?: string;
   sessions?: boolean;
   spill?: boolean | { budgetBytes?: number };
@@ -105,6 +107,7 @@ export function query(
     store: opts.store,
     compactor: opts.compactor,
     contextBudget: opts.contextBudget,
+    context: opts.context,
     home: opts.home,
     sessions: opts.sessions,
     spill: opts.spill,

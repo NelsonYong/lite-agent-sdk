@@ -3,7 +3,11 @@ export type Role = "system" | "user" | "assistant" | "tool";
 export type TextBlock = { type: "text"; text: string };
 export type ToolCallBlock = { type: "tool_call"; id: string; name: string; input: unknown };
 export type ToolResultBlock = { type: "tool_result"; id: string; content: string; isError?: boolean };
-export type ContentBlock = TextBlock | ToolCallBlock | ToolResultBlock;
+/** Provider-native content that must survive checkpoint/resume unchanged. */
+export type NativeBlock = { type: "native"; provider: string; data: unknown };
+/** Server-side context compaction summary; never flattened into ordinary text. */
+export type CompactionBlock = { type: "compaction"; content: string | null };
+export type ContentBlock = TextBlock | ToolCallBlock | ToolResultBlock | NativeBlock | CompactionBlock;
 
 export type Message = { role: Role; content: string | ContentBlock[] };
 export type AssistantMessage = { role: "assistant"; content: ContentBlock[] };
@@ -11,7 +15,14 @@ export type AssistantMessage = { role: "assistant"; content: ContentBlock[] };
 export type ToolCall = { id: string; name: string; input: unknown };
 export type ToolResult = { id: string; name: string; content: string; isError?: boolean };
 
-export type Usage = { inputTokens: number; outputTokens: number };
+export type Usage = {
+  inputTokens: number;
+  outputTokens: number;
+  /** Input tokens read from a provider-side prompt cache, when reported. */
+  cacheReadTokens?: number;
+  /** Input tokens written to a provider-side prompt cache, when reported. */
+  cacheCreationTokens?: number;
+};
 export type StopReason = "stop" | "tool_use" | "max_tokens";
 
 export type UserQuestion = { question: string; options?: string[]; multiSelect?: boolean };
