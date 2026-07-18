@@ -79,9 +79,16 @@ test("strict local agent composes SQLite, audit, permissions, diagnostics, and l
     agents: false,
   });
 
+  const subscribed: string[] = [];
+  const unsubscribe = agent.subscribe(({ source, event }) => {
+    if (event.type === "done") subscribed.push(`${source}:${event.reason}`);
+  });
+
   await agent.send("go");
 
   expect(ran.value).toBe(true);
+  expect(subscribed).toEqual(["user:stop"]);
+  unsubscribe();
   expect(await agent.queryAudit({ tool: "probe" })).toHaveLength(1);
   const exported = [];
   for await (const line of agent.exportAudit({ tool: "probe" })) exported.push(JSON.parse(line));
@@ -197,5 +204,43 @@ test("close aborts an active tool before closing persistence and sandbox resourc
   await toolStarted;
   await agent.close();
   await pending;
+  expect(aborted).toBe(true);
+});
+
+test("close cancels detached work owned by the underlying LiteAgent", async () => {
+  let started!: () => void;
+  const taskStarted = new Promise<void>((resolve) => { started = resolve; });
+  let aborted = false;
+  const background = tool("background", "background", z.object({}), async (_input, ctx) => {
+    ctx.background!.spawn({
+      label: "local background",
+      kind: "detached",
+      run: (signal) => new Promise<string>((resolve) => {
+        started();
+        signal.addEventListener("abort", () => {
+          aborted = true;
+          resolve("stopped");
+        });
+      }),
+    });
+    return "started";
+  }, { security: { network: "none", filesystem: "none", sideEffects: "none" } });
+  const agent = await createLocalAgent({
+    model: localFake([
+      { message: { role: "assistant", content: [{ type: "tool_call", id: "bg", name: "background", input: {} }] } },
+      { text: "idle", message: { role: "assistant", content: [textBlock("idle")] } },
+    ]),
+    modelName: "local-background",
+    workdir: mkdtempSync(join(tmpdir(), "local-background-")),
+    home: mkdtempSync(join(tmpdir(), "local-home-")),
+    tools: [background],
+    permissionFiles: { user: false, project: false, inlineRules: [{ tool: "background", effect: "allow" }] },
+    eventSink: false,
+    agents: false,
+  });
+
+  await agent.send("start");
+  await taskStarted;
+  await agent.close();
   expect(aborted).toBe(true);
 });
