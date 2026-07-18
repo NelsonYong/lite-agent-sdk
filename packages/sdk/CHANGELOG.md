@@ -1,5 +1,17 @@
 # lite-agent
 
+## 0.13.0
+
+### Minor Changes
+
+- Move explicitly backgrounded work to session-scoped ownership. `run()` and
+  `send()` no longer wait for `Agent({ run_in_background: true })` or background
+  Bash work; the originating session is automatically woken when work completes.
+
+- Add `LiteAgent.subscribe()` for continuous user/background event delivery and
+  `LiteAgent.close()` for explicit background-task cleanup. Ordinary `Agent`
+  calls remain blocking by default, and one-shot `query()` closes temporary work.
+
 ## 0.12.2
 
 ## 0.12.1

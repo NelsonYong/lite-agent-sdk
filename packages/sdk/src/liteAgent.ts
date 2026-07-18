@@ -29,6 +29,9 @@ import type { FileToolsOptions } from "./tools/file";
 import type { BashToolOptions } from "./tools/bash";
 import { newSessionId } from "./store";
 import type { SessionInfo } from "./store";
+import type { LiteAgentEvent, SessionRunner } from "./sessionRunner";
+
+export type { LiteAgentEvent } from "./sessionRunner";
 
 export type ContextOptions = {
   planner?: ContextPlannerProvider;
@@ -124,6 +127,10 @@ export type LiteAgentResult = RunResult & { output?: unknown };
 export interface LiteAgent extends Agent {
   run(input: string | Message[], opts?: RunOptions): AsyncGenerator<AgentEvent, LiteAgentResult>;
   send(input: string | Message[], opts?: RunOptions): Promise<LiteAgentResult>;
+  /** Observe user runs and autonomous background-completion runs. */
+  subscribe(listener: (entry: LiteAgentEvent) => void): () => void;
+  /** Cancel live background work and close event delivery. Idempotent. */
+  close(): Promise<void>;
   /** The session id `run`/`send` use when none is passed in `opts`. */
   readonly sessionId: string;
   /** Switch the current session to an existing id (lenient — unknown id starts empty). */
@@ -170,6 +177,7 @@ export interface LiteAgentRuntime {
 export function createLiteAgentFacade(
   runtime: LiteAgentRuntime,
   workdir: string,
+  sessions: SessionRunner<LiteAgentResult>,
 ): LiteAgent {
   let currentSessionId = newSessionId();
   const noSessions = (): Promise<never> =>
@@ -177,12 +185,8 @@ export function createLiteAgentFacade(
       new AgentError("session management requires a checkpointer (it is disabled when sessions:false)"),
     );
 
-  const run = (
-    input: string | Message[],
-    opts?: RunOptions,
-  ): AsyncGenerator<AgentEvent, LiteAgentResult> => {
-    const sessionId = opts?.sessionId ?? currentSessionId;
-    const gen = runtime.core.run(input, { ...opts, sessionId });
+  sessions.bind((input, opts) => {
+    const gen = runtime.core.run(input, opts);
     const takeOutput = runtime.takeOutput;
     if (!takeOutput) return gen;
     return (async function* () {
@@ -191,12 +195,22 @@ export function createLiteAgentFacade(
         yield result.value;
         result = await gen.next();
       }
-      return { ...result.value, output: takeOutput(sessionId) };
+      return { ...result.value, output: takeOutput(opts.sessionId) };
     })();
+  });
+
+  const run = (
+    input: string | Message[],
+    opts?: RunOptions,
+  ): AsyncGenerator<AgentEvent, LiteAgentResult> => {
+    const sessionId = opts?.sessionId ?? currentSessionId;
+    return sessions.run(input, { ...opts, sessionId });
   };
 
   return {
     run,
+    subscribe: (listener) => sessions.subscribe(listener),
+    close: () => sessions.close(),
     async send(input, opts) {
       const gen = run(input, opts);
       let result = await gen.next();
@@ -215,6 +229,7 @@ export function createLiteAgentFacade(
       return currentSessionId;
     },
     deleteSession: async (id: string) => {
+      await sessions.cancelSession(id);
       if (!runtime.checkpointer) return noSessions();
       await runtime.checkpointer.delete(id);
       runtime.context?.remove?.(id);

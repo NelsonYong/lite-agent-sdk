@@ -11,7 +11,7 @@ import {
   tokenBudgetCompactor,
   toToolSpec,
 } from "@lite-agent/core";
-import type { Checkpointer, Compactor, Middleware, Tool } from "@lite-agent/core";
+import type { BackgroundTasks, Checkpointer, Compactor, Middleware, Tool } from "@lite-agent/core";
 import { tool } from "./tool";
 import { askUserTool, defaultTools } from "./tools";
 import { SkillLoader } from "./skills/loader";
@@ -38,12 +38,14 @@ interface AssembleLiteAgentOptions {
   readonly cfg: CreateLiteAgentConfig;
   readonly paths: ProjectPaths;
   readonly spawn: Spawn;
+  readonly backgroundTasks: (sessionId: string) => BackgroundTasks | undefined;
 }
 
 export function assembleLiteAgent({
   cfg,
   paths,
   spawn,
+  backgroundTasks,
 }: AssembleLiteAgentOptions): LiteAgentRuntime {
   let tools: Tool[] = [
     ...defaultTools(cfg.workdir, { files: cfg.fileTools, bash: cfg.bash }),
@@ -253,6 +255,7 @@ export function assembleLiteAgent({
     maxDecodeRetries: cfg.maxDecodeRetries,
     background: cfg.background,
     backgroundLimits: cfg.backgroundLimits,
+    backgroundTasks,
     crashRecovery: cfg.crashRecovery,
     maxSnapshotBytesPerSession: cfg.maxSnapshotBytesPerSession,
     sandbox: cfg.sandbox,

@@ -140,3 +140,22 @@ test("run captures the current session before its first next call", async () => 
   expect(await checkpointer.head("captured-before-run")).toBe(2);
   expect(await checkpointer.head("selected-after-run")).toBe(0);
 });
+
+test("LiteAgent publishes user-run events through subscribe and rejects runs after close", async () => {
+  const agent = createLiteAgent({
+    model: reply("ok"),
+    workdir: freshWorkdir(),
+    sessions: false,
+    cleanup: false,
+  });
+  const seen: string[] = [];
+  const unsubscribe = agent.subscribe(({ sessionId, source, event }) => {
+    if (event.type === "done") seen.push(`${sessionId}:${source}:${event.reason}`);
+  });
+
+  await agent.send("hello", { sessionId: "subscribed" });
+  expect(seen).toEqual(["subscribed:user:stop"]);
+  unsubscribe();
+  await agent.close();
+  await expect(agent.send("again")).rejects.toThrow("LiteAgent is closed");
+});

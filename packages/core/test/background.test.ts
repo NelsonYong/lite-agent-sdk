@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { createBackgroundTasks } from "../src/background";
+import { backgroundCompletionMessage, createBackgroundTasks } from "../src/background";
 import type { AgentEvent } from "../src/events";
 
 const noSignal = () => new AbortController().signal;
@@ -29,6 +29,36 @@ test("a completed task moves to takeCompleted and clears pending", async () => {
   const done = bg.takeCompleted();
   expect(done).toEqual([{ id: expect.stringMatching(/^bg_/), label: "job", content: "the output", isError: false }]);
   expect(bg.hasCompleted()).toBe(false); // drained
+});
+
+test("onCompleted runs after the completion is available to takeCompleted", async () => {
+  const seen: string[] = [];
+  let bg!: ReturnType<typeof createBackgroundTasks>;
+  bg = createBackgroundTasks({
+    emit: () => {},
+    signal: noSignal(),
+    onCompleted: (completion) => {
+      expect(bg.hasCompleted()).toBe(true);
+      seen.push(completion.content);
+    },
+  });
+  bg.spawn({ label: "job", run: async () => "done" });
+  await bg.waitNextJoinable(noSignal());
+  expect(seen).toEqual(["done"]);
+});
+
+test("backgroundCompletionMessage preserves the existing tagged format", () => {
+  expect(backgroundCompletionMessage({
+    id: "bg_1",
+    label: "say \"hi\"",
+    content: "failed",
+    isError: true,
+  })).toEqual({
+    role: "user",
+    content:
+      '<background-task-completed id="bg_1" label="say \'hi\'" status="error">\n' +
+      "failed\n</background-task-completed>",
+  });
 });
 
 test("a throwing task completes as isError", async () => {

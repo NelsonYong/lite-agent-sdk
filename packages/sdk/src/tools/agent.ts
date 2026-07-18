@@ -38,7 +38,7 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn }): Tool {
     description:
       "Delegate a large or context-heavy subtask to a specialized subagent, keeping your own context clean. Each subagent runs in isolation (it sees only the `prompt` you pass) and returns only its final result. " +
       "By default this call BLOCKS until every subagent has finished and returns all their results directly (labeled `subagent[0]`, `subagent[1]`, …) — use this whenever you need the results to continue. " +
-      "Pass `run_in_background: true` only for fire-and-forget fan-out you don't need immediately: it returns a placeholder now and the aggregated results are delivered later as a notification when all subagents finish (do NOT call `Agent` again to poll them). " +
+      "Pass `run_in_background: true` only for fan-out you don't need immediately: it returns a placeholder now, continues across later turns of the same live session, and wakes that session with the aggregated results when all subagents finish (do NOT call `Agent` again to poll them). " +
       "To run subtasks in parallel, pass them as MULTIPLE entries in `tasks` within a SINGLE call — do not issue separate `Agent` calls for that. " +
       "To continue a previous subagent, pass its reported agentId as `resume`.",
     schema: z.object({
@@ -101,7 +101,7 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn }): Tool {
       if (run_in_background === true && ctx.background) {
         const handle = ctx.background.spawn({
           label: `${tasks.length} subagent(s)`,
-          kind: "joinable",
+          kind: "detached",
           run: (signal, emit) => runBatch(signal, emit),
         });
         return `[background:${handle.id}] dispatched ${tasks.length} subagent(s). Aggregated results will be delivered when all complete.`;

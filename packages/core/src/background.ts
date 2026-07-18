@@ -1,5 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { AgentEvent } from "./events";
+import type { Message } from "./types";
 
 export type BackgroundKind = "joinable" | "detached";
 
@@ -65,6 +66,8 @@ export interface BackgroundDeps {
   /** The run's abort signal; cancels all tasks when it fires. */
   signal: AbortSignal;
   limits?: BackgroundLimits;
+  /** Called after a completion has entered the delivery queue. */
+  onCompleted?: (completion: BackgroundCompletion) => void;
 }
 
 export interface BackgroundLimits {
@@ -124,8 +127,10 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
     running.delete(id);
     const d = detached.get(id);
     if (d) d.done = true;
-    completed.push({ id, label, content, isError });
+    const completion = { id, label, content, isError };
+    completed.push(completion);
     notify();
+    deps.onCompleted?.(completion);
   };
 
   return {
@@ -200,5 +205,16 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
     cancelAll() {
       for (const r of running.values()) r.ac.abort();
     },
+  };
+}
+
+export function backgroundCompletionMessage(completion: BackgroundCompletion): Message {
+  const status = completion.isError ? ' status="error"' : "";
+  const label = completion.label.replace(/"/g, "'");
+  return {
+    role: "user",
+    content:
+      `<background-task-completed id="${completion.id}" label="${label}"${status}>\n` +
+      `${completion.content}\n</background-task-completed>`,
   };
 }

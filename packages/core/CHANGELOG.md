@@ -1,5 +1,16 @@
 # @lite-agent/core
 
+## 0.13.0
+
+### Minor Changes
+
+- Add externally owned background registries through
+  `CreateAgentConfig.backgroundTasks` / `KernelConfig.backgroundTasks`, allowing
+  a stateful runtime to keep detached work alive across finite kernel runs while
+  preserving existing run-local join and cleanup behavior for low-level callers.
+  `BackgroundDeps.onCompleted` and `backgroundCompletionMessage()` expose the
+  canonical completion-delivery seam.
+
 ## 0.12.2
 
 ## 0.12.1

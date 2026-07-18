@@ -2,8 +2,7 @@
 
 ## Status
 
-Approved in conversation on 2026-07-18. Awaiting written-spec review before
-implementation planning.
+Approved in conversation on 2026-07-18. Implementation in progress.
 
 ## Context
 
@@ -162,10 +161,13 @@ notifies, and cancels it.
 The existing model-visible format is retained:
 
 ```xml
-<background-task-completed id="bg_..." label="..." status="completed">
+<background-task-completed id="bg_..." label="...">
 ...result...
 </background-task-completed>
 ```
+
+Successful completions keep the existing tag without a `status` attribute.
+Failed completions add `status="error"`.
 
 The runner passes these messages through the normal core input path. Therefore
 the checkpointer persists them as ordinary user events and the context engine
