@@ -1,0 +1,17 @@
+[
+  {
+    "text": "SDK",
+    "link": "/sdk/overview",
+    "activeMatch": "^/sdk/"
+  },
+  {
+    "text": "Core",
+    "link": "/core/overview",
+    "activeMatch": "^/core/"
+  },
+  {
+    "text": "Examples",
+    "link": "/examples/cli",
+    "activeMatch": "^/examples/"
+  }
+]

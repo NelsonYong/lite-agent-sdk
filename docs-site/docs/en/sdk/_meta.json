@@ -1,0 +1,8 @@
+[
+  "overview",
+  "getting-started",
+  { "type": "dir", "name": "core-concepts", "label": "Core Concepts", "collapsible": true, "collapsed": false },
+  { "type": "dir", "name": "tools", "label": "Extending with tools", "collapsible": true, "collapsed": false },
+  { "type": "dir", "name": "behavior", "label": "Customizing behavior", "collapsible": true, "collapsed": false },
+  { "type": "dir", "name": "control", "label": "Control & observability", "collapsible": true, "collapsed": false }
+]

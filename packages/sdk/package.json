@@ -2,7 +2,7 @@
   "name": "@lite-agent/sdk",
   "version": "0.13.0",
   "description": "Batteries-included agent SDK over @lite-agent/core: tools, skills, system prompt, and query()/createLiteAgent().",
-  "license": "ISC",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",

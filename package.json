@@ -4,7 +4,7 @@
   "private": true,
   "description": "Pluggable, lightweight agent-core SDK — monorepo root.",
   "type": "module",
-  "license": "ISC",
+  "license": "MIT",
   "packageManager": "pnpm@10.12.4",
   "engines": {
     "node": ">=20"

@@ -1,0 +1,8 @@
+[
+  "overview",
+  "getting-started",
+  { "type": "dir", "name": "core-concepts", "label": "核心概念", "collapsible": true, "collapsed": false },
+  { "type": "dir", "name": "tools", "label": "使用工具扩展", "collapsible": true, "collapsed": false },
+  { "type": "dir", "name": "behavior", "label": "自定义行为", "collapsible": true, "collapsed": false },
+  { "type": "dir", "name": "control", "label": "控制和可观测性", "collapsible": true, "collapsed": false }
+]

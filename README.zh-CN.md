@@ -2,7 +2,7 @@
 
 [English](./README.md) | **简体中文**
 
-[![License: ISC](https://img.shields.io/badge/License-ISC-blue.svg)](./LICENSE)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
 [![Node >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
 [![文档](https://img.shields.io/badge/docs-nelsonyong.github.io%2Flite--agent--sdk-blueviolet.svg)](https://nelsonyong.github.io/lite-agent-sdk/)
 
@@ -65,4 +65,4 @@ pnpm dev         # 运行交互式 CLI 示例
 
 ## 许可协议
 
-ISC
+MIT
