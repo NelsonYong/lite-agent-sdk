@@ -302,6 +302,7 @@ export async function createLocalAgent(cfg: LocalAgentConfig): Promise<LocalAgen
   };
   const local: LocalAgent = {
     run,
+    subscribe: (listener) => base.subscribe(listener),
     async send(input, opts) {
       const stream = run(input, opts);
       let next = await stream.next();
@@ -387,6 +388,7 @@ export async function createLocalAgent(cfg: LocalAgentConfig): Promise<LocalAgen
       }));
       for (const result of stopped) if (result.status === "rejected") errors.push(result.reason);
       activeRuns.clear();
+      try { await base.close(); } catch (error) { errors.push(error); }
       try { await sink?.close(); } catch (error) { errors.push(error); }
       try { checkpointer.close(); } catch (error) { errors.push(error); }
       try { await sandbox.dispose?.(); } catch (error) { errors.push(error); }

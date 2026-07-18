@@ -1,5 +1,14 @@
 # @lite-agent/local
 
+## 0.2.0
+
+### Minor Changes
+
+- Forward `LiteAgent.subscribe()` through `LocalAgent` so interactive local
+  runtimes can observe autonomous background turns, and close the underlying
+  session runner during `LocalAgent.close()` so detached work is cancelled
+  before persistence and sandbox resources are released.
+
 ## 0.1.0
 
 ### Minor Changes
