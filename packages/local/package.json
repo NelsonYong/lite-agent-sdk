@@ -1,6 +1,6 @@
 {
   "name": "@lite-agent/local",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Strict single-host local runtime for lite-agent: local models, SQLite, sandbox, managed permissions, and audit logs.",
   "license": "ISC",
   "type": "module",
