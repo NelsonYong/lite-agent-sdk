@@ -10,7 +10,7 @@ import type { KernelConfig, KernelContextOptions } from "./kernel";
 import type { Checkpointer } from "./checkpoint";
 import { legacyStoreAdapter } from "./checkpoint";
 import type { SteerController } from "./steer";
-import type { BackgroundLimits } from "./background";
+import type { BackgroundLimits, BackgroundTasks } from "./background";
 
 export interface CreateAgentConfig {
   model: ModelProvider;
@@ -35,6 +35,8 @@ export interface CreateAgentConfig {
   /** Enable background tasks (default true). */
   background?: boolean;
   backgroundLimits?: BackgroundLimits;
+  /** Resolve externally owned background work for a session. Omit for per-run ownership. */
+  backgroundTasks?: (sessionId: string) => BackgroundTasks | undefined;
   /** Prompt-codec repair attempts after a decode failure. Default 2. */
   maxDecodeRetries?: number;
   /** Persist tool starts and synthesize interrupted results on resume. Default false. */
@@ -72,6 +74,7 @@ export function createAgent(cfg: CreateAgentConfig): Agent {
     maxParallelTools: cfg.maxParallelTools,
     background: cfg.background,
     backgroundLimits: cfg.backgroundLimits,
+    backgroundTasks: cfg.backgroundTasks,
     maxDecodeRetries: cfg.maxDecodeRetries,
     crashRecovery: cfg.crashRecovery,
     maxSnapshotBytesPerSession: cfg.maxSnapshotBytesPerSession,

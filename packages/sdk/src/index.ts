@@ -1,7 +1,9 @@
 export * from "@lite-agent/core";
 
 export { createLiteAgent } from "./createLiteAgent";
-export type { CreateLiteAgentConfig, ContextOptions, LiteAgent, LiteAgentResult } from "./createLiteAgent";
+export type {
+  CreateLiteAgentConfig, ContextOptions, LiteAgent, LiteAgentEvent, LiteAgentResult,
+} from "./createLiteAgent";
 export { query } from "./query";
 export type { QueryOptions } from "./query";
 export { tool } from "./tool";

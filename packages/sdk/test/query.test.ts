@@ -1,4 +1,4 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { z } from "zod";
 import { fakeProvider, memoryCheckpointer, policy, textBlock, SteerController } from "@lite-agent/core";
 import { query } from "../src/query";
@@ -171,4 +171,41 @@ test("query forwards a SteerController; followUp continues the run", async () =>
   while (!r.done) { types.push(r.value.type); r = await gen.next(); }
   // followUp resurrects the run for a second model turn → two turn_start events.
   expect(types.filter((t) => t === "turn_start").length).toBe(2);
+});
+
+test("query closes detached work owned by its temporary LiteAgent", async () => {
+  let aborted = false;
+  const background = tool(
+    "query_background",
+    "query background",
+    z.object({}),
+    async (_input, ctx) => {
+      ctx.background!.spawn({
+        label: "query task",
+        kind: "detached",
+        run: (signal) => new Promise<string>((resolve) => {
+          signal.addEventListener("abort", () => {
+            aborted = true;
+            resolve("cancelled");
+          });
+        }),
+      });
+      return "started";
+    },
+  );
+  const stream = query({
+    prompt: "start",
+    model: fakeProvider([
+      { message: { role: "assistant", content: [{ type: "tool_call", id: "q1", name: "query_background", input: {} }] } },
+      { text: "idle", message: { role: "assistant", content: [textBlock("idle")] } },
+    ]),
+    cwd: process.cwd(),
+    tools: [background],
+    sessions: false,
+    tasks: false,
+    agents: false,
+    cleanup: false,
+  });
+  while (!(await stream.next()).done) {}
+  await vi.waitFor(() => expect(aborted).toBe(true));
 });

@@ -147,7 +147,7 @@ export function bashTool(workdir: string, opts: BashToolOptions = {}): Tool {
   return defineTool({
     name: "bash",
     description:
-      "Run a shell command in the workspace — builds, tests, git, package managers, and searching or listing files (grep, find, ls). IMPORTANT: to read a file's contents, use the dedicated read_file tool instead of cat/head/tail; it is the preferred way and keeps whole files out of the shell output. Set run_in_background:true for long-running commands (servers, watchers, slow test suites): the command runs detached and does NOT block; read its output with the BashOutput tool (by the returned bg_… id), and it is stopped automatically when the run ends.",
+      "Run a shell command in the workspace — builds, tests, git, package managers, and searching or listing files (grep, find, ls). IMPORTANT: to read a file's contents, use the dedicated read_file tool instead of cat/head/tail; it is the preferred way and keeps whole files out of the shell output. Set run_in_background:true for long-running commands (servers, watchers, slow test suites): the command runs detached across later turns of the same live session and does NOT block; read its output with the BashOutput tool (by the returned bg_… id). It is stopped by KillBackground, session deletion, configured limits, or LiteAgent.close().",
     schema: z.object({ command: z.string(), run_in_background: z.boolean().optional().default(false) }),
     security: opts.security ?? { network: "unrestricted", filesystem: "unrestricted", sideEffects: "external" },
     execute: async ({ command, run_in_background }, ctx) => {
@@ -159,7 +159,7 @@ export function bashTool(workdir: string, opts: BashToolOptions = {}): Tool {
           kind: "detached",
           run: (signal, _emit, write) => runProcess(toRun, workdir, signal, background, write),
         });
-        return `[background:${handle.id}] started: ${command}. Read output with BashOutput(id: ${handle.id}); it does not block this run and is stopped when the run ends.`;
+        return `[background:${handle.id}] started: ${command}. Read output with BashOutput(id: ${handle.id}); it continues across turns and is stopped by KillBackground, session deletion, configured limits, or LiteAgent.close().`;
       }
       return runProcess(toRun, workdir, ctx.signal, foreground);
     },

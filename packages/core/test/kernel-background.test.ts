@@ -8,6 +8,7 @@ import { defineTool } from "../src/tools/define";
 import { textBlock } from "../src/types";
 import { noopSandbox } from "../src/sandbox";
 import type { AgentEvent, RunResult } from "../src/events";
+import { createBackgroundTasks } from "../src/background";
 
 function baseCfg(over: Partial<KernelConfig>): KernelConfig {
   return { provider: fakeProvider([]), codec: nativeCodec(), tools: [], middleware: [], model: "fake", maxTurns: 10, sandbox: noopSandbox(), ...over };
@@ -201,6 +202,42 @@ test("a detached daemon does NOT block dry-out: the run stops and the daemon is 
   );
   expect(result.stopReason).toBe("stop"); // NOT hung on the never-exiting daemon
   expect(daemonAborted).toBe(true); // cancelAll at run-end stopped it
+});
+
+test("an externally owned detached registry survives kernel run-end", async () => {
+  const lifecycle = new AbortController();
+  let release!: () => void;
+  const external = createBackgroundTasks({ emit: () => {}, signal: lifecycle.signal });
+  const tool = defineTool({
+    name: "external_bg",
+    description: "start external background work",
+    schema: z.object({}),
+    execute: async (_input, ctx) => {
+      ctx.background!.spawn({
+        label: "external",
+        kind: "detached",
+        run: () => new Promise<string>((resolve) => { release = () => resolve("done"); }),
+      });
+      return "started";
+    },
+  });
+  const provider = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "external_bg", input: {} }] } },
+    { text: "idle", message: { role: "assistant", content: [textBlock("idle")] } },
+  ]);
+
+  await drain(runKernel(baseCfg({
+    provider,
+    tools: [tool],
+    backgroundTasks: (sessionId) => sessionId === "s1" ? external : undefined,
+  }), "go", new AbortController().signal, "s1"));
+
+  expect(external.pendingDetached()).toBe(1);
+  release();
+  for (let i = 0; i < 20 && !external.hasCompleted(); i++) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  expect(external.takeCompleted()[0]?.content).toBe("done");
 });
 
 test("a joinable task still blocks dry-out even when a detached daemon is also running", async () => {

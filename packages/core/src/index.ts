@@ -37,9 +37,11 @@ export type {
   TokenBudgetCompactorOptions,
 } from "./compaction";
 export { SteerController } from "./steer";
-export { createBackgroundTasks } from "./background";
-export type { BackgroundTasks, BackgroundHandle, BackgroundCompletion, BackgroundSpawnOptions, BackgroundKind, BackgroundRead } from "./background";
-export type { BackgroundLimits } from "./background";
+export { backgroundCompletionMessage, createBackgroundTasks } from "./background";
+export type {
+  BackgroundTasks, BackgroundHandle, BackgroundCompletion, BackgroundSpawnOptions,
+  BackgroundKind, BackgroundRead, BackgroundDeps, BackgroundLimits,
+} from "./background";
 export { policy, strictPolicy, composePolicies, permission, defaultRedactor } from "./permission";
 export type { PolicyOptions, PermissionRule, MatchSpec, Condition, Redactor } from "./permission";
 export type {

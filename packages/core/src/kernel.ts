@@ -14,8 +14,8 @@ import { ContextEngine } from "./contextEngine";
 import type { ContextArchive, ContextPlanner, ContextPlannerProvider, ContextStatus } from "./contextEngine";
 import type { StaticPrefixInput } from "./context";
 import type { SteerController } from "./steer";
-import { createBackgroundTasks } from "./background";
-import type { BackgroundCompletion, BackgroundLimits } from "./background";
+import { backgroundCompletionMessage, createBackgroundTasks } from "./background";
+import type { BackgroundLimits, BackgroundTasks } from "./background";
 
 export interface KernelConfig {
   provider: ModelProvider;
@@ -40,6 +40,8 @@ export interface KernelConfig {
   /** Enable background tasks (default true). When false, ctx.background is undefined. */
   background?: boolean;
   backgroundLimits?: BackgroundLimits;
+  /** Resolve externally owned background work for a session. Omit for per-run ownership. */
+  backgroundTasks?: (sessionId: string) => BackgroundTasks | undefined;
   maxDecodeRetries?: number;
   crashRecovery?: "off" | "safe";
   maxSnapshotBytesPerSession?: number;
@@ -145,9 +147,11 @@ export async function* runKernel(
   const queue: AgentEvent[] = [];
   const emit = (ev: AgentEvent) => { queue.push(ev); };
   for (const event of recovered) queue.push({ ...event, type: "tool_recovered" });
-  const bg = cfg.background === false
+  const suppliedBackground = cfg.backgroundTasks?.(sessionId);
+  const ownsBackground = suppliedBackground === undefined && cfg.background !== false;
+  const bg = suppliedBackground ?? (cfg.background === false
     ? undefined
-    : createBackgroundTasks({ emit, signal, limits: cfg.backgroundLimits });
+    : createBackgroundTasks({ emit, signal, limits: cfg.backgroundLimits }));
   const state = new Map<string, unknown>();
   let usage: Usage = { inputTokens: 0, outputTokens: 0 };
 
@@ -174,7 +178,11 @@ export async function* runKernel(
 
   for (let turn = 1; turn <= cfg.maxTurns; turn++) {
     // Phase 1: abort is observed only at turn boundaries.
-    if (signal.aborted) { bg?.cancelAll(); stopReason = "aborted"; break; }
+    if (signal.aborted) {
+      if (ownsBackground) bg?.cancelAll();
+      stopReason = "aborted";
+      break;
+    }
     if (engine) messages = [...(await engine.snapshot()).messages];
     const ctx = mkCtx(turn);
     yield { type: "turn_start", turn };
@@ -186,9 +194,9 @@ export async function* runKernel(
       yield { type: "steer", messages: steers };
     }
 
-    if (bg) {
+    if (ownsBackground && bg) {
       for (const c of bg.takeCompleted()) {
-        const note = backgroundNote(c);
+        const note = backgroundCompletionMessage(c);
         ctx.messages.push(note);
         await append({ type: "user", message: note });
         yield { type: "background_completed", completion: c };
@@ -333,7 +341,7 @@ export async function* runKernel(
       //     can repeat across join cycles, so turn numbers are NOT unique in the
       //     event stream. RunResult and the terminal `done` event remain the
       //     source of truth for consumers.
-      if (bg && (bg.pendingJoinable() > 0 || bg.hasCompleted())) {
+      if (ownsBackground && bg && (bg.pendingJoinable() > 0 || bg.hasCompleted())) {
         yield { type: "turn_end", turn, stopReason: "stop" };
         if (!bg.hasCompleted()) await bg.waitNextJoinable(signal); // block until next completion or abort
         turn--;
@@ -416,7 +424,7 @@ export async function* runKernel(
   // Stop any tasks still running when the loop ends. On a normal `stop` exit the
   // join guarantees none are pending; this matters on the maxTurns exit, where
   // leaving them running would leak detached child processes / kernels.
-  bg?.cancelAll();
+  if (ownsBackground) bg?.cancelAll();
 
   await runLifecycle(cfg.middleware, "afterAgent", mkCtx(0));
   yield* drain();
@@ -425,7 +433,7 @@ export async function* runKernel(
   yield { type: "done", reason: stopReason, result };
   return result;
   } finally {
-    bg?.cancelAll();
+    if (ownsBackground) bg?.cancelAll();
   }
 }
 
@@ -459,15 +467,6 @@ function lastAssistantText(messages: Message[]): string {
     }
   }
   return "";
-}
-
-function backgroundNote(c: BackgroundCompletion): Message {
-  const status = c.isError ? ' status="error"' : "";
-  const label = c.label.replace(/"/g, "'"); // keep the label attribute well-formed
-  return {
-    role: "user",
-    content: `<background-task-completed id="${c.id}" label="${label}"${status}>\n${c.content}\n</background-task-completed>`,
-  };
 }
 
 function modelRequest(cfg: KernelConfig, messages: readonly Message[]) {

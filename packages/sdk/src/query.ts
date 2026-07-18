@@ -130,9 +130,21 @@ export function query(
     onApproval: opts.onApproval,
     onAskUser: opts.onAskUser,
   });
-  return agent.run(opts.prompt, {
-    signal: opts.signal,
-    sessionId: opts.sessionId,
-    steer: opts.steer,
-  });
+  return (async function* () {
+    const stream = agent.run(opts.prompt, {
+      signal: opts.signal,
+      sessionId: opts.sessionId,
+      steer: opts.steer,
+    });
+    try {
+      let next = await stream.next();
+      while (!next.done) {
+        yield next.value;
+        next = await stream.next();
+      }
+      return next.value;
+    } finally {
+      await agent.close();
+    }
+  })();
 }
