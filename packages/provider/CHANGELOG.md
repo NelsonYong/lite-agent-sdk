@@ -1,12 +1,19 @@
 # @lite-agent/provider
 
-## 0.7.2
+## 0.8.0
+
+### Minor Changes
+
+- Add Anthropic context-management support through `ModelProvider.context`,
+  including token counting, provider-native clear-tool-use / clear-thinking /
+  compact edits when the beta API is available, automatic prompt cache controls,
+  `compaction` content blocks, native unknown-block preservation, and cache token
+  usage reporting.
 
 ### Patch Changes
 
 - Document provider support levels and add an opt-in `test:compat` command for
   probing OpenAI-compatible endpoints against a live runtime/model profile.
-  Normal provider APIs and runtime behavior are unchanged.
 
 ## 0.7.1
 
