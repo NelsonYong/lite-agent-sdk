@@ -16,16 +16,7 @@ for await (const ev of query({
 }`;
 
 function Quickstart() {
-  return (
-    <div className="la-home-quickstart">
-      <pre className="la-home-quickstart__cmd">
-        <code>{install}</code>
-      </pre>
-      <pre className="la-home-quickstart__code">
-        <code>{example}</code>
-      </pre>
-    </div>
-  );
+  return <></>;
 }
 
 export function HomeLayout(props: ComponentProps<typeof BasicHomeLayout>) {
