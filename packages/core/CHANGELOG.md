@@ -4,10 +4,16 @@
 
 ### Minor Changes
 
+- Add the multi-level context engine for long-running sessions. New public
+  exports include `projectContext()`, `ContextEngine`, `createContextEngine()`,
+  context view/archive/planner types, provider context capability types,
+  `context_status` events, `NativeBlock` / `CompactionBlock`, and provider cache
+  token usage fields.
+
 - Add `providerConformance` testing contracts and related factory/scenario types
-  for validating `ModelProvider` adapters against the shared normalized stream
-  behavior: final `message_done` placement, text ordering, tool-call assembly,
-  usage reporting, abort settling, and `ProviderError` normalization.
+  for validating `ModelProvider` adapters against normalized stream behavior:
+  final `message_done` placement, text ordering, tool-call assembly, usage
+  reporting, abort settling, and `ProviderError` normalization.
 
 ## 0.11.0
 

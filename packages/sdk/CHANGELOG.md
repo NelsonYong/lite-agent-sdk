@@ -1,6 +1,14 @@
 # lite-agent
 
-## 0.11.1
+## 0.12.0
+
+### Minor Changes
+
+- Add automatic context management to `createLiteAgent()` and `query()` through
+  the new `context` option. The SDK now wires the core `ContextEngine`, stores
+  archived historical context via `fileContextArchive()`, exposes the
+  bounded-data `context` lookup tool, and exports `ContextOptions`,
+  `sessionContextDir()`, `contextLookupTool()`, and related archive types.
 
 ### Patch Changes
 
