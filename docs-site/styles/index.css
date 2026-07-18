@@ -1,0 +1,17 @@
+/* Brand accent — indigo-violet, tuned for both light and dark surfaces. */
+:root {
+  --rp-c-brand: #6366f1;
+  --rp-c-brand-light: #818cf8;
+  --rp-c-brand-lighter: #a5b4fc;
+  --rp-c-brand-dark: #4f46e5;
+  --rp-c-brand-darker: #4338ca;
+  --rp-home-hero-name-background: linear-gradient(120deg, #6366f1 30%, #a855f7);
+}
+
+.dark {
+  --rp-c-brand: #818cf8;
+  --rp-c-brand-light: #a5b4fc;
+  --rp-c-brand-lighter: #c7d2fe;
+  --rp-c-brand-dark: #6366f1;
+  --rp-c-brand-darker: #4f46e5;
+}
