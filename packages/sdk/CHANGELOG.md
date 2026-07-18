@@ -1,5 +1,9 @@
 # lite-agent
 
+## 0.12.2
+
+## 0.12.1
+
 ## 0.12.0
 
 ### Minor Changes
@@ -65,7 +69,6 @@
 ### Minor Changes
 
 - Add non-blocking background execution (Claude Code's `run_in_background`), gated by a new top-level `background` option on `createLiteAgent` / `query` (default on):
-
   - **`bash` gains `run_in_background` (default `false` — foreground behavior is unchanged).** A backgrounded command runs via async `exec` (not `execSync`, which would block the event loop), is bounded by cancellation rather than the 120s foreground timeout (so it suits long-running servers / watchers), and its output is delivered to the agent as a notification when it finishes.
   - **Behavioral change: the `Agent` subagent tool now defaults to `run_in_background: true`.** An `Agent` call returns a placeholder immediately, and the aggregated `subagent[…]` results arrive later as a single notification once all children finish — instead of blocking and returning them inline. Pass `run_in_background: false` to restore the old synchronous behavior. Callers that relied on `Agent` returning its results inline must set the flag.
   - New `KillBackground` tool cancels a running background task by its reported `bg_…` id. It is registered by default and omitted when `background: false`.
@@ -224,7 +227,6 @@
 - 7ce80b8: feat(sdk): `.lite-agent` home, default persistence, and age-based cleanup
 
   `createLiteAgent`/`query` adopt a Claude Code–style home (`$LITE_AGENT_HOME` || `~/.lite-agent`) and turn persistence on by default (all opt-out). This is a behavior change: `createLiteAgent`/`query` now write to disk and sweep stale files by default.
-
   - **Paths** (`resolveProjectPaths` / `liteAgentHome` / `projectHash`): per-project runtime artifacts under `~/.lite-agent/projects/<sha1(workdir)>/{spill,sessions}`; global skills under `~/.lite-agent/skills`; project skills under `<workdir>/.lite-agent/skills`.
   - **Skills**: loaded from global < project < explicit `skillsDir` (later overrides earlier). `SkillLoader`'s constructor now accepts `string | string[]`, and its public `skillsDir` field was renamed to `dirs` (no external consumer in-repo; pre-1.0).
   - **Defaults** (each overridable): `sessions` → `jsonlStore`, `spill` → `fileSpillStore` + `read_spilled`, `compactor` → deterministic `defaultCompactor` (no LLM), `cleanup` → `sweepStale` (30-day sweep). Opt out via `sessions:false` / `spill:false` / `compactor:false` / `cleanup:false`; an explicit `store`/`compactor` overrides the default. New `home?` option overrides the home for both `createLiteAgent` and `query`.
@@ -236,7 +238,6 @@
 - b30f11b: feat: session persistence/resume, retry middleware, and context compaction
 
   P0 capability wave — all additive and opt-in (no breaking changes):
-
   - **Sessions / resume (P0-2):** `memoryStore()` (core) and `jsonlStore({ dir })` (sdk) implement the `Store` strategy. The kernel now loads a session's transcript at start and persists per tool-turn + at the end. Threaded through `createAgent` / `createLiteAgent` / `query` via a new optional `store`.
   - **Retry (P0-3):** `retry({ maxRetries, backoff, retryOn })` — a `wrapModelCall` middleware that retries transient `ProviderError`s (408/409/425/429/5xx + network), and never re-runs after output has started streaming.
   - **Context compaction (P0-1):** `core/src/compaction/` — composable `CompactPass` bricks (`snipPass` turn-aware middle-drop, `microPass` tool_result shrink) wired through `runPipeline` into `defaultCompactor()` (the `Compactor` strategy) and a `compaction()` `beforeModel` middleware; plus `reactiveCompaction()` — an LLM-free `wrapModelCall` safety net that trims and retries on 413 / `prompt_too_long`. `createLiteAgent({ compactor })` wires the proactive + reactive layers together. `llmCompactor()` (L4) is an optional LLM-summary `Compactor` that composes a deterministic base and summarizes older turns once over a token threshold, with a circuit breaker. `toolResultBudgetPass` + `SpillStore` (`memorySpillStore` / `fileSpillStore`) + `readSpilledTool` (L3) move oversized tool-result bodies off-context to disk behind a retrievable `[spilled:ref]` marker; `defaultCompactor({ spillStore })` runs it first in the pipeline.
@@ -256,7 +257,6 @@
 ### Minor Changes
 
 - ce5c1e8: Initial 0.1.0 release of the pluggable agent-core SDK.
-
   - **@lite-agent/core** — event-driven kernel, strategy interfaces (provider/codec/tool/compactor/permission/approval/input/sandbox/store), onion middleware pipeline, normalized types, native codec, `policy()` + `permission()` gate.
   - **@lite-agent/provider** — Anthropic Messages API + OpenAI Chat Completions providers in one package (OpenAI also works with OpenAI-compatible / local endpoints). The example picks the provider by detecting the protocol from `LITE_AGENT_MODEL_ID`.
   - **lite-agent** — batteries layer: `createLiteAgent`/`query`, bash/file/todo + `ask_user` tools, skills loader, system prompt.
