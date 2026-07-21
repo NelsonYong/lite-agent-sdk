@@ -303,6 +303,7 @@ export async function createLocalAgent(cfg: LocalAgentConfig): Promise<LocalAgen
   const local: LocalAgent = {
     run,
     subscribe: (listener) => base.subscribe(listener),
+    awaitIdle: (sessionId) => base.awaitIdle(sessionId),
     async send(input, opts) {
       const stream = run(input, opts);
       let next = await stream.next();

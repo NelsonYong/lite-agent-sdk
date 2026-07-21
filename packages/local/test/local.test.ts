@@ -88,6 +88,7 @@ test("strict local agent composes SQLite, audit, permissions, diagnostics, and l
 
   expect(ran.value).toBe(true);
   expect(subscribed).toEqual(["user:stop"]);
+  await expect(agent.awaitIdle()).resolves.toBeUndefined();
   unsubscribe();
   expect(await agent.queryAudit({ tool: "probe" })).toHaveLength(1);
   const exported = [];

@@ -1,5 +1,16 @@
 # @lite-agent/core
 
+## 0.14.0
+
+### Minor Changes
+
+- Add structured background lifecycle outcomes. `BackgroundStatus`,
+  `BackgroundRunResult`, and `BackgroundCompletion.status` distinguish
+  `completed`, `partial`, `failed`, and `cancelled`; the compatibility
+  `isError` field is now derived from status. `backgroundCompletionMessage()`
+  preserves the legacy successful XML form and maps non-success outcomes to
+  `partial`, `error`, or `cancelled` status attributes.
+
 ## 0.13.0
 
 ### Minor Changes

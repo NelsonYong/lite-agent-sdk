@@ -1,5 +1,21 @@
 # lite-agent
 
+## 0.14.0
+
+### Minor Changes
+
+- Change `Agent` dispatch to root-pooled detached groups. Every task now
+  requires a visible `display_name`; `subagent_type` remains the definition key
+  and `agentId` remains the resume identity. `maxParallelSubagents` (default
+  `5`) caps child kernels across all groups on one root agent. Group completion
+  is delivered once, in input order, with explicit `completed`, `partial`,
+  `failed`, or `cancelled` status. The legacy `run_in_background` input remains
+  parse-compatible but no longer changes Agent group lifecycle.
+
+- Make one-shot `query()` wait for its own Agent groups and autonomous
+  completion turns before cleanup; use `createLiteAgent().subscribe()` and
+  `close()` for long-lived interactive background work.
+
 ## 0.13.0
 
 ### Minor Changes

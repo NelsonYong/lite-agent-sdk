@@ -1,6 +1,6 @@
 {
   "name": "@lite-agent/local",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Strict single-host local runtime for lite-agent: local models, SQLite, sandbox, managed permissions, and audit logs.",
   "license": "MIT",
   "type": "module",
