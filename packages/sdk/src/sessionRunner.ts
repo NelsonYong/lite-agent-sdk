@@ -31,6 +31,7 @@ export interface SessionRunner<R extends RunResult> {
   ): AsyncGenerator<AgentEvent, R>;
   backgroundTasks(sessionId: string): BackgroundTasks | undefined;
   subscribe(listener: (entry: LiteAgentEvent) => void): () => void;
+  awaitIdle(sessionId: string): Promise<void>;
   cancelSession(sessionId: string): Promise<void>;
   close(): Promise<void>;
 }
@@ -38,6 +39,7 @@ export interface SessionRunner<R extends RunResult> {
 export interface SessionRunnerOptions {
   background: boolean;
   limits?: BackgroundLimits;
+  waitForBackgroundIdle?: (sessionId: string) => Promise<void>;
 }
 
 export function createSessionRunner<R extends RunResult>(
@@ -55,8 +57,38 @@ export function createSessionRunner<R extends RunResult>(
   const tails = new Map<string, Promise<void>>();
   const scheduled = new Map<string, Scope>();
   const listeners = new Set<(entry: LiteAgentEvent) => void>();
+  const idleWaiters = new Map<string, Set<() => void>>();
   let execute: SessionRun<R> | undefined;
   let closed = false;
+
+  const wakeIdleWaiters = (sessionId: string) => {
+    const waiters = idleWaiters.get(sessionId);
+    if (!waiters) return;
+    idleWaiters.delete(sessionId);
+    for (const resolve of waiters) resolve();
+  };
+
+  const runnerIdle = (sessionId: string) => {
+    const scope = scopes.get(sessionId);
+    return !tails.has(sessionId) &&
+      !scheduled.has(sessionId) &&
+      !scope?.draining &&
+      !scope?.completion &&
+      !scope?.tasks.hasCompleted();
+  };
+
+  const waitForRunnerChange = (sessionId: string): Promise<void> =>
+    new Promise<void>((resolve) => {
+      const waiters = idleWaiters.get(sessionId) ?? new Set<() => void>();
+      const done = () => {
+        waiters.delete(done);
+        if (waiters.size === 0) idleWaiters.delete(sessionId);
+        resolve();
+      };
+      waiters.add(done);
+      idleWaiters.set(sessionId, waiters);
+      if (closed || runnerIdle(sessionId)) done();
+    });
 
   const publish = (entry: LiteAgentEvent) => {
     if (closed) return;
@@ -79,6 +111,7 @@ export function createSessionRunner<R extends RunResult>(
     return () => {
       open();
       if (tails.get(sessionId) === tail) tails.delete(sessionId);
+      wakeIdleWaiters(sessionId);
     };
   };
 
@@ -132,12 +165,14 @@ export function createSessionRunner<R extends RunResult>(
       release();
       if (scheduled.get(sessionId) === scope) scheduled.delete(sessionId);
       if (!closed && scope.active && scope.tasks.hasCompleted()) schedule(sessionId, scope);
+      wakeIdleWaiters(sessionId);
     }
   };
 
   const schedule = (sessionId: string, scope: Scope) => {
     if (closed || !scope.active || scheduled.get(sessionId) === scope) return;
     scheduled.set(sessionId, scope);
+    wakeIdleWaiters(sessionId);
     const completion = runCompletions(sessionId, scope);
     scope.completion = completion;
     void completion.catch((error) => {
@@ -151,6 +186,7 @@ export function createSessionRunner<R extends RunResult>(
       });
     }).finally(() => {
       if (scope.completion === completion) scope.completion = undefined;
+      wakeIdleWaiters(sessionId);
     });
   };
 
@@ -179,6 +215,7 @@ export function createSessionRunner<R extends RunResult>(
     scope.abort.abort();
     scope.tasks.cancelAll();
     if (scope.draining && scope.completion) await scope.completion;
+    wakeIdleWaiters(sessionId);
   };
 
   return {
@@ -215,11 +252,24 @@ export function createSessionRunner<R extends RunResult>(
       listeners.add(listener);
       return () => { listeners.delete(listener); };
     },
+    async awaitIdle(sessionId) {
+      while (!closed) {
+        await opts.waitForBackgroundIdle?.(sessionId);
+        if (opts.waitForBackgroundIdle) {
+          // Pool jobs settle immediately before their detached group publishes its
+          // completion. Cross a task boundary so schedule()/drain state is visible.
+          await new Promise<void>((resolve) => setTimeout(resolve, 0));
+        }
+        if (runnerIdle(sessionId)) return;
+        await waitForRunnerChange(sessionId);
+      }
+    },
     cancelSession,
     async close() {
       if (closed) return;
       closed = true;
       await Promise.all([...scopes.keys()].map(cancelSession));
+      for (const sessionId of [...idleWaiters.keys()]) wakeIdleWaiters(sessionId);
       listeners.clear();
     },
   };

@@ -44,6 +44,7 @@ export interface QueryOptions {
   seed?: number;
   outputSchema?: ZodType;
   maxParallelTools?: number;
+  maxParallelSubagents?: number;
   maxDecodeRetries?: number;
   use?: Middleware[];
   signal?: AbortSignal;
@@ -100,6 +101,7 @@ export function query(
     seed: opts.seed,
     outputSchema: opts.outputSchema,
     maxParallelTools: opts.maxParallelTools,
+    maxParallelSubagents: opts.maxParallelSubagents,
     maxDecodeRetries: opts.maxDecodeRetries,
     use: opts.use,
     sandbox: opts.sandbox,
@@ -131,19 +133,61 @@ export function query(
     onAskUser: opts.onAskUser,
   });
   return (async function* () {
+    const sessionId = opts.sessionId ?? agent.sessionId;
+    const backgroundEvents: AgentEvent[] = [];
+    const unsubscribe = agent.subscribe((entry) => {
+      if (entry.sessionId === sessionId && entry.source === "background") {
+        backgroundEvents.push(entry.event);
+      }
+    });
     const stream = agent.run(opts.prompt, {
       signal: opts.signal,
-      sessionId: opts.sessionId,
+      sessionId,
       steer: opts.steer,
     });
     try {
+      let agentGroupObserved = false;
       let next = await stream.next();
       while (!next.done) {
+        if (next.value.type === "tool_use" && next.value.call.name === "Agent") {
+          agentGroupObserved = true;
+        }
         yield next.value;
         next = await stream.next();
       }
-      return next.value;
+      const initialResult = next.value;
+      let cursor = 0;
+      let completionTurnHasAgentGroup = false;
+      let lastAgentCompletionResult: LiteAgentResult | undefined;
+      const drainBackgroundEvents = function* () {
+        while (cursor < backgroundEvents.length) {
+          const event = backgroundEvents[cursor++]!;
+          if (event.type === "tool_use" && event.call.name === "Agent") {
+            agentGroupObserved = true;
+          } else if (
+            event.type === "background_completed" &&
+            agentGroupObserved &&
+            event.completion.label.startsWith("Subagent group:")
+          ) {
+            completionTurnHasAgentGroup = true;
+          } else if (event.type === "done") {
+            if (completionTurnHasAgentGroup) {
+              lastAgentCompletionResult = event.result;
+              completionTurnHasAgentGroup = false;
+            }
+          } else if (event.type === "error") {
+            completionTurnHasAgentGroup = false;
+          }
+          yield event;
+        }
+      };
+
+      yield* drainBackgroundEvents();
+      await agent.awaitIdle(sessionId);
+      yield* drainBackgroundEvents();
+      return lastAgentCompletionResult ?? initialResult;
     } finally {
+      unsubscribe();
       await agent.close();
     }
   })();

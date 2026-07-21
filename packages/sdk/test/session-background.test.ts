@@ -305,3 +305,44 @@ test("a provider failure in an autonomous turn is published after persisting the
   )).toBe(true);
   await agent.close();
 });
+
+test("awaitIdle ignores an unrelated detached daemon and close still cancels it", async () => {
+  let aborted = false;
+  const daemon = defineTool({
+    name: "daemon",
+    description: "start a daemon",
+    schema: z.object({}),
+    execute: async (_input, ctx) => {
+      ctx.background!.spawn({
+        label: "daemon",
+        kind: "detached",
+        run: (signal) => new Promise<string>((resolve) => {
+          signal.addEventListener("abort", () => {
+            aborted = true;
+            resolve("cancelled");
+          });
+        }),
+      });
+      return "started";
+    },
+  });
+  const agent = createLiteAgent({
+    model: fakeProvider([
+      { message: { role: "assistant", content: [{ type: "tool_call", id: "daemon-1", name: "daemon", input: {} }] } },
+      { text: "idle", message: { role: "assistant", content: [textBlock("idle")] } },
+    ]),
+    workdir: process.cwd(),
+    tools: [daemon],
+    tasks: false,
+    sessions: false,
+    cleanup: false,
+  });
+
+  await agent.send("start", { sessionId: "daemon-session" });
+  await expect(Promise.race([
+    agent.awaitIdle("daemon-session").then(() => "idle"),
+    new Promise<string>((resolve) => setTimeout(() => resolve("timed out"), 100)),
+  ])).resolves.toBe("idle");
+  await agent.close();
+  expect(aborted).toBe(true);
+});

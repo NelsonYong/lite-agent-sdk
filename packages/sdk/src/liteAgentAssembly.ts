@@ -29,6 +29,7 @@ import { AgentLoader } from "./agents/loader";
 import { builtinAgents } from "./agents/builtin";
 import { agentTool } from "./tools/agent";
 import type { Spawn } from "./tools/agent";
+import type { SubagentPool } from "./subagentPool";
 import { killBackgroundTool } from "./tools/killBackground";
 import { bashOutputTool } from "./tools/bashOutput";
 import type { ProjectPaths } from "./paths";
@@ -38,6 +39,7 @@ interface AssembleLiteAgentOptions {
   readonly cfg: CreateLiteAgentConfig;
   readonly paths: ProjectPaths;
   readonly spawn: Spawn;
+  readonly subagentPool: SubagentPool;
   readonly backgroundTasks: (sessionId: string) => BackgroundTasks | undefined;
 }
 
@@ -45,6 +47,7 @@ export function assembleLiteAgent({
   cfg,
   paths,
   spawn,
+  subagentPool,
   backgroundTasks,
 }: AssembleLiteAgentOptions): LiteAgentRuntime {
   let tools: Tool[] = [
@@ -114,7 +117,7 @@ export function assembleLiteAgent({
     );
     if (agentLoader.names().length > 0) {
       subagents = agentLoader.getDescriptions();
-      tools.push(agentTool({ loader: agentLoader, spawn }));
+      tools.push(agentTool({ loader: agentLoader, spawn, pool: subagentPool }));
     }
   }
 

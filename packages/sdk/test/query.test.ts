@@ -1,9 +1,10 @@
 import { expect, test, vi } from "vitest";
 import { z } from "zod";
 import { fakeProvider, memoryCheckpointer, policy, textBlock, SteerController } from "@lite-agent/core";
+import type { ModelProvider, ModelRequest } from "@lite-agent/core";
 import { query } from "../src/query";
 import { tool } from "../src/tool";
-import { mkdtempSync, existsSync } from "node:fs";
+import { mkdtempSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { resolveProjectPaths } from "../src/paths";
@@ -208,4 +209,93 @@ test("query closes detached work owned by its temporary LiteAgent", async () => 
   });
   while (!(await stream.next()).done) {}
   await vi.waitFor(() => expect(aborted).toBe(true));
+});
+
+test("query waits for Agent children, streams their completion, and returns the autonomous result", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "q-agent-defs-"));
+  writeFileSync(
+    join(dir, "worker.md"),
+    "---\nname: worker\ndescription: worker agent\n---\nworker body",
+  );
+  let running = 0;
+  let maxRunning = 0;
+  let completed = 0;
+  const lastText = (request: ModelRequest) => {
+    const message = request.messages.at(-1);
+    return message?.role === "user" && typeof message.content === "string"
+      ? message.content
+      : undefined;
+  };
+  const model: ModelProvider = {
+    id: "query-subagents",
+    async *stream(request) {
+      if (request.system?.startsWith('You are the "worker" subagent')) {
+        running++;
+        maxRunning = Math.max(maxRunning, running);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        running--;
+        completed++;
+        yield {
+          type: "message_done",
+          message: { role: "assistant", content: [textBlock("child result")] },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      if (lastText(request) === "start") {
+        yield {
+          type: "message_done",
+          message: {
+            role: "assistant",
+            content: [{
+              type: "tool_call",
+              id: "query-agent",
+              name: "Agent",
+              input: {
+                tasks: [1, 2].map((index) => ({
+                  display_name: `Query child ${index}`,
+                  subagent_type: "worker",
+                  prompt: `task ${index}`,
+                })),
+              },
+            }],
+          },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      const completion = lastText(request)?.includes("background-task-completed");
+      const text = completion ? "final after children" : "initial idle";
+      yield {
+        type: "message_done",
+        message: { role: "assistant", content: [textBlock(text)] },
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    },
+  };
+  const events = [];
+  const stream = query({
+    prompt: "start",
+    model,
+    cwd: mkdtempSync(join(tmpdir(), "q-agent-wd-")),
+    agentsDir: dir,
+    maxParallelSubagents: 1,
+    sessionId: "query-agent-session",
+    tasks: false,
+    sessions: false,
+    cleanup: false,
+  });
+  let result = await stream.next();
+  while (!result.done) {
+    events.push(result.value);
+    result = await stream.next();
+  }
+
+  expect(result.value.text).toBe("final after children");
+  expect(completed).toBe(2);
+  expect(maxRunning).toBe(1);
+  expect(events.filter((event) => event.type === "background_completed")).toHaveLength(1);
+  expect(events.some((event) =>
+    event.type === "tool_result" && event.result.name === "Query child 1" && event.result.content === "child result",
+  )).toBe(true);
 });
