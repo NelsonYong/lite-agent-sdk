@@ -137,6 +137,7 @@ export type Spawn = (
 ```
 
 - `agentTool({ loader, spawn, pool })` 必须接收 Task 2 的池；task schema 为 `display_name`、`subagent_type`、`prompt` 必填，`resume` 可选，旧 `run_in_background` 可解析但被忽略。
+- `ctx.background` 缺失时必须明确拒绝执行并提示启用 background；不得回退为同步阻塞批次。
 - 每个 synthetic `tool_use/tool_result` 的 `name` 使用清理后的 `display_name`，`input` 保留 `{ display_name, subagent_type, prompt }`；`agentId` 和 `resume` 语义不变。
 - `runBatch()` 对 child 使用 `Promise.allSettled`，按输入顺序聚合：全成功 `completed`，全失败 `failed`，全取消 `cancelled`，其余混合 `partial`；聚合文本必须包含每项名称、agentId、状态、文本或错误。
 - 无 definition、异常、非 `stop` stopReason、`stop` 空文本均生成非成功 `SubagentResult`，但不阻断兄弟任务。
@@ -153,7 +154,7 @@ Expected: 当前 schema 没有必填 `display_name`、局部 `p-limit` 和字符
 
 - [ ] **Step 3: Implement the group behavior**
 
-移除 per-call `p-limit`；每个 child 调 `pool.run()`。同步单元测试上下文没有 `ctx.background` 时保留直接返回聚合字符串，真实 `createLiteAgent` 路径始终由 detached registry 接管。后台 `run` 返回 Task 1 的 `BackgroundRunResult`，并把 `run_in_background` 从描述和控制流中移除。
+移除 per-call `p-limit`；每个 child 调 `pool.run()`。所有测试上下文都通过 session-owned `ctx.background` 观察 placeholder/completion；缺少 registry 时抛出明确错误，绝不直接等待 batch。后台 `run` 返回 Task 1 的 `BackgroundRunResult`，并把 `run_in_background` 从描述和控制流中移除。
 
 - [ ] **Step 4: Run the focused tests and verify they pass**
 
@@ -190,7 +191,7 @@ git commit -m "feat(sdk): aggregate named subagent groups"
 
 - [ ] **Step 1: Write the failing integration tests**
 
-增加/修改测试：两个 `Agent` 调用各三个任务共享 `maxParallelSubagents:2`；组完成只唤醒一次且可在期间提交用户回合；partial completion 持久化 `status="partial"`；child `max_turns`/空文本不成功；`query()` 返回前等待 child 结果且 close 后无悬挂；`maxParallelSubagents` 从 query/config 传入。
+增加/修改测试：两个 `Agent` 调用各三个任务共享 `maxParallelSubagents:2`；组完成只唤醒一次且可在期间提交用户回合；partial completion 持久化 `status="partial"`；child `max_turns`/空文本不成功；`background:false` 下 Agent 明确失败而不阻塞；`query()` 返回前等待 child 结果且 close 后无悬挂；`maxParallelSubagents` 从 query/config 传入。
 
 - [ ] **Step 2: Run the focused tests and verify they fail**
 
