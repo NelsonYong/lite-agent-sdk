@@ -12,6 +12,51 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
+test.each([0, -1, NaN, Infinity, 0.5, Number.MAX_SAFE_INTEGER + 1])(
+  "rejects an invalid maxParallel value: %s",
+  (maxParallel) => {
+    expect(() => createSubagentPool(maxParallel)).toThrow(RangeError);
+  },
+);
+
+test("does not invoke a dequeued callback after an immediate parent abort or close", async () => {
+  const abortPool = createSubagentPool(1);
+  const abortParent = new AbortController();
+  const abortedJob = vi.fn(async () => "should not run");
+  const abortedRun = abortPool.run(abortedJob, abortParent.signal);
+  abortParent.abort();
+  await expect(abortedRun).rejects.toBeInstanceOf(AbortError);
+  await Promise.resolve();
+  expect(abortedJob).not.toHaveBeenCalled();
+  expect(abortPool.pending()).toEqual({ queued: 0, running: 0 });
+
+  const closePool = createSubagentPool(1);
+  const closedJob = vi.fn(async () => "should not run");
+  const closedRun = closePool.run(closedJob, new AbortController().signal);
+  await closePool.close();
+  await expect(closedRun).rejects.toBeInstanceOf(AbortError);
+  expect(closedJob).not.toHaveBeenCalled();
+  expect(closePool.pending()).toEqual({ queued: 0, running: 0 });
+});
+
+test("keeps a synchronous job throw observable without an unhandled rejection", async () => {
+  const pool = createSubagentPool(1);
+  const unhandled: unknown[] = [];
+  const onUnhandled = (reason: unknown) => unhandled.push(reason);
+  process.on("unhandledRejection", onUnhandled);
+
+  try {
+    const run = pool.run(() => {
+      throw new Error("sync failure");
+    }, new AbortController().signal);
+    await expect(run).rejects.toThrow("sync failure");
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(unhandled).toEqual([]);
+  } finally {
+    process.off("unhandledRejection", onUnhandled);
+  }
+});
+
 test("queues the third job and starts it first when a slot is released", async () => {
   const pool = createSubagentPool(2);
   const started: string[] = [];
