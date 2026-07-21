@@ -71,6 +71,9 @@ their autonomous completion before closing, but does not wait for detached Bash
 daemons; use `createLiteAgent()` plus `subscribe()` / `close()` for long-lived
 interaction.
 
+Each child is created with `agents: false`: recursive subagents and Agent Teams
+are not supported.
+
 ## Features
 
 - **Default tools** — `bash`, `read_file`, `write_file`, `edit_file`, `delete_file`, scoped to `workdir`, with atomic writes and pre-change snapshots so session restore can undo them.

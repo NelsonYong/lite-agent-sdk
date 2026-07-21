@@ -49,6 +49,15 @@ console.log(result.text);
 - **Pluggable sandbox** — default `noopSandbox`; an OS-level boundary lives in [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic).
 - **Testing utilities** — `fakeProvider` plus conformance suites for providers and checkpointers.
 
+### Background completion contract
+
+`BackgroundRunResult` keeps the legacy string result compatible: a returned
+string means `completed`. For structured results, `BackgroundCompletion.status`
+is authoritative; `isError` is exactly `status !== "completed"`. The model
+notification omits `status` for `completed`, maps `partial` to
+`status="partial"`, `failed` to `status="error"`, and `cancelled` to
+`status="cancelled"`.
+
 ## API
 
 | Symbol | Description |

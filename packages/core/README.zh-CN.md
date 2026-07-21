@@ -49,6 +49,14 @@ console.log(result.text);
 - **可插拔沙箱** —— 默认 `noopSandbox`；操作系统级边界在 [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic)。
 - **测试工具** —— `fakeProvider`，以及 provider 与 checkpointer 的一致性测试套件。
 
+### 后台 completion 契约
+
+`BackgroundRunResult` 保持旧 string 结果兼容：返回 string 即表示 `completed`。对于
+结构化结果，`BackgroundCompletion.status` 是权威字段；`isError` 严格等价于
+`status !== "completed"`。面向模型的通知在 `completed` 时省略 `status`；`partial`
+映射为 `status="partial"`，`failed` 映射为 `status="error"`，`cancelled` 映射为
+`status="cancelled"`。
+
 ## API
 
 | 符号 | 说明 |
