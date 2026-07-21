@@ -55,6 +55,22 @@ test("Agent always dispatches a detached group and ignores run_in_background", a
   expect(result.content).toContain("RESULT(B)");
 });
 
+test("a standalone Agent tool does not leave an owner idle waiter behind", async () => {
+  const pool = createSubagentPool(1);
+  const t = toolWith(echoSpawn, pool);
+  const { ctx, bg } = ctxWithBackground();
+  await t.execute(
+    { tasks: [{ display_name: "Worker", subagent_type: "general-purpose", prompt: "standalone" }] },
+    ctx,
+  );
+  await completion(bg);
+  await expect(Promise.race([
+    pool.waitForIdle("s").then(() => "idle"),
+    new Promise<string>((resolve) => setTimeout(() => resolve("timed out"), 100)),
+  ])).resolves.toBe("idle");
+  await pool.close();
+});
+
 test("a detached group returns before its children settle and publishes one completion", async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });

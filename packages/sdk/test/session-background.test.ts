@@ -246,6 +246,10 @@ test("a rejected background task wakes the session with an error-tagged completi
 
 test("a provider failure in an autonomous turn is published after persisting the completion", async () => {
   let finish!: () => void;
+  let enterFailure!: () => void;
+  let releaseFailure!: () => void;
+  const failureEntered = new Promise<void>((resolve) => { enterFailure = resolve; });
+  const failureGate = new Promise<void>((resolve) => { releaseFailure = resolve; });
   let calls = 0;
   const inner = fakeProvider([
     { message: { role: "assistant", content: [{ type: "tool_call", id: "f1", name: "defer_failure", input: {} }] } },
@@ -257,6 +261,8 @@ test("a provider failure in an autonomous turn is published after persisting the
       calls++;
       if (calls === 3) {
         return (async function* () {
+          enterFailure();
+          await failureGate;
           throw new ProviderError("autonomous failure");
         })();
       }
@@ -296,7 +302,11 @@ test("a provider failure in an autonomous turn is published after persisting the
 
   await agent.send("start", { sessionId: "provider-error" });
   finish();
-  await vi.waitFor(() => expect(errors).toEqual(["autonomous failure"]));
+  await failureEntered;
+  const idle = agent.awaitIdle("provider-error");
+  releaseFailure();
+  await expect(idle).resolves.toBeUndefined();
+  expect(errors).toEqual(["autonomous failure"]);
 
   const stored = [];
   for await (const entry of checkpointer.read("provider-error")) stored.push(entry);
@@ -305,6 +315,64 @@ test("a provider failure in an autonomous turn is published after persisting the
     String(entry.event.message.content).includes("READY"),
   )).toBe(true);
   await agent.close();
+});
+
+test("concurrent close resolves during an autonomous provider failure", async () => {
+  let finish!: () => void;
+  let enterFailure!: () => void;
+  let releaseFailure!: () => void;
+  const failureEntered = new Promise<void>((resolve) => { enterFailure = resolve; });
+  const failureGate = new Promise<void>((resolve) => { releaseFailure = resolve; });
+  let calls = 0;
+  const inner = fakeProvider([
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "f2", name: "defer_close_failure", input: {} }] } },
+    { text: "idle", message: { role: "assistant", content: [textBlock("idle")] } },
+  ]);
+  const model = {
+    id: "background-close-provider-failure",
+    stream(request: Parameters<typeof inner.stream>[0], signal?: AbortSignal) {
+      calls++;
+      if (calls === 3) {
+        return (async function* () {
+          enterFailure();
+          await failureGate;
+          throw new ProviderError("autonomous close failure");
+        })();
+      }
+      return inner.stream(request, signal);
+    },
+  };
+  const tool = defineTool({
+    name: "defer_close_failure",
+    description: "defer close failure",
+    schema: z.object({}),
+    execute: async (_input, ctx) => {
+      ctx.background!.spawn({
+        label: "provider close failure",
+        kind: "detached",
+        run: () => new Promise<string>((resolve) => {
+          finish = () => resolve("READY");
+        }),
+      });
+      return "started";
+    },
+  });
+  const agent = createLiteAgent({
+    model,
+    workdir: process.cwd(),
+    tools: [tool],
+    tasks: false,
+    sessions: false,
+    cleanup: false,
+  });
+
+  await agent.send("start", { sessionId: "provider-close-error" });
+  finish();
+  await failureEntered;
+  const closes = Promise.all([agent.close(), agent.close()]);
+  releaseFailure();
+
+  await expect(closes).resolves.toEqual([undefined, undefined]);
 });
 
 test("awaitIdle ignores an unrelated detached daemon and close still cancels it", async () => {

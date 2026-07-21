@@ -6,9 +6,6 @@ export interface SubagentPool {
     parentSignal: AbortSignal,
     ownerSessionId?: string,
   ): Promise<T>;
-  registerGroup(ownerSessionId: string): void;
-  completeGroup(ownerSessionId: string): void;
-  clearGroups(ownerSessionId: string): void;
   pending(): { queued: number; running: number };
   waitForIdle(ownerSessionId?: string): Promise<void>;
   close(): Promise<void>;
@@ -37,21 +34,17 @@ export function createSubagentPool(maxParallel: number): SubagentPool {
   let closed = false;
   let closePromise: Promise<void> | undefined;
   const activeEntries = new Set<Entry<unknown>>();
-  const activeGroups = new Map<string, number>();
   const idleWaiters = new Map<string | undefined, Set<() => void>>();
   let idleNotificationScheduled = false;
 
   const hasWork = (ownerSessionId?: string) => ownerSessionId === undefined
-    ? queue.length > 0 || activeEntries.size > 0 || activeGroups.size > 0
+    ? queue.length > 0 || activeEntries.size > 0
     : queue.some((entry) => entry.ownerSessionId === ownerSessionId) ||
-      [...activeEntries].some((entry) => entry.ownerSessionId === ownerSessionId) ||
-      (activeGroups.get(ownerSessionId) ?? 0) > 0;
+      [...activeEntries].some((entry) => entry.ownerSessionId === ownerSessionId);
 
   const notifyIdle = () => {
-    // A pool entry can settle just before its owning BackgroundTask publishes
-    // the completion that schedules the autonomous turn. Defer notification by
-    // one microtask so that causal completion/scheduling is visible to callers;
-    // this remains timer-independent under fake timers.
+    // Keep waiter delivery on the native Promise microtask queue so fake timers
+    // cannot suppress it, and re-check owner work immediately before resolving.
     if (idleNotificationScheduled) return;
     idleNotificationScheduled = true;
     void Promise.resolve().then(() => {
@@ -114,19 +107,6 @@ export function createSubagentPool(maxParallel: number): SubagentPool {
   };
 
   return {
-    registerGroup(ownerSessionId) {
-      activeGroups.set(ownerSessionId, (activeGroups.get(ownerSessionId) ?? 0) + 1);
-    },
-    completeGroup(ownerSessionId) {
-      const remaining = (activeGroups.get(ownerSessionId) ?? 0) - 1;
-      if (remaining > 0) activeGroups.set(ownerSessionId, remaining);
-      else activeGroups.delete(ownerSessionId);
-      notifyIdle();
-    },
-    clearGroups(ownerSessionId) {
-      activeGroups.delete(ownerSessionId);
-      notifyIdle();
-    },
     run<T>(
       job: (signal: AbortSignal) => Promise<T>,
       parentSignal: AbortSignal,
