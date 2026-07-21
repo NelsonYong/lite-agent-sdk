@@ -375,6 +375,98 @@ test("concurrent close resolves during an autonomous provider failure", async ()
   await expect(closes).resolves.toEqual([undefined, undefined]);
 });
 
+test("close cancels a paused user run without waiting for queued Agent completion", async () => {
+  let daemonAborted = false;
+  let childEntered!: () => void;
+  const childStarted = new Promise<void>((resolve) => { childEntered = resolve; });
+  const daemon = defineTool({
+    name: "close_daemon",
+    description: "close daemon",
+    schema: z.object({}),
+    execute: async (_input, ctx) => {
+      ctx.background!.spawn({
+        label: "close daemon",
+        kind: "detached",
+        run: (signal) => new Promise<string>((resolve) => {
+          signal.addEventListener("abort", () => {
+            daemonAborted = true;
+            resolve("cancelled");
+          }, { once: true });
+        }),
+      });
+      return "daemon started";
+    },
+  });
+  const model: ModelProvider = {
+    id: "paused-user-close",
+    async *stream(request, signal) {
+      if (request.system?.startsWith('You are the "general-purpose" subagent')) {
+        childEntered();
+        yield {
+          type: "message_done",
+          message: { role: "assistant", content: [textBlock("child done")] },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      const last = request.messages.at(-1);
+      const text = last?.role === "user" && typeof last.content === "string" ? last.content : "";
+      if (text === "start") {
+        yield {
+          type: "message_done",
+          message: {
+            role: "assistant",
+            content: [
+              {
+                type: "tool_call",
+                id: "close-agent",
+                name: "Agent",
+                input: {
+                  tasks: [{ display_name: "Worker", subagent_type: "general-purpose", prompt: "go" }],
+                },
+              },
+              { type: "tool_call", id: "close-daemon", name: "close_daemon", input: {} },
+            ],
+          },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      // The test intentionally never advances the paused user generator to this turn.
+      await new Promise<void>((_resolve, reject) => {
+        signal?.addEventListener("abort", () => reject(new Error("paused user aborted")), { once: true });
+      });
+    },
+  };
+  const agent = createLiteAgent({
+    model,
+    workdir: process.cwd(),
+    tools: [daemon],
+    tasks: false,
+    sessions: false,
+    cleanup: false,
+  });
+  let childDone = false;
+  agent.subscribe((entry) => {
+    if (entry.source === "background" && entry.event.type === "done" && entry.event.agentId) childDone = true;
+  });
+  const run = agent.run("start", { sessionId: "paused-close" });
+  let event = await run.next();
+  while (!event.done) {
+    if (event.value.type === "tool_result" && event.value.result.name === "Agent") break;
+    event = await run.next();
+  }
+  await childStarted;
+  await vi.waitFor(() => expect(childDone).toBe(true));
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  await expect(Promise.race([
+    agent.close().then(() => "closed"),
+    new Promise<string>((resolve) => setTimeout(() => resolve("timed out"), 100)),
+  ])).resolves.toBe("closed");
+  expect(daemonAborted).toBe(true);
+  await run.return(undefined as never);
+});
+
 test("awaitIdle ignores an unrelated detached daemon and close still cancels it", async () => {
   let aborted = false;
   const daemon = defineTool({

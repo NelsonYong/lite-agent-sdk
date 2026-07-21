@@ -218,7 +218,7 @@ export function createSessionRunner<R extends RunResult>(
     scopes.delete(sessionId);
     scope.abort.abort();
     scope.tasks.cancelAll();
-    if (scope.completion) await scope.completion;
+    if (scope.draining && scope.completion) await scope.completion;
     wakeIdleWaiters(sessionId);
   };
 
