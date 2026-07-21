@@ -31,13 +31,12 @@ export type Spawn = (
 
 const sanitizeId = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
 const cleanDisplayName = (s: string) => s
-  .replace(/[\p{Cc}\p{Cf}]+/gu, " ")
-  .replace(/\s+/gu, " ")
-  .trim();
+  .replace(/[\p{Cc}\p{Cf}]/gu, " ");
+const hasVisibleDisplayName = (s: string) => cleanDisplayName(s).trim().length > 0;
 const shortId = () => randomBytes(4).toString("hex");
 
 const TASK = z.object({
-  display_name: z.string().refine((value) => value.trim().length > 0, "display_name must not be empty"),
+  display_name: z.string().refine(hasVisibleDisplayName, "display_name must contain visible characters"),
   subagent_type: z.string(),
   prompt: z.string(),
   resume: z.string().optional(),
@@ -114,6 +113,9 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
     }),
     security: { network: "loopback", filesystem: "workspace", sideEffects: "workspace" },
     execute: async ({ tasks }, ctx) => {
+      if (tasks.some((task) => !hasVisibleDisplayName(task.display_name))) {
+        throw new Error("display_name must contain visible characters");
+      }
       if (!ctx.background) throw new Error("Agent requires background tasks; enable background to dispatch subagents.");
 
       const runBatch = async (
@@ -122,7 +124,7 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
       ): Promise<BackgroundRunResult> => {
         const children = tasks.map((task): Child => {
           const definition = loader.get(task.subagent_type);
-          const displayName = cleanDisplayName(task.display_name) || "subagent";
+          const displayName = cleanDisplayName(task.display_name);
           const eventId = definition
             ? (task.resume ? sanitizeId(task.resume) : `agent-${sanitizeId(task.subagent_type) || "unknown"}-${shortId()}`)
             : `agent-${sanitizeId(task.subagent_type) || "unknown"}-${shortId()}`;
@@ -166,7 +168,7 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
         const runChild = async (child: Child, childSignal: AbortSignal): Promise<ChildOutcome> => {
           if (!child.definition) {
             const result = failed(
-              `unknown subagent_type '${child.task.subagent_type.replace(/[\r\n]+/g, " ")}'. Available: ${
+              `unknown subagent_type '${cleanDisplayName(child.task.subagent_type)}'. Available: ${
                 loader.names().join(", ") || "(none)"
               }`,
             );
@@ -213,7 +215,7 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
       };
 
       const handle = ctx.background.spawn({
-        label: `Subagent group: ${tasks.map((task) => cleanDisplayName(task.display_name) || "subagent").join(", ")}`,
+        label: `Subagent group: ${tasks.map((task) => cleanDisplayName(task.display_name)).join(", ")}`,
         kind: "detached",
         run: (signal, emit) => runBatch(signal, emit),
       });
