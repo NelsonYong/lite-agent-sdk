@@ -40,10 +40,6 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     background: cfg.background !== false,
     limits: cfg.backgroundLimits,
     waitForBackgroundIdle: (sessionId) => subagentPool.waitForIdle(sessionId),
-    onBackgroundCompletion: (sessionId, label) => {
-      if (label.startsWith("Subagent group:")) subagentPool.completeGroup(sessionId);
-    },
-    onSessionCancel: (sessionId) => subagentPool.clearGroups(sessionId),
   });
 
   const spawn: Spawn = async (

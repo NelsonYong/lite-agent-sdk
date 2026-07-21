@@ -219,8 +219,11 @@ export function createLiteAgentFacade(
     awaitIdle: (sessionId = currentSessionId) => sessions.awaitIdle(sessionId),
     close: () => {
       closePromise ??= (async () => {
-        await sessions.close();
-        await closeRuntime?.();
+        try {
+          await sessions.close();
+        } finally {
+          await closeRuntime?.();
+        }
       })();
       return closePromise;
     },
