@@ -1,17 +1,15 @@
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
 import { mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createBackgroundTasks } from "@lite-agent/core";
 import type { AgentEvent, ToolContext } from "@lite-agent/core";
 import { AgentLoader } from "../src/agents/loader";
+import { createSubagentPool } from "../src/subagentPool";
 import { agentTool } from "../src/tools/agent";
-import type { Spawn } from "../src/tools/agent";
+import type { Spawn, SubagentResult } from "../src/tools/agent";
 
-const ctx: ToolContext = {
-  sessionId: "s",
-  signal: new AbortController().signal,
-  emit: () => {},
-};
+const completed = (text: string): SubagentResult => ({ status: "completed", text, stopReason: "stop" });
 
 function loaderWith(...names: string[]): AgentLoader {
   const d = mkdtempSync(join(tmpdir(), "at-"));
@@ -20,138 +18,216 @@ function loaderWith(...names: string[]): AgentLoader {
   return new AgentLoader(d);
 }
 
-test("unknown subagent_type is reported but does not fail the batch", async () => {
-  const spawn: Spawn = async () => "ran";
-  const tool = agentTool({ loader: loaderWith("known"), spawn });
+function toolWith(loader: AgentLoader, spawn: Spawn) {
+  return agentTool({ loader, spawn, pool: createSubagentPool(5) });
+}
+
+function ctxWithBackground(events: AgentEvent[] = []) {
+  const bg = createBackgroundTasks({ emit: (event) => events.push(event), signal: new AbortController().signal });
+  const ctx = {
+    sessionId: "s",
+    signal: new AbortController().signal,
+    emit: () => {},
+    background: bg,
+  } as ToolContext;
+  return { ctx, bg };
+}
+
+async function completion(bg: ReturnType<typeof createBackgroundTasks>) {
+  await vi.waitFor(() => expect(bg.hasCompleted()).toBe(true));
+  const completions = bg.takeCompleted();
+  expect(completions).toHaveLength(1);
+  return completions[0]!;
+}
+
+test("task schema rejects a missing or empty display_name", () => {
+  const tool = toolWith(loaderWith("worker"), async () => completed("ok"));
+  expect(tool.schema.safeParse({ tasks: [{ subagent_type: "worker", prompt: "go" }] }).success).toBe(false);
+  expect(tool.schema.safeParse({ tasks: [{ display_name: " ", subagent_type: "worker", prompt: "go" }] }).success).toBe(false);
+});
+
+test("Agent requires an enabled background registry", async () => {
+  const tool = toolWith(loaderWith("worker"), async () => completed("ok"));
+  const noBackground: ToolContext = {
+    sessionId: "s",
+    signal: new AbortController().signal,
+    emit: () => {},
+  };
+  await expect(tool.execute({ tasks: [{ display_name: "worker", subagent_type: "worker", prompt: "go" }] }, noBackground))
+    .rejects.toThrow(/enable background/i);
+});
+
+test("unknown subagent_type is reported but does not fail the group", async () => {
+  const spawn: Spawn = async () => completed("ran");
+  const tool = toolWith(loaderWith("known"), spawn);
+  const { ctx, bg } = ctxWithBackground();
   const out = await tool.execute(
-    { tasks: [{ subagent_type: "ghost", prompt: "x" }, { subagent_type: "known", prompt: "y" }] },
+    { tasks: [
+      { display_name: "Missing", subagent_type: "ghost", prompt: "x" },
+      { display_name: "Known", subagent_type: "known", prompt: "y" },
+    ] },
     ctx,
   );
-  expect(out).toMatch(/unknown subagent_type 'ghost'/);
-  expect(out).toContain("Available: known");
-  expect(out).toContain("ran");
+  expect(out).toMatch(/^\[background:bg_/);
+  const result = await completion(bg);
+  expect(result.status).toBe("partial");
+  expect(result.content).toMatch(/unknown subagent_type 'ghost'/);
+  expect(result.content).toContain("Available: known");
+  expect(result.content).toContain("ran");
 });
 
 test("a single task returns the child's final text attributed with its agentId", async () => {
-  const spawn: Spawn = async () => "child result";
-  const tool = agentTool({ loader: loaderWith("worker"), spawn });
-  const out = await tool.execute({ tasks: [{ subagent_type: "worker", prompt: "go" }] }, ctx);
-  expect(out).toContain("child result");
-  expect(out).toMatch(/agentId: agent-worker-[0-9a-f]{8}/);
+  const spawn: Spawn = async () => completed("child result");
+  const tool = toolWith(loaderWith("worker"), spawn);
+  const { ctx, bg } = ctxWithBackground();
+  await tool.execute({ tasks: [{ display_name: "Worker", subagent_type: "worker", prompt: "go" }] }, ctx);
+  const result = await completion(bg);
+  expect(result.status).toBe("completed");
+  expect(result.content).toContain("child result");
+  expect(result.content).toMatch(/agentId: agent-worker-[0-9a-f]{8}/);
 });
 
 test("isolation: spawn receives exactly the task prompt", async () => {
   let seen = "";
-  const spawn: Spawn = async (_def, prompt) => { seen = prompt; return "ok"; };
-  const tool = agentTool({ loader: loaderWith("worker"), spawn });
-  await tool.execute({ tasks: [{ subagent_type: "worker", prompt: "ONLY THIS" }] }, ctx);
+  const spawn: Spawn = async (_def, prompt) => { seen = prompt; return completed("ok"); };
+  const tool = toolWith(loaderWith("worker"), spawn);
+  const { ctx, bg } = ctxWithBackground();
+  await tool.execute({ tasks: [{ display_name: "Worker", subagent_type: "worker", prompt: "ONLY THIS" }] }, ctx);
+  await completion(bg);
   expect(seen).toBe("ONLY THIS");
 });
 
 test("resume reuses the supplied agentId as the session id", async () => {
   let seenSession = "";
-  const spawn: Spawn = async (_def, _prompt, opts) => { seenSession = opts.sessionId; return "ok"; };
-  const tool = agentTool({ loader: loaderWith("worker"), spawn });
-  const out = await tool.execute(
-    { tasks: [{ subagent_type: "worker", prompt: "go", resume: "agent-worker-deadbeef" }] },
+  const spawn: Spawn = async (_def, _prompt, opts) => { seenSession = opts.sessionId; return completed("ok"); };
+  const tool = toolWith(loaderWith("worker"), spawn);
+  const { ctx, bg } = ctxWithBackground();
+  await tool.execute(
+    { tasks: [{ display_name: "Worker", subagent_type: "worker", prompt: "go", resume: "agent-worker-deadbeef" }] },
     ctx,
   );
+  const result = await completion(bg);
   expect(seenSession).toBe("agent-worker-deadbeef");
-  expect(out).toContain("agentId: agent-worker-deadbeef");
+  expect(result.content).toContain("agentId: agent-worker-deadbeef");
 });
 
 test("parallel: every task runs and results are aggregated in order", async () => {
   const calls: string[] = [];
-  const spawn: Spawn = async (def, prompt) => { calls.push(def.name); return `${def.name}:${prompt}`; };
-  const tool = agentTool({ loader: loaderWith("a", "b", "c"), spawn });
-  const out = await tool.execute(
+  const spawn: Spawn = async (def, prompt) => { calls.push(def.name); return completed(`${def.name}:${prompt}`); };
+  const tool = toolWith(loaderWith("a", "b", "c"), spawn);
+  const { ctx, bg } = ctxWithBackground();
+  await tool.execute(
     { tasks: [
-      { subagent_type: "a", prompt: "1" },
-      { subagent_type: "b", prompt: "2" },
-      { subagent_type: "c", prompt: "3" },
+      { display_name: "A", subagent_type: "a", prompt: "1" },
+      { display_name: "B", subagent_type: "b", prompt: "2" },
+      { display_name: "C", subagent_type: "c", prompt: "3" },
     ] },
     ctx,
   );
+  const result = await completion(bg);
   expect(calls.sort()).toEqual(["a", "b", "c"]);
-  expect(out.indexOf("a:1")).toBeLessThan(out.indexOf("b:2"));
-  expect(out.indexOf("b:2")).toBeLessThan(out.indexOf("c:3"));
+  expect(result.content.indexOf("a:1")).toBeLessThan(result.content.indexOf("b:2"));
+  expect(result.content.indexOf("b:2")).toBeLessThan(result.content.indexOf("c:3"));
 });
 
-test("one task throwing surfaces its error; siblings still succeed", async () => {
-  const spawn: Spawn = async (def) => {
-    if (def.name === "bad") throw new Error("boom");
-    return "fine";
-  };
-  const tool = agentTool({ loader: loaderWith("good", "bad"), spawn });
-  const out = await tool.execute(
-    { tasks: [{ subagent_type: "good", prompt: "x" }, { subagent_type: "bad", prompt: "y" }] },
+test("one failed child and two successful children make the group partial", async () => {
+  const spawn: Spawn = async (def) => def.name === "bad"
+    ? { status: "failed", error: "boom" }
+    : completed("fine");
+  const tool = toolWith(loaderWith("good", "bad"), spawn);
+  const { ctx, bg } = ctxWithBackground();
+  await tool.execute(
+    { tasks: [
+      { display_name: "First", subagent_type: "good", prompt: "x" },
+      { display_name: "Broken", subagent_type: "bad", prompt: "y" },
+      { display_name: "Last", subagent_type: "good", prompt: "z" },
+    ] },
     ctx,
   );
-  expect(out).toContain("fine");
-  expect(out).toMatch(/Error: boom/);
+  const result = await completion(bg);
+  expect(result.status).toBe("partial");
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain("First");
+  expect(result.content).toContain("Broken");
+  expect(result.content).toContain("Last");
+  expect(result.content).toContain("fine");
+  expect(result.content).toContain("boom");
 });
 
-test("each task surfaces as its own tool_use + tool_result (subagent as a tool call)", async () => {
+test("display names distinguish same-type child tool events and aggregate titles", async () => {
   const events: AgentEvent[] = [];
-  const ectx: ToolContext = { ...ctx, emit: (e) => events.push(e) };
-  const spawn: Spawn = async (def, prompt) => `${def.name}:${prompt}`;
-  const tool = agentTool({ loader: loaderWith("a", "b"), spawn });
+  const spawn: Spawn = async (_def, prompt) => completed(`done:${prompt}`);
+  const tool = toolWith(loaderWith("general-purpose"), spawn);
+  const { ctx, bg } = ctxWithBackground(events);
   await tool.execute(
-    { tasks: [{ subagent_type: "a", prompt: "1" }, { subagent_type: "b", prompt: "2" }] },
-    ectx,
+    { tasks: [
+      { display_name: "Research Notes", subagent_type: "general-purpose", prompt: "research" },
+      { display_name: "Write Draft", subagent_type: "general-purpose", prompt: "write" },
+    ] },
+    ctx,
   );
-  const uses = events.filter((e) => e.type === "tool_use") as Array<Extract<AgentEvent, { type: "tool_use" }>>;
-  const res = events.filter((e) => e.type === "tool_result") as Array<Extract<AgentEvent, { type: "tool_result" }>>;
-  expect(uses.map((e) => e.call.name)).toEqual(["a", "b"]);
-  expect(res.map((e) => e.result.name)).toEqual(["a", "b"]);
-  expect(res.map((e) => e.result.content)).toEqual(["a:1", "b:2"]);
-  // tool_use and tool_result for the same subagent share an id (pairable)
-  expect(uses[0]!.call.id).toBe(res.find((e) => e.result.name === "a")!.result.id);
-  expect(res.every((e) => !e.result.isError)).toBe(true);
+  const result = await completion(bg);
+  const uses = events.filter((event) => event.type === "tool_use") as Array<Extract<AgentEvent, { type: "tool_use" }>>;
+  const outcomes = events.filter((event) => event.type === "tool_result") as Array<Extract<AgentEvent, { type: "tool_result" }>>;
+  expect(uses.map((event) => event.call.name)).toEqual(["Research_Notes", "Write_Draft"]);
+  expect(outcomes.map((event) => event.result.name)).toEqual(["Research_Notes", "Write_Draft"]);
+  expect(uses.map((event) => event.call.input)).toEqual([
+    { display_name: "Research Notes", subagent_type: "general-purpose", prompt: "research" },
+    { display_name: "Write Draft", subagent_type: "general-purpose", prompt: "write" },
+  ]);
+  expect(result.content).toContain("Research_Notes");
+  expect(result.content).toContain("Write_Draft");
 });
 
 test("a failed subagent surfaces a tool_result with isError", async () => {
   const events: AgentEvent[] = [];
-  const ectx: ToolContext = { ...ctx, emit: (e) => events.push(e) };
-  const spawn: Spawn = async (def) => { if (def.name === "bad") throw new Error("boom"); return "fine"; };
-  const tool = agentTool({ loader: loaderWith("good", "bad"), spawn });
+  const spawn: Spawn = async (def) => def.name === "bad"
+    ? { status: "failed", error: "boom" }
+    : completed("fine");
+  const tool = toolWith(loaderWith("good", "bad"), spawn);
+  const { ctx, bg } = ctxWithBackground(events);
   await tool.execute(
-    { tasks: [{ subagent_type: "good", prompt: "x" }, { subagent_type: "bad", prompt: "y" }] },
-    ectx,
+    { tasks: [
+      { display_name: "Good", subagent_type: "good", prompt: "x" },
+      { display_name: "Bad", subagent_type: "bad", prompt: "y" },
+    ] },
+    ctx,
   );
-  const res = events.filter((e) => e.type === "tool_result") as Array<Extract<AgentEvent, { type: "tool_result" }>>;
-  const bad = res.find((e) => e.result.name === "bad")!;
+  await completion(bg);
+  const outcomes = events.filter((event) => event.type === "tool_result") as Array<Extract<AgentEvent, { type: "tool_result" }>>;
+  const bad = outcomes.find((event) => event.result.name === "Bad")!;
   expect(bad.result.isError).toBe(true);
   expect(bad.result.content).toMatch(/boom/);
-  expect(res.find((e) => e.result.name === "good")!.result.isError).toBeFalsy();
+  expect(outcomes.find((event) => event.result.name === "Good")!.result.isError).toBeFalsy();
 });
 
 test("subagent events are forwarded live, tagged with the child agentId", async () => {
   const events: AgentEvent[] = [];
-  const ectx: ToolContext = { ...ctx, emit: (e) => events.push(e) };
   const spawn: Spawn = async (_def, _prompt, opts) => {
     opts.onEvent?.({ type: "text_delta", text: "thinking" });
     opts.onEvent?.({ type: "turn_end", turn: 1, stopReason: "stop" });
-    return "child done";
+    return completed("child done");
   };
-  const tool = agentTool({ loader: loaderWith("worker"), spawn });
-  await tool.execute({ tasks: [{ subagent_type: "worker", prompt: "go" }] }, ectx);
-  const fromChild = events.filter((e) => e.agentId);
-  expect(fromChild.length).toBe(2);
-  expect(fromChild.every((e) => e.agentId!.startsWith("agent-worker-"))).toBe(true);
-  expect(fromChild.map((e) => e.type)).toEqual(["text_delta", "turn_end"]);
-  // the Agent tool's own bracketing tool_use/tool_result are NOT tagged:
-  const own = events.filter((e) => !e.agentId);
-  expect(own.some((e) => e.type === "tool_use")).toBe(true);
-  expect(own.some((e) => e.type === "tool_result")).toBe(true);
+  const tool = toolWith(loaderWith("worker"), spawn);
+  const { ctx, bg } = ctxWithBackground(events);
+  await tool.execute({ tasks: [{ display_name: "Worker", subagent_type: "worker", prompt: "go" }] }, ctx);
+  await completion(bg);
+  const fromChild = events.filter((event) => event.agentId);
+  expect(fromChild).toHaveLength(2);
+  expect(fromChild.every((event) => event.agentId!.startsWith("agent-worker-"))).toBe(true);
+  expect(fromChild.map((event) => event.type)).toEqual(["text_delta", "turn_end"]);
+  const own = events.filter((event) => !event.agentId);
+  expect(own.some((event) => event.type === "tool_use")).toBe(true);
+  expect(own.some((event) => event.type === "tool_result")).toBe(true);
 });
 
-test("a subagent_type with newlines cannot inject a markdown heading into the output", async () => {
-  const spawn: Spawn = async () => "ok";
-  const tool = agentTool({ loader: loaderWith("known"), spawn });
-  const out = await tool.execute(
-    { tasks: [{ subagent_type: "evil\n## INJECTED", prompt: "x" }] },
+test("a display name with newlines cannot inject a markdown heading into the output", async () => {
+  const tool = toolWith(loaderWith("known"), async () => completed("ok"));
+  const { ctx, bg } = ctxWithBackground();
+  await tool.execute(
+    { tasks: [{ display_name: "evil\n## INJECTED", subagent_type: "known", prompt: "x" }] },
     ctx,
   );
-  expect(out).not.toContain("\n## INJECTED");
+  const result = await completion(bg);
+  expect(result.content).not.toContain("\n## INJECTED");
 });
