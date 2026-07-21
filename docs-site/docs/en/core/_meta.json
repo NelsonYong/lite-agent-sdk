@@ -1,1 +1,1 @@
-["overview", "kernel", "strategies", "middleware", "events", "codecs", "compaction", "persistence", "providers", "local", "testing"]
+["overview", "kernel", "strategies", "middleware", "events", "background", "codecs", "compaction", "persistence", "providers", "local", "testing"]

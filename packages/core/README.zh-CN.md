@@ -45,7 +45,7 @@ console.log(result.text);
 - **上下文管理** —— 压缩工具箱（snip/micro pass、reactive trim、LLM 摘要器、token 预算、spill store）以及带 planner/archiver 钩子的 `ContextEngine`。
 - **事件溯源检查点** —— 通过 `Checkpointer` 接口实现会话持久化与时间回溯；内置内存实现，持久化后端在兄弟包中。
 - **权限中间件** —— 可组合的策略，支持规则匹配与敏感数据脱敏。
-- **引导与后台任务** —— 用 `SteerController` 在运行中注入输入，用 `createBackgroundTasks` 派生后台任务。
+- **引导与后台任务** —— 用 `SteerController` 在运行中注入输入，用 `createBackgroundTasks` 派生 joinable 或 detached 工作，并通过结构化 completion 报告权威的 `BackgroundStatus`（`completed` / `partial` / `failed` / `cancelled`）。
 - **可插拔沙箱** —— 默认 `noopSandbox`；操作系统级边界在 [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic)。
 - **测试工具** —— `fakeProvider`，以及 provider 与 checkpointer 的一致性测试套件。
 
@@ -64,10 +64,10 @@ console.log(result.text);
 | `ContextEngine` / `createContextEngine` / `projectContext` | 自动上下文管理，带 planner/archiver 钩子与投影视图。 |
 | `memoryCheckpointer` / `foldEvents` / `storeEvents` / `legacyStoreAdapter` / `memoryStore` | 事件溯源的会话持久化原语（内存实现）。 |
 | `noopSandbox` | 默认的无边界沙箱。 |
-| `SteerController` / `createBackgroundTasks` | 运行中注入输入；派生并管理后台任务。 |
+| `SteerController` / `createBackgroundTasks` / `backgroundCompletionMessage` | 在运行中注入输入；派生/管理后台任务；将结构化 completion 映射为下一轮模型通知。 |
 | `fakeProvider` / `checkpointerConformance` / `providerConformance` | 测试替身与一致性测试套件。 |
 | `AgentError` + `ProviderError` / `ToolError` / `CodecError` / `MaxTurnsError` / `AbortError` / `CheckpointConflictError` | 错误层级。 |
-| 类型：`ModelProvider`、`ToolCallCodec`、`Tool`、`Compactor`、`PermissionPolicy`、`ApprovalHandler`、`InputHandler`、`Store`、`Sandbox`、`Message`、`ContentBlock`、`AgentEvent`、`RunResult` …… | 全部策略接口、归一化消息类型与事件联合类型。 |
+| 类型：`ModelProvider`、`ToolCallCodec`、`Tool`、`Compactor`、`PermissionPolicy`、`ApprovalHandler`、`InputHandler`、`Store`、`Sandbox`、`Message`、`ContentBlock`、`AgentEvent`、`RunResult`、`BackgroundStatus`、`BackgroundRunResult`、`BackgroundCompletion` 等 | 全部策略接口、归一化消息类型、后台生命周期结果和事件联合类型。 |
 
 ## 相关
 
