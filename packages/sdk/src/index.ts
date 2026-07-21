@@ -1,6 +1,8 @@
 export * from "@lite-agent/core";
 
 export { createLiteAgent } from "./createLiteAgent";
+export { createSubagentPool } from "./subagentPool";
+export type { SubagentPool } from "./subagentPool";
 export type {
   CreateLiteAgentConfig, ContextOptions, LiteAgent, LiteAgentEvent, LiteAgentResult,
 } from "./createLiteAgent";
