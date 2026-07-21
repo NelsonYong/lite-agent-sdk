@@ -115,6 +115,7 @@ git commit -m "feat(sdk): add shared subagent pool"
 
 **Files:**
 - Modify: `packages/sdk/src/tools/agent.ts`
+- Modify: `packages/sdk/src/index.ts`
 - Test: `packages/sdk/test/agent-tool.test.ts`
 - Test: `packages/sdk/test/agent-background.test.ts`
 
