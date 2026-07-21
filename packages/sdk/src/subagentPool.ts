@@ -18,6 +18,9 @@ type Entry<T> = {
 };
 
 export function createSubagentPool(maxParallel: number): SubagentPool {
+  if (!Number.isSafeInteger(maxParallel) || maxParallel <= 0) {
+    throw new RangeError("maxParallel must be a positive safe integer");
+  }
   const queue: Entry<unknown>[] = [];
   const active = new Set<Promise<void>>();
   const activeControllers = new Set<AbortController>();
@@ -49,7 +52,13 @@ export function createSubagentPool(maxParallel: number): SubagentPool {
       activeControllers.add(entry.controller);
       running += 1;
       const task = Promise.resolve()
-        .then(() => entry.job(entry.controller!.signal))
+        .then(() => {
+          if (entry.settled || closed || entry.controller!.signal.aborted) {
+            settle(entry, "reject", new AbortError());
+            return;
+          }
+          return entry.job(entry.controller!.signal);
+        })
         .then(
           (value) => settle(entry, "resolve", value),
           (error) => settle(entry, "reject", error),
