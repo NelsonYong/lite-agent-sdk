@@ -1,5 +1,13 @@
 # @lite-agent/local
 
+## 0.2.1
+
+### Patch Changes
+
+- Forward `LiteAgent.awaitIdle()` through `LocalAgent`, so local callers can
+  wait for the current session's subagent groups and autonomous completion turns
+  with the same lifecycle contract as `@lite-agent/sdk`.
+
 ## 0.2.0
 
 ### Minor Changes
