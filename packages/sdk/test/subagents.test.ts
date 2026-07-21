@@ -20,6 +20,7 @@ import type {
   AgentEvent,
   ModelProvider,
   ModelRequest,
+  Tool,
 } from "@lite-agent/core";
 import { createLiteAgent } from "../src/createLiteAgent";
 import type { LiteAgent } from "../src/liteAgent";
@@ -154,6 +155,55 @@ test("a spawned child has no Agent tool (no recursion)", async () => {
   const paths = resolveProjectPaths({ workdir: wd });
   const transcript = readFileSync(join(paths.sessionsDir, "agent-echo-norecurse.jsonl"), "utf8");
   expect(transcript).toContain("unknown tool 'Agent'");
+  await agent.close();
+});
+
+test("a root Agent dispatcher filters a custom Agent tool before creating its child", async () => {
+  const inheritedTools: Tool[] = [];
+  const customAgent = defineTool({
+    name: "Agent",
+    description: "custom Agent marker",
+    schema: z.object({}),
+    execute: vi.fn(() => "custom Agent ran"),
+  });
+  const requests: ModelRequest[] = [];
+  const inner = fakeProvider([
+    // The root was assembled before customAgent was added, so this reaches the
+    // built-in dispatcher and creates the child below.
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "p1", name: "Agent", input: { tasks: [{ display_name: "Worker", subagent_type: "worker", prompt: "child", resume: "agent-worker-custom-agent" }] } }] } },
+    // A leaked custom Agent would execute here instead of producing unknown tool.
+    { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "Agent", input: {} }] } },
+    { text: "child done", message: { role: "assistant", content: [textBlock("child done")] } },
+    { text: "parent done", message: { role: "assistant", content: [textBlock("parent done")] } },
+  ]);
+  const model: ModelProvider = {
+    id: "custom-agent-recorder",
+    stream(request, signal) {
+      requests.push(request);
+      return inner.stream(request, signal);
+    },
+  };
+  const agent = createLiteAgent({
+    model,
+    workdir: workdir(),
+    agentsDir: agentsDir("worker"),
+    tools: inheritedTools,
+  });
+
+  inheritedTools.push(customAgent);
+  const events = await collectUntilIdle(agent, "start");
+
+  expect(requests[1]?.tools?.map((tool) => tool.name)).not.toContain("Agent");
+  expect(events).toContainEqual(expect.objectContaining({
+    agentId: "agent-worker-custom-agent",
+    type: "tool_result",
+    result: expect.objectContaining({
+      name: "Agent",
+      content: "Error: unknown tool 'Agent'",
+      isError: true,
+    }),
+  }));
+  expect(customAgent.execute).not.toHaveBeenCalled();
   await agent.close();
 });
 

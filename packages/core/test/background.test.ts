@@ -110,6 +110,31 @@ test("structured partial results retain their status and are errors", async () =
   }]);
 });
 
+test("a daemon can opt out of session awaitIdle without changing its completion status", async () => {
+  const { bg } = mk();
+  bg.spawn({
+    label: "daemon",
+    kind: "detached",
+    awaitIdle: false,
+    run: async () => "done",
+  });
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(bg.takeCompleted()[0]).toMatchObject({
+    label: "daemon",
+    status: "completed",
+    isError: false,
+    awaitIdle: false,
+  });
+  expect(backgroundCompletionMessage({
+    id: "bg_daemon",
+    label: "daemon",
+    content: "done",
+    status: "completed",
+    isError: false,
+    awaitIdle: false,
+  }).content).not.toContain("awaitIdle");
+});
+
 test("run receives a signal that aborts on cancel and can report cancelled", async () => {
   const { bg } = mk();
   const h = bg.spawn({

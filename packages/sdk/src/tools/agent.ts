@@ -219,6 +219,7 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
       const handle = ctx.background.spawn({
         label: `Subagent group: ${tasks.map((task) => cleanDisplayName(task.display_name)).join(", ")}`,
         kind: "detached",
+        awaitIdle: true,
         run: (signal, emit) => runBatch(signal, emit),
       });
       const noun = tasks.length === 1 ? "subagent" : "subagents";

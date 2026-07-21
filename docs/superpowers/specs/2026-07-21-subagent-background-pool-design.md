@@ -1,7 +1,7 @@
 # 同级子代理后台任务池设计
 
 **日期：** 2026-07-21  
-**状态：** 已获用户批准，待实施
+**状态：** 已实施
 
 ## 1. 背景与问题
 
@@ -162,7 +162,7 @@ type SubagentResult = {
 | 子代理结果 | 组状态 |
 |---|---|
 | 全部 `completed` | `completed` |
-| 至少一个 `completed`，且至少一个非成功 | `partial` |
+| 不同 child 状态混合 | `partial` |
 | 全部 `failed` | `failed` |
 | 全部 `cancelled` | `cancelled` |
 
