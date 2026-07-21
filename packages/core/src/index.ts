@@ -40,7 +40,7 @@ export { SteerController } from "./steer";
 export { backgroundCompletionMessage, createBackgroundTasks } from "./background";
 export type {
   BackgroundTasks, BackgroundHandle, BackgroundCompletion, BackgroundSpawnOptions,
-  BackgroundKind, BackgroundRead, BackgroundDeps, BackgroundLimits,
+  BackgroundKind, BackgroundRead, BackgroundDeps, BackgroundLimits, BackgroundRunResult, BackgroundStatus,
 } from "./background";
 export { policy, strictPolicy, composePolicies, permission, defaultRedactor } from "./permission";
 export type { PolicyOptions, PermissionRule, MatchSpec, Condition, Redactor } from "./permission";
