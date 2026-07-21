@@ -170,12 +170,12 @@ export function query(
             event.completion.label.startsWith("Subagent group:")
           ) {
             completionTurnHasAgentGroup = true;
-          } else if (event.type === "done") {
+          } else if (event.type === "done" && !event.agentId) {
             if (completionTurnHasAgentGroup) {
               lastAgentCompletionResult = event.result;
               completionTurnHasAgentGroup = false;
             }
-          } else if (event.type === "error") {
+          } else if (event.type === "error" && !event.agentId) {
             completionTurnHasAgentGroup = false;
           }
           yield event;

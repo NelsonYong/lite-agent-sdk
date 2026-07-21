@@ -4,9 +4,10 @@ import {
   defineTool,
   fakeProvider,
   memoryCheckpointer,
-  ProviderError,
   textBlock,
+  ProviderError,
 } from "@lite-agent/core";
+import type { ModelProvider } from "@lite-agent/core";
 import { createLiteAgent } from "../src/createLiteAgent";
 import type { LiteAgentEvent } from "../src/liteAgent";
 
@@ -345,4 +346,104 @@ test("awaitIdle ignores an unrelated detached daemon and close still cancels it"
   ])).resolves.toBe("idle");
   await agent.close();
   expect(aborted).toBe(true);
+});
+
+test("awaitIdle is isolated by session owner when another session has a slow child", async () => {
+  let releaseSlow!: () => void;
+  const slow = new Promise<void>((resolve) => { releaseSlow = resolve; });
+  const lastText = (request: Parameters<ModelProvider["stream"]>[0]) => {
+    const message = request.messages.at(-1);
+    return message?.role === "user" && typeof message.content === "string"
+      ? message.content
+      : undefined;
+  };
+  const model: ModelProvider = {
+    id: "session-owned-subagent-pool",
+    async *stream(request) {
+      if (request.system?.startsWith('You are the "general-purpose" subagent')) {
+        if (lastText(request) === "slow") await slow;
+        yield {
+          type: "message_done",
+          message: { role: "assistant", content: [textBlock("child done")] },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      const prompt = lastText(request);
+      if (prompt === "start A" || prompt === "start B") {
+        yield {
+          type: "message_done",
+          message: {
+            role: "assistant",
+            content: [{
+              type: "tool_call",
+              id: prompt === "start A" ? "dispatch-a" : "dispatch-b",
+              name: "Agent",
+              input: {
+                tasks: [{
+                  display_name: prompt === "start A" ? "Slow" : "Fast",
+                  subagent_type: "general-purpose",
+                  prompt: prompt === "start A" ? "slow" : "fast",
+                }],
+              },
+            }],
+          },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      yield {
+        type: "message_done",
+        message: { role: "assistant", content: [textBlock("idle")] },
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    },
+  };
+  const agent = createLiteAgent({
+    model,
+    workdir: process.cwd(),
+    maxParallelSubagents: 2,
+    tasks: false,
+    sessions: false,
+    cleanup: false,
+  });
+
+  await Promise.all([
+    agent.send("start A", { sessionId: "session-A" }),
+    agent.send("start B", { sessionId: "session-B" }),
+  ]);
+  await expect(Promise.race([
+    agent.awaitIdle("session-B").then(() => "idle"),
+    new Promise<string>((resolve) => setTimeout(() => resolve("timed out"), 100)),
+  ])).resolves.toBe("idle");
+  releaseSlow();
+  await agent.awaitIdle("session-A");
+  await agent.close();
+});
+
+test("awaitIdle does not depend on a real timer", async () => {
+  vi.useFakeTimers();
+  let settled = false;
+  try {
+    const agent = createLiteAgent({
+      model: fakeProvider([
+        { message: { role: "assistant", content: [{ type: "tool_call", id: "timer-agent", name: "Agent", input: { tasks: [{ display_name: "Worker", subagent_type: "general-purpose", prompt: "fast" }] } }] } },
+        { text: "child", message: { role: "assistant", content: [textBlock("child")] } },
+        { text: "parent", message: { role: "assistant", content: [textBlock("parent")] } },
+      ]),
+      workdir: process.cwd(),
+      tasks: false,
+      sessions: false,
+      cleanup: false,
+    });
+    await agent.send("start", { sessionId: "fake-timer" });
+    const idle = agent.awaitIdle("fake-timer").then(() => { settled = true; });
+    for (let i = 0; i < 1000 && !settled; i++) await Promise.resolve();
+    expect(settled).toBe(true);
+    await idle;
+    await agent.close();
+  } finally {
+    if (!settled) vi.runAllTimers();
+    vi.useRealTimers();
+  }
 });

@@ -1,9 +1,16 @@
 import { AbortError } from "@lite-agent/core";
 
 export interface SubagentPool {
-  run<T>(job: (signal: AbortSignal) => Promise<T>, parentSignal: AbortSignal): Promise<T>;
+  run<T>(
+    job: (signal: AbortSignal) => Promise<T>,
+    parentSignal: AbortSignal,
+    ownerSessionId?: string,
+  ): Promise<T>;
+  registerGroup(ownerSessionId: string): void;
+  completeGroup(ownerSessionId: string): void;
+  clearGroups(ownerSessionId: string): void;
   pending(): { queued: number; running: number };
-  waitForIdle(): Promise<void>;
+  waitForIdle(ownerSessionId?: string): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -16,6 +23,7 @@ type Entry<T> = {
   controller?: AbortController;
   started: boolean;
   settled: boolean;
+  ownerSessionId?: string;
 };
 
 export function createSubagentPool(maxParallel: number): SubagentPool {
@@ -28,12 +36,32 @@ export function createSubagentPool(maxParallel: number): SubagentPool {
   let running = 0;
   let closed = false;
   let closePromise: Promise<void> | undefined;
-  const idleWaiters = new Set<() => void>();
+  const activeEntries = new Set<Entry<unknown>>();
+  const activeGroups = new Map<string, number>();
+  const idleWaiters = new Map<string | undefined, Set<() => void>>();
+  let idleNotificationScheduled = false;
+
+  const hasWork = (ownerSessionId?: string) => ownerSessionId === undefined
+    ? queue.length > 0 || activeEntries.size > 0 || activeGroups.size > 0
+    : queue.some((entry) => entry.ownerSessionId === ownerSessionId) ||
+      [...activeEntries].some((entry) => entry.ownerSessionId === ownerSessionId) ||
+      (activeGroups.get(ownerSessionId) ?? 0) > 0;
 
   const notifyIdle = () => {
-    if (queue.length > 0 || running > 0) return;
-    for (const resolve of idleWaiters) resolve();
-    idleWaiters.clear();
+    // A pool entry can settle just before its owning BackgroundTask publishes
+    // the completion that schedules the autonomous turn. Defer notification by
+    // one microtask so that causal completion/scheduling is visible to callers;
+    // this remains timer-independent under fake timers.
+    if (idleNotificationScheduled) return;
+    idleNotificationScheduled = true;
+    void Promise.resolve().then(() => {
+      idleNotificationScheduled = false;
+      for (const [ownerSessionId, waiters] of idleWaiters) {
+        if (hasWork(ownerSessionId)) continue;
+        idleWaiters.delete(ownerSessionId);
+        for (const resolve of waiters) resolve();
+      }
+    });
   };
 
   const settle = <T>(entry: Entry<T>, reason: "resolve" | "reject", value: T | unknown) => {
@@ -59,6 +87,7 @@ export function createSubagentPool(maxParallel: number): SubagentPool {
       entry.started = true;
       entry.controller = new AbortController();
       activeControllers.add(entry.controller);
+      activeEntries.add(entry);
       running += 1;
       const task = Promise.resolve()
         .then(() => {
@@ -75,6 +104,7 @@ export function createSubagentPool(maxParallel: number): SubagentPool {
         .then(() => {
           running -= 1;
           active.delete(task);
+          activeEntries.delete(entry);
           activeControllers.delete(entry.controller!);
           pump();
           notifyIdle();
@@ -84,7 +114,24 @@ export function createSubagentPool(maxParallel: number): SubagentPool {
   };
 
   return {
-    run<T>(job: (signal: AbortSignal) => Promise<T>, parentSignal: AbortSignal): Promise<T> {
+    registerGroup(ownerSessionId) {
+      activeGroups.set(ownerSessionId, (activeGroups.get(ownerSessionId) ?? 0) + 1);
+    },
+    completeGroup(ownerSessionId) {
+      const remaining = (activeGroups.get(ownerSessionId) ?? 0) - 1;
+      if (remaining > 0) activeGroups.set(ownerSessionId, remaining);
+      else activeGroups.delete(ownerSessionId);
+      notifyIdle();
+    },
+    clearGroups(ownerSessionId) {
+      activeGroups.delete(ownerSessionId);
+      notifyIdle();
+    },
+    run<T>(
+      job: (signal: AbortSignal) => Promise<T>,
+      parentSignal: AbortSignal,
+      ownerSessionId?: string,
+    ): Promise<T> {
       let resolve!: (value: T) => void;
       let reject!: (reason: unknown) => void;
       const result = new Promise<T>((res, rej) => {
@@ -101,7 +148,16 @@ export function createSubagentPool(maxParallel: number): SubagentPool {
         else entry.controller?.abort();
         settle(entry, "reject", new AbortError());
       };
-      entry = { job, resolve, reject, parentSignal, onParentAbort, started: false, settled: false };
+      entry = {
+        job,
+        resolve,
+        reject,
+        parentSignal,
+        onParentAbort,
+        started: false,
+        settled: false,
+        ownerSessionId,
+      };
 
       if (closed) settle(entry, "reject", new AbortError("subagent pool closed"));
       else if (parentSignal.aborted) settle(entry, "reject", new AbortError());
@@ -117,9 +173,16 @@ export function createSubagentPool(maxParallel: number): SubagentPool {
       return { queued: queue.length, running };
     },
 
-    waitForIdle() {
-      if (queue.length === 0 && running === 0) return Promise.resolve();
-      return new Promise<void>((resolve) => { idleWaiters.add(resolve); });
+    waitForIdle(ownerSessionId?: string) {
+      if (!hasWork(ownerSessionId)) return Promise.resolve();
+      return new Promise<void>((resolve) => {
+        const waiters = idleWaiters.get(ownerSessionId) ?? new Set<() => void>();
+        waiters.add(resolve);
+        idleWaiters.set(ownerSessionId, waiters);
+        // Atomic second check: work may have settled between the check above
+        // and waiter registration.
+        if (!hasWork(ownerSessionId)) notifyIdle();
+      });
     },
 
     close() {

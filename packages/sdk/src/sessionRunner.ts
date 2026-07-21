@@ -40,6 +40,8 @@ export interface SessionRunnerOptions {
   background: boolean;
   limits?: BackgroundLimits;
   waitForBackgroundIdle?: (sessionId: string) => Promise<void>;
+  onBackgroundCompletion?: (sessionId: string, label: string) => void;
+  onSessionCancel?: (sessionId: string) => void;
 }
 
 export function createSessionRunner<R extends RunResult>(
@@ -153,6 +155,7 @@ export function createSessionRunner<R extends RunResult>(
           source: "background",
           event: { type: "background_completed", completion },
         });
+        opts.onBackgroundCompletion?.(sessionId, completion.label);
       }
       await drain(
         sessionId,
@@ -162,6 +165,9 @@ export function createSessionRunner<R extends RunResult>(
       );
     } finally {
       scope.draining = false;
+      // Clear completion state before waking idle waiters so the wake observes
+      // one coherent settled snapshot instead of requiring another turn.
+      if (scope.completion) scope.completion = undefined;
       release();
       if (scheduled.get(sessionId) === scope) scheduled.delete(sessionId);
       if (!closed && scope.active && scope.tasks.hasCompleted()) schedule(sessionId, scope);
@@ -185,7 +191,6 @@ export function createSessionRunner<R extends RunResult>(
         event: { type: "error", error: agentError, fatal: true },
       });
     }).finally(() => {
-      if (scope.completion === completion) scope.completion = undefined;
       wakeIdleWaiters(sessionId);
     });
   };
@@ -212,6 +217,7 @@ export function createSessionRunner<R extends RunResult>(
     if (!scope) return;
     scope.active = false;
     scopes.delete(sessionId);
+    opts.onSessionCancel?.(sessionId);
     scope.abort.abort();
     scope.tasks.cancelAll();
     if (scope.draining && scope.completion) await scope.completion;
@@ -255,12 +261,12 @@ export function createSessionRunner<R extends RunResult>(
     async awaitIdle(sessionId) {
       while (!closed) {
         await opts.waitForBackgroundIdle?.(sessionId);
-        if (opts.waitForBackgroundIdle) {
-          // Pool jobs settle immediately before their detached group publishes its
-          // completion. Cross a task boundary so schedule()/drain state is visible.
-          await new Promise<void>((resolve) => setTimeout(resolve, 0));
-        }
         if (runnerIdle(sessionId)) return;
+        const completion = scopes.get(sessionId)?.completion;
+        if (completion) {
+          await completion;
+          continue;
+        }
         await waitForRunnerChange(sessionId);
       }
     },
