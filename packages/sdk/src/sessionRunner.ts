@@ -51,10 +51,12 @@ export function createSessionRunner<R extends RunResult>(
     tasks: BackgroundTasks;
     draining: boolean;
     completion?: Promise<void>;
+    awaitIdleCompletions: Set<string>;
   };
 
   const scopes = new Map<string, Scope>();
   const tails = new Map<string, Promise<void>>();
+  const userRuns = new Map<string, number>();
   const scheduled = new Map<string, Scope>();
   const listeners = new Set<(entry: LiteAgentEvent) => void>();
   const idleWaiters = new Map<string, Set<() => void>>();
@@ -73,11 +75,9 @@ export function createSessionRunner<R extends RunResult>(
     const activeAgentGroup = scope?.tasks.listDetached().some((task) =>
       task.label.startsWith("Subagent group:"),
     ) ?? false;
-    return !tails.has(sessionId) &&
-      !scheduled.has(sessionId) &&
-      !scope?.draining &&
-      !scope?.completion &&
-      !scope?.tasks.hasCompleted() &&
+    const userRunPending = (userRuns.get(sessionId) ?? 0) > 0;
+    return !userRunPending &&
+      (scope?.awaitIdleCompletions.size ?? 0) === 0 &&
       !activeAgentGroup;
   };
 
@@ -146,10 +146,11 @@ export function createSessionRunner<R extends RunResult>(
 
   const runCompletions = async (sessionId: string, scope: Scope) => {
     const release = await acquire(sessionId);
+    let completions: Awaited<ReturnType<BackgroundTasks["takeCompleted"]>> = [];
     try {
       if (closed || !scope.active || scopes.get(sessionId) !== scope) return;
       scope.draining = true;
-      const completions = scope.tasks.takeCompleted();
+      completions = scope.tasks.takeCompleted();
       if (completions.length === 0) return;
       for (const completion of completions) {
         publish({
@@ -165,6 +166,9 @@ export function createSessionRunner<R extends RunResult>(
         { signal: scope.abort.signal },
       );
     } finally {
+      for (const completion of completions) {
+        if (completion.awaitIdle !== false) scope.awaitIdleCompletions.delete(completion.id);
+      }
       scope.draining = false;
       release();
       if (scheduled.get(sessionId) === scope) scheduled.delete(sessionId);
@@ -204,9 +208,12 @@ export function createSessionRunner<R extends RunResult>(
       emit: (event) => publish({ sessionId, source: "background", event }),
       signal: abort.signal,
       limits: opts.limits,
-      onCompleted: () => schedule(sessionId, scope),
+      onCompleted: (completion) => {
+        if (completion.awaitIdle !== false) scope.awaitIdleCompletions.add(completion.id);
+        schedule(sessionId, scope);
+      },
     });
-    scope = { active: true, abort, tasks, draining: false };
+    scope = { active: true, abort, tasks, draining: false, awaitIdleCompletions: new Set() };
     scopes.set(sessionId, scope);
     return tasks;
   };
@@ -230,6 +237,7 @@ export function createSessionRunner<R extends RunResult>(
     run(input, runOpts) {
       const sessionId = runOpts.sessionId;
       return (async function* () {
+        userRuns.set(sessionId, (userRuns.get(sessionId) ?? 0) + 1);
         const release = await acquire(sessionId);
         let generator: AsyncGenerator<AgentEvent, R> | undefined;
         let next: IteratorResult<AgentEvent, R> | undefined;
@@ -247,6 +255,10 @@ export function createSessionRunner<R extends RunResult>(
             await generator.return(undefined as unknown as R);
           }
           release();
+          const remaining = (userRuns.get(sessionId) ?? 1) - 1;
+          if (remaining > 0) userRuns.set(sessionId, remaining);
+          else userRuns.delete(sessionId);
+          wakeIdleWaiters(sessionId);
         }
       })();
     },
@@ -260,8 +272,9 @@ export function createSessionRunner<R extends RunResult>(
       while (!closed) {
         await opts.waitForBackgroundIdle?.(sessionId);
         if (runnerIdle(sessionId)) return;
-        const completion = scopes.get(sessionId)?.completion;
-        if (completion) {
+        const scope = scopes.get(sessionId);
+        const completion = scope?.completion;
+        if (completion && scope.awaitIdleCompletions.size > 0) {
           await completion;
           continue;
         }

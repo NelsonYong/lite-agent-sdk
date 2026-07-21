@@ -183,7 +183,28 @@ export function query(
       };
 
       yield* drainBackgroundEvents();
-      await agent.awaitIdle(sessionId);
+      // A one-shot query only owns Agent groups it submitted. Detached daemons
+      // (for example, background bash) must not turn into an extra completion
+      // turn or extend the query lifetime.
+      if (agentGroupObserved) {
+        const signal = opts.signal;
+        if (!signal) {
+          await agent.awaitIdle(sessionId);
+        } else if (!signal.aborted) {
+          let resolveAbort!: () => void;
+          const aborted = new Promise<void>((resolve) => { resolveAbort = resolve; });
+          const onAbort = () => resolveAbort();
+          signal.addEventListener("abort", onAbort, { once: true });
+          // Abort can race the `signal.aborted` check above. Re-check after
+          // registration so an abort in that window cannot leave query waiting.
+          if (signal.aborted) resolveAbort();
+          try {
+            await Promise.race([agent.awaitIdle(sessionId), aborted]);
+          } finally {
+            signal.removeEventListener("abort", onAbort);
+          }
+        }
+      }
       yield* drainBackgroundEvents();
       return lastAgentCompletionResult ?? initialResult;
     } finally {

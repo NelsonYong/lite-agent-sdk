@@ -157,6 +157,7 @@ export function bashTool(workdir: string, opts: BashToolOptions = {}): Tool {
         const handle = ctx.background.spawn({
           label: command,
           kind: "detached",
+          awaitIdle: false,
           run: (signal, _emit, write) => runProcess(toRun, workdir, signal, background, write),
         });
         return `[background:${handle.id}] started: ${command}. Read output with BashOutput(id: ${handle.id}); it continues across turns and is stopped by KillBackground, session deletion, configured limits, or LiteAgent.close().`;

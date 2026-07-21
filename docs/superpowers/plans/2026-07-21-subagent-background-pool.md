@@ -184,7 +184,7 @@ git commit -m "feat(sdk): aggregate named subagent groups"
 
 **Interfaces:**
 - `CreateLiteAgentConfig` 和 `QueryOptions` 增加 `maxParallelSubagents?: number`，默认 5，并完整转发。
-- `SessionRunner` 增加 `awaitIdle(sessionId: string): Promise<void>`；当该 session 没有运行/排队后台组、没有 scheduled/draining completion 且 completion 队列为空时 resolve。
+- `SessionRunner` 增加 `awaitIdle(sessionId: string): Promise<void>`；当该 session 没有运行/排队后台组、没有参与 idle 等待的 scheduled/draining completion 且对应 completion 队列为空时 resolve；显式 `awaitIdle:false` 的 detached daemon 不成为等待条件，但仍可送达 completion event/autonomous turn。
 - `LiteAgent` 增加 `awaitIdle(sessionId?: string): Promise<void>` 作为 query 的有限生命周期适配；长期应用仍使用 `subscribe()`/`close()`。
 - `createLiteAgent` 创建一个 pool，所有 `agentTool` 调用共享它；child `spawn` 返回 Task 3 的 `SubagentResult`：`stopReason:"stop"` 且非空文本才 completed，`max_turns`/`aborted`/空文本分别 failed/cancelled/failed，并保留错误消息。
 - `close()` 先取消 session background scopes，再 `await pool.close()`；child 仍 `agents:false`。

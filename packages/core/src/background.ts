@@ -22,6 +22,11 @@ export interface BackgroundSpawnOptions {
   /** "joinable" (default): finite work; the run blocks at dry-out until it settles (join).
    *  "detached": long-lived/daemon; never gates run termination, output readable via read(). */
   kind?: BackgroundKind;
+  /**
+   * Whether a completed task participates in session `awaitIdle()` waits.
+   * Defaults to true; long-lived daemons should set this to false.
+   */
+  awaitIdle?: boolean;
   /** The work. A string resolves as completed; a structured result preserves its status. A throw becomes failed.
    *  - signal: task-scoped abort (KillBackground / run-abort)
    *  - emit:   run-level event sink (survives the per-turn channel)
@@ -35,6 +40,8 @@ export interface BackgroundCompletion {
   content: string;
   status: BackgroundStatus;
   isError: boolean;
+  /** Omitted for the default (await-idle) behavior. */
+  awaitIdle?: boolean;
 }
 
 export interface BackgroundRead {
@@ -100,6 +107,7 @@ interface Detached {
 interface Running {
   ac: AbortController;
   kind: BackgroundKind;
+  awaitIdle: boolean;
 }
 
 export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
@@ -131,16 +139,18 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
   };
 
   const finish = (id: string, label: string, result: BackgroundRunResult) => {
-    if (!running.has(id)) return; // guard against double-settle
+    const task = running.get(id);
+    if (!task) return; // guard against double-settle
     running.delete(id);
     const d = detached.get(id);
     if (d) d.done = true;
-    const completion = {
+    const completion: BackgroundCompletion = {
       id,
       label,
       content: result.content,
       status: result.status,
       isError: result.status !== "completed",
+      ...(task.awaitIdle ? {} : { awaitIdle: false }),
     };
     completed.push(completion);
     notify();
@@ -148,7 +158,7 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
   };
 
   return {
-    spawn({ label, kind = "joinable", run }) {
+    spawn({ label, kind = "joinable", awaitIdle = true, run }) {
       if (running.size >= maxTotal) throw new Error(`background task limit reached (${maxTotal})`);
       const cap = kind === "joinable" ? maxJoinable : maxDetached;
       if (countKind(kind) >= cap) throw new Error(`background ${kind} task limit reached (${cap})`);
@@ -156,7 +166,7 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
       const ac = new AbortController();
       const onRunAbort = () => ac.abort();
       deps.signal.addEventListener("abort", onRunAbort, { once: true });
-      running.set(id, { ac, kind });
+      running.set(id, { ac, kind, awaitIdle });
       if (kind === "detached") detached.set(id, { label, buffer: "", written: 0, read: 0, done: false });
       void (async () => {
         let timer: ReturnType<typeof setTimeout> | undefined;

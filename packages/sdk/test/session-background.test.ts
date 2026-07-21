@@ -508,6 +508,77 @@ test("awaitIdle ignores an unrelated detached daemon and close still cancels it"
   expect(aborted).toBe(true);
 });
 
+test("awaitIdle does not wait for a detached daemon that completed after the first idle check", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>((resolve) => { release = resolve; });
+  let enterCompletion!: () => void;
+  const completionStarted = new Promise<void>((resolve) => { enterCompletion = resolve; });
+  let releaseCompletion!: () => void;
+  const completionGate = new Promise<void>((resolve) => { releaseCompletion = resolve; });
+  let modelCalls = 0;
+  const daemon = defineTool({
+    name: "quick_daemon_after_idle",
+    description: "quick daemon after idle",
+    schema: z.object({}),
+    execute: async (_input, ctx) => {
+      ctx.background!.spawn({
+        label: "daemon after idle",
+        kind: "detached",
+        awaitIdle: false,
+        run: async () => {
+          await gate;
+          return "done";
+        },
+      });
+      return "started";
+    },
+  });
+  const model: ModelProvider = {
+    id: "await-idle-daemon-completion",
+    async *stream(request) {
+      modelCalls++;
+      const last = request.messages.at(-1);
+      const text = last?.role === "user" && typeof last.content === "string" ? last.content : "";
+      if (text === "start") {
+        yield {
+          type: "message_done",
+          message: { role: "assistant", content: [{ type: "tool_call", id: "daemon-after-idle", name: "quick_daemon_after_idle", input: {} }] },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      if (text.includes("background-task-completed")) {
+        enterCompletion();
+        await completionGate;
+      }
+      yield {
+        type: "message_done",
+        message: { role: "assistant", content: [textBlock("idle")] },
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    },
+  };
+  const agent = createLiteAgent({
+    model,
+    workdir: process.cwd(),
+    tools: [daemon],
+    tasks: false,
+    sessions: false,
+    cleanup: false,
+  });
+  await agent.send("start", { sessionId: "daemon-after-idle" });
+  await agent.awaitIdle("daemon-after-idle");
+  expect(modelCalls).toBe(2);
+  release();
+  await completionStarted;
+  await expect(Promise.race([
+    agent.awaitIdle("daemon-after-idle").then(() => "idle"),
+    new Promise<string>((resolve) => setTimeout(() => resolve("timed out"), 100)),
+  ])).resolves.toBe("idle");
+  releaseCompletion();
+  await agent.close();
+});
+
 test("awaitIdle is isolated by session owner when another session has a slow child", async () => {
   let releaseSlow!: () => void;
   const slow = new Promise<void>((resolve) => { releaseSlow = resolve; });

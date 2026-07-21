@@ -31,6 +31,7 @@ type BackgroundCompletion = {
   content: string;
   status: BackgroundStatus;
   isError: boolean;
+  awaitIdle?: boolean;
 };
 ```
 
@@ -75,6 +76,15 @@ run termination and supports `read()` for incremental output. Registries also
 offer `cancel()`, `cancelAll()`, completion collection, and configurable
 limits. A session owner can provide an externally owned registry to deliver
 detached completions on later turns.
+
+`BackgroundSpawnOptions.awaitIdle` is a session-level wait hint, not a delivery
+switch. Its default is `true`. Setting it to `false` keeps that completion out
+of `LiteAgent.awaitIdle()` and the one-shot `query()` wait condition; it may
+still be observed if its completion event is delivered before that query closes.
+The completion event and autonomous delivery still occur while the session
+remains open. SDK Agent groups set `awaitIdle: true`; detached Bash daemons set
+`awaitIdle: false`. The completion only carries `awaitIdle: false` when a task
+opts out; the default is omitted for compatibility.
 
 ## See also
 

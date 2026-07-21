@@ -55,6 +55,9 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
       modelName: definition.model ?? cfg.modelName,
       allowedTools: definition.tools ?? cfg.allowedTools,
       agents: false,
+      // A caller may provide a custom dispatcher named `Agent`. It must not
+      // leak into the isolated child and reintroduce recursive subagents.
+      tools: cfg.tools?.filter((tool) => tool.name !== "Agent"),
       cleanup: false,
       permission: cfg.subagentPermission,
       onApproval: undefined,

@@ -211,6 +211,161 @@ test("query closes detached work owned by its temporary LiteAgent", async () => 
   await vi.waitFor(() => expect(aborted).toBe(true));
 });
 
+test("query abort cancels a pending Agent group instead of waiting forever", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "q-agent-abort-defs-"));
+  writeFileSync(
+    join(dir, "worker.md"),
+    "---\nname: worker\ndescription: worker agent\n---\nworker body",
+  );
+  let releaseChild!: () => void;
+  const childGate = new Promise<void>((resolve) => { releaseChild = resolve; });
+  let childAborted = false;
+  let rootDone = false;
+  const model: ModelProvider = {
+    id: "query-agent-abort",
+    async *stream(request, signal) {
+      if (request.system?.startsWith('You are the "worker" subagent')) {
+        signal?.addEventListener("abort", () => {
+          childAborted = true;
+          releaseChild();
+        }, { once: true });
+        await childGate;
+        yield {
+          type: "message_done",
+          message: { role: "assistant", content: [textBlock("child stopped")] },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      const last = request.messages.at(-1);
+      const text = last?.role === "user" && typeof last.content === "string" ? last.content : "";
+      if (text === "start") {
+        yield {
+          type: "message_done",
+          message: {
+            role: "assistant",
+            content: [{
+              type: "tool_call",
+              id: "abort-agent",
+              name: "Agent",
+              input: {
+                tasks: [{ display_name: "Abort me", subagent_type: "worker", prompt: "wait" }],
+              },
+            }],
+          },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      yield {
+        type: "message_done",
+        message: { role: "assistant", content: [textBlock("initial idle")] },
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    },
+  };
+  const controller = new AbortController();
+  const addEventListener = controller.signal.addEventListener.bind(controller.signal);
+  let abortWhenQuerySubscribes = false;
+  vi.spyOn(controller.signal, "addEventListener").mockImplementation((type, listener, options) => {
+    if (type === "abort" && abortWhenQuerySubscribes) controller.abort();
+    addEventListener(type, listener, options);
+  });
+  const stream = query({
+    prompt: "start",
+    model,
+    cwd: mkdtempSync(join(tmpdir(), "q-agent-abort-wd-")),
+    agentsDir: dir,
+    signal: controller.signal,
+    tasks: false,
+    sessions: false,
+    cleanup: false,
+  });
+  const consume = (async () => {
+    for await (const event of stream) {
+      if (event.type === "done" && !event.agentId) {
+        rootDone = true;
+        // Reproduce aborting between query()'s signal.aborted check and its
+        // listener registration. A second check after registration must catch it.
+        abortWhenQuerySubscribes = true;
+      }
+    }
+  })();
+  await vi.waitFor(() => expect(rootDone).toBe(true));
+  const outcome = await Promise.race([
+    consume.then(() => "finished" as const),
+    new Promise<"timed out">((resolve) => setTimeout(() => resolve("timed out"), 100)),
+  ]);
+  if (outcome === "timed out") releaseChild();
+  await consume;
+  expect(outcome).toBe("finished");
+  expect(childAborted).toBe(true);
+});
+
+test("query does not wait for or run a completion turn for an unrelated quick daemon", async () => {
+  let completionTurns = 0;
+  const daemon = tool(
+    "quick_daemon",
+    "quick daemon",
+    z.object({}),
+    async (_input, ctx) => {
+      ctx.background!.spawn({
+        label: "unrelated daemon",
+        kind: "detached",
+        awaitIdle: false,
+        run: async () => "daemon done",
+      });
+      return "started";
+    },
+  );
+  const model: ModelProvider = {
+    id: "query-quick-daemon",
+    async *stream(request) {
+      const last = request.messages.at(-1);
+      const text = last?.role === "user" && typeof last.content === "string" ? last.content : "";
+      if (text === "start") {
+        yield {
+          type: "message_done",
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_call", id: "daemon", name: "quick_daemon", input: {} }],
+          },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      if (text.includes("background-task-completed")) {
+        completionTurns++;
+        yield {
+          type: "message_done",
+          message: { role: "assistant", content: [textBlock("unexpected daemon completion")] },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      yield {
+        type: "message_done",
+        message: { role: "assistant", content: [textBlock("initial result")] },
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    },
+  };
+  const stream = query({
+    prompt: "start",
+    model,
+    cwd: mkdtempSync(join(tmpdir(), "q-daemon-wd-")),
+    tools: [daemon],
+    agents: false,
+    tasks: false,
+    sessions: false,
+    cleanup: false,
+  });
+  let result = await stream.next();
+  while (!result.done) result = await stream.next();
+  expect(result.value.text).toBe("initial result");
+  expect(completionTurns).toBe(0);
+});
+
 test("query waits for Agent children, streams their completion, and returns the autonomous result", async () => {
   const dir = mkdtempSync(join(tmpdir(), "q-agent-defs-"));
   writeFileSync(
@@ -274,6 +429,8 @@ test("query waits for Agent children, streams their completion, and returns the 
     },
   };
   const events = [];
+  const controller = new AbortController();
+  const removeAbortListener = vi.spyOn(controller.signal, "removeEventListener");
   const stream = query({
     prompt: "start",
     model,
@@ -281,6 +438,7 @@ test("query waits for Agent children, streams their completion, and returns the 
     agentsDir: dir,
     maxParallelSubagents: 1,
     sessionId: "query-agent-session",
+    signal: controller.signal,
     tasks: false,
     sessions: false,
     cleanup: false,
@@ -298,6 +456,7 @@ test("query waits for Agent children, streams their completion, and returns the 
   expect(events.some((event) =>
     event.type === "tool_result" && event.result.name === "Query child 1" && event.result.content === "child result",
   )).toBe(true);
+  expect(removeAbortListener).toHaveBeenCalledWith("abort", expect.any(Function));
 });
 
 test("query ignores child done events stamped with agentId when selecting root completion", async () => {
