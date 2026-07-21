@@ -27,7 +27,13 @@ test("a completed task moves to takeCompleted and clears pending", async () => {
   expect(bg.pendingJoinable()).toBe(0);
   expect(bg.hasCompleted()).toBe(true);
   const done = bg.takeCompleted();
-  expect(done).toEqual([{ id: expect.stringMatching(/^bg_/), label: "job", content: "the output", isError: false }]);
+  expect(done).toEqual([{
+    id: expect.stringMatching(/^bg_/),
+    label: "job",
+    content: "the output",
+    status: "completed",
+    isError: false,
+  }]);
   expect(bg.hasCompleted()).toBe(false); // drained
 });
 
@@ -47,40 +53,75 @@ test("onCompleted runs after the completion is available to takeCompleted", asyn
   expect(seen).toEqual(["done"]);
 });
 
-test("backgroundCompletionMessage preserves the existing tagged format", () => {
-  expect(backgroundCompletionMessage({
+test("backgroundCompletionMessage formats each completion status compatibly", () => {
+  const completion = (status: "completed" | "partial" | "failed" | "cancelled") => ({
     id: "bg_1",
     label: "say \"hi\"",
-    content: "failed",
-    isError: true,
-  })).toEqual({
+    content: "output",
+    status,
+    isError: status !== "completed",
+  });
+  expect(backgroundCompletionMessage(completion("completed"))).toEqual({
+    role: "user",
+    content:
+      '<background-task-completed id="bg_1" label="say \'hi\'">\n' +
+      "output\n</background-task-completed>",
+  });
+  expect(backgroundCompletionMessage(completion("partial"))).toEqual({
+    role: "user",
+    content:
+      '<background-task-completed id="bg_1" label="say \'hi\'" status="partial">\n' +
+      "output\n</background-task-completed>",
+  });
+  expect(backgroundCompletionMessage(completion("failed"))).toEqual({
     role: "user",
     content:
       '<background-task-completed id="bg_1" label="say \'hi\'" status="error">\n' +
-      "failed\n</background-task-completed>",
+      "output\n</background-task-completed>",
+  });
+  expect(backgroundCompletionMessage(completion("cancelled"))).toEqual({
+    role: "user",
+    content:
+      '<background-task-completed id="bg_1" label="say \'hi\'" status="cancelled">\n' +
+      "output\n</background-task-completed>",
   });
 });
 
-test("a throwing task completes as isError", async () => {
+test("a throwing task completes as failed", async () => {
   const { bg } = mk();
   bg.spawn({ label: "boom", run: async () => { throw new Error("nope"); } });
   await bg.waitNextJoinable(noSignal());
   const [c] = bg.takeCompleted();
+  expect(c!.status).toBe("failed");
   expect(c!.isError).toBe(true);
   expect(c!.content).toContain("nope");
 });
 
-test("run receives a signal that aborts on cancel", async () => {
+test("structured partial results retain their status and are errors", async () => {
+  const { bg } = mk();
+  bg.spawn({ label: "partial", run: async () => ({ content: "some output", status: "partial" }) });
+  await bg.waitNextJoinable(noSignal());
+  expect(bg.takeCompleted()).toEqual([{
+    id: expect.stringMatching(/^bg_/),
+    label: "partial",
+    content: "some output",
+    status: "partial",
+    isError: true,
+  }]);
+});
+
+test("run receives a signal that aborts on cancel and can report cancelled", async () => {
   const { bg } = mk();
   const h = bg.spawn({
     label: "cancelme",
-    run: (signal) => new Promise<string>((resolve) => {
-      signal.addEventListener("abort", () => resolve("cancelled"));
+    run: (signal) => new Promise<{ content: string; status: "cancelled" }>((resolve) => {
+      signal.addEventListener("abort", () => resolve({ content: "cancelled", status: "cancelled" }));
     }),
   });
   expect(bg.cancel(h.id)).toBe(true);
   await bg.waitNextJoinable(noSignal());
   expect(bg.pendingJoinable()).toBe(0);
+  expect(bg.takeCompleted()[0]).toMatchObject({ status: "cancelled", isError: true });
   expect(bg.cancel(h.id)).toBe(false); // already gone
 });
 

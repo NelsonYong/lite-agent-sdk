@@ -4,6 +4,13 @@ import type { Message } from "./types";
 
 export type BackgroundKind = "joinable" | "detached";
 
+export type BackgroundStatus = "completed" | "partial" | "failed" | "cancelled";
+
+export interface BackgroundRunResult {
+  content: string;
+  status: BackgroundStatus;
+}
+
 export interface BackgroundHandle {
   id: string;
   label: string;
@@ -15,17 +22,18 @@ export interface BackgroundSpawnOptions {
   /** "joinable" (default): finite work; the run blocks at dry-out until it settles (join).
    *  "detached": long-lived/daemon; never gates run termination, output readable via read(). */
   kind?: BackgroundKind;
-  /** The work. Resolves to the final content string; a throw becomes an isError completion.
+  /** The work. A string resolves as completed; a structured result preserves its status. A throw becomes failed.
    *  - signal: task-scoped abort (KillBackground / run-abort)
    *  - emit:   run-level event sink (survives the per-turn channel)
    *  - write:  append a chunk to this task's live output buffer (detached tasks; joinable ignore it) */
-  run: (signal: AbortSignal, emit: (e: AgentEvent) => void, write: (chunk: string) => void) => Promise<string>;
+  run: (signal: AbortSignal, emit: (e: AgentEvent) => void, write: (chunk: string) => void) => Promise<string | BackgroundRunResult>;
 }
 
 export interface BackgroundCompletion {
   id: string;
   label: string;
   content: string;
+  status: BackgroundStatus;
   isError: boolean;
 }
 
@@ -122,12 +130,18 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
     if (d.buffer.length > bufferCap) d.buffer = d.buffer.slice(d.buffer.length - bufferCap);
   };
 
-  const finish = (id: string, label: string, content: string, isError: boolean) => {
+  const finish = (id: string, label: string, result: BackgroundRunResult) => {
     if (!running.has(id)) return; // guard against double-settle
     running.delete(id);
     const d = detached.get(id);
     if (d) d.done = true;
-    const completion = { id, label, content, isError };
+    const completion = {
+      id,
+      label,
+      content: result.content,
+      status: result.status,
+      isError: result.status !== "completed",
+    };
     completed.push(completion);
     notify();
     deps.onCompleted?.(completion);
@@ -159,10 +173,10 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
                   }, maxTaskMs);
                 }),
               ]);
-          finish(id, label, out, false);
+          finish(id, label, typeof out === "string" ? { content: out, status: "completed" } : out);
         } catch (e) {
           const msg = e instanceof Error ? e.message : String(e);
-          finish(id, label, `Error: ${msg}`, true);
+          finish(id, label, { content: `Error: ${msg}`, status: "failed" });
         } finally {
           if (timer) clearTimeout(timer);
           deps.signal.removeEventListener("abort", onRunAbort);
@@ -209,7 +223,13 @@ export function createBackgroundTasks(deps: BackgroundDeps): BackgroundTasks {
 }
 
 export function backgroundCompletionMessage(completion: BackgroundCompletion): Message {
-  const status = completion.isError ? ' status="error"' : "";
+  const status = completion.status === "completed"
+    ? ""
+    : completion.status === "partial"
+      ? ' status="partial"'
+      : completion.status === "failed"
+        ? ' status="error"'
+        : ' status="cancelled"';
   const label = completion.label.replace(/"/g, "'");
   return {
     role: "user",
