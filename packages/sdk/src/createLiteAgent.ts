@@ -4,7 +4,8 @@ import { assembleLiteAgent } from "./liteAgentAssembly";
 import { createLiteAgentFacade } from "./liteAgent";
 import type { CreateLiteAgentConfig, LiteAgent, LiteAgentResult } from "./liteAgent";
 import { createSessionRunner } from "./sessionRunner";
-import type { Spawn } from "./tools/agent";
+import { createSubagentPool } from "./subagentPool";
+import type { Spawn, SubagentResult } from "./tools/agent";
 
 export type {
   CreateLiteAgentConfig,
@@ -34,9 +35,11 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     });
   }
 
+  const subagentPool = createSubagentPool(cfg.maxParallelSubagents ?? 5);
   const sessions = createSessionRunner<LiteAgentResult>({
     background: cfg.background !== false,
     limits: cfg.backgroundLimits,
+    waitForBackgroundIdle: () => subagentPool.waitForIdle(),
   });
 
   const spawn: Spawn = async (
@@ -69,7 +72,23 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
         onEvent?.(result.value);
         result = await gen.next();
       }
-      return result.value.text;
+      const { text, stopReason } = result.value;
+      if (stopReason === "aborted") {
+        return { status: "cancelled", error: "Subagent aborted", stopReason };
+      }
+      if (stopReason === "max_turns") {
+        return { status: "failed", error: "Subagent reached max turns", stopReason };
+      }
+      if (!text.trim()) {
+        return { status: "failed", error: "Subagent stopped without a final answer", stopReason };
+      }
+      return { status: "completed", text, stopReason };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const result: SubagentResult = signal.aborted
+        ? { status: "cancelled", error: message, stopReason: "aborted" }
+        : { status: "failed", error: message };
+      return result;
     } finally {
       await child.close();
     }
@@ -79,7 +98,8 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     cfg,
     paths,
     spawn,
+    subagentPool,
     backgroundTasks: (sessionId) => sessions.backgroundTasks(sessionId),
   });
-  return createLiteAgentFacade(runtime, cfg.workdir, sessions);
+  return createLiteAgentFacade(runtime, cfg.workdir, sessions, () => subagentPool.close());
 }

@@ -3,6 +3,7 @@ import { AbortError } from "@lite-agent/core";
 export interface SubagentPool {
   run<T>(job: (signal: AbortSignal) => Promise<T>, parentSignal: AbortSignal): Promise<T>;
   pending(): { queued: number; running: number };
+  waitForIdle(): Promise<void>;
   close(): Promise<void>;
 }
 
@@ -27,6 +28,13 @@ export function createSubagentPool(maxParallel: number): SubagentPool {
   let running = 0;
   let closed = false;
   let closePromise: Promise<void> | undefined;
+  const idleWaiters = new Set<() => void>();
+
+  const notifyIdle = () => {
+    if (queue.length > 0 || running > 0) return;
+    for (const resolve of idleWaiters) resolve();
+    idleWaiters.clear();
+  };
 
   const settle = <T>(entry: Entry<T>, reason: "resolve" | "reject", value: T | unknown) => {
     if (entry.settled) return;
@@ -39,6 +47,7 @@ export function createSubagentPool(maxParallel: number): SubagentPool {
   const removeQueued = (entry: Entry<unknown>) => {
     const index = queue.indexOf(entry);
     if (index !== -1) queue.splice(index, 1);
+    notifyIdle();
   };
 
   const pump = () => {
@@ -68,6 +77,7 @@ export function createSubagentPool(maxParallel: number): SubagentPool {
           active.delete(task);
           activeControllers.delete(entry.controller!);
           pump();
+          notifyIdle();
         });
       active.add(task);
     }
@@ -107,12 +117,18 @@ export function createSubagentPool(maxParallel: number): SubagentPool {
       return { queued: queue.length, running };
     },
 
+    waitForIdle() {
+      if (queue.length === 0 && running === 0) return Promise.resolve();
+      return new Promise<void>((resolve) => { idleWaiters.add(resolve); });
+    },
+
     close() {
       if (closePromise) return closePromise;
       closed = true;
       for (const entry of queue.splice(0)) settle(entry, "reject", new AbortError("subagent pool closed"));
       for (const controller of activeControllers) controller.abort();
       closePromise = Promise.all([...active]).then(() => undefined);
+      notifyIdle();
       return closePromise;
     },
   };

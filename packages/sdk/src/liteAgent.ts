@@ -68,6 +68,8 @@ export interface CreateLiteAgentConfig {
   outputSchema?: ZodType;
   /** Max tool calls run concurrently per turn (default 10; 1 = sequential). Inherited by subagents. */
   maxParallelTools?: number;
+  /** Max child kernels run concurrently across this root agent (default 5). */
+  maxParallelSubagents?: number;
   /** Prompt-codec repair attempts after malformed output. Default 2. */
   maxDecodeRetries?: number;
   use?: Middleware[];
@@ -129,6 +131,8 @@ export interface LiteAgent extends Agent {
   send(input: string | Message[], opts?: RunOptions): Promise<LiteAgentResult>;
   /** Observe user runs and autonomous background-completion runs. */
   subscribe(listener: (entry: LiteAgentEvent) => void): () => void;
+  /** Wait for this session's subagent groups and autonomous completion turns to settle. */
+  awaitIdle(sessionId?: string): Promise<void>;
   /** Cancel live background work and close event delivery. Idempotent. */
   close(): Promise<void>;
   /** The session id `run`/`send` use when none is passed in `opts`. */
@@ -178,8 +182,10 @@ export function createLiteAgentFacade(
   runtime: LiteAgentRuntime,
   workdir: string,
   sessions: SessionRunner<LiteAgentResult>,
+  closeRuntime?: () => Promise<void>,
 ): LiteAgent {
   let currentSessionId = newSessionId();
+  let closePromise: Promise<void> | undefined;
   const noSessions = (): Promise<never> =>
     Promise.reject(
       new AgentError("session management requires a checkpointer (it is disabled when sessions:false)"),
@@ -210,7 +216,14 @@ export function createLiteAgentFacade(
   return {
     run,
     subscribe: (listener) => sessions.subscribe(listener),
-    close: () => sessions.close(),
+    awaitIdle: (sessionId = currentSessionId) => sessions.awaitIdle(sessionId),
+    close: () => {
+      closePromise ??= (async () => {
+        await sessions.close();
+        await closeRuntime?.();
+      })();
+      return closePromise;
+    },
     async send(input, opts) {
       const gen = run(input, opts);
       let result = await gen.next();
