@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
-import { defineTool } from "@lite-agent/core";
+import { AbortError, defineTool } from "@lite-agent/core";
 import type { AgentEvent, BackgroundRunResult, Tool } from "@lite-agent/core";
 import type { AgentLoader } from "../agents/loader";
 import type { AgentDefinition } from "../agents/types";
@@ -29,11 +29,15 @@ export type Spawn = (
   opts: SpawnOptions,
 ) => Promise<SubagentResult>;
 
-const sanitize = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
+const sanitizeId = (s: string) => s.replace(/[^a-zA-Z0-9_-]/g, "_");
+const cleanDisplayName = (s: string) => s
+  .replace(/[\p{Cc}\p{Cf}]+/gu, " ")
+  .replace(/\s+/gu, " ")
+  .trim();
 const shortId = () => randomBytes(4).toString("hex");
 
 const TASK = z.object({
-  display_name: z.string().trim().min(1),
+  display_name: z.string().refine((value) => value.trim().length > 0, "display_name must not be empty"),
   subagent_type: z.string(),
   prompt: z.string(),
   resume: z.string().optional(),
@@ -68,14 +72,20 @@ const failed = (error: string, stopReason?: SubagentResult["stopReason"]): Subag
 const cancelled = (error = "Subagent cancelled"): SubagentResult => ({ status: "cancelled", error, stopReason: "aborted" });
 
 const errorMessage = (error: unknown) => error instanceof Error ? error.message : String(error);
+const isAbortError = (error: unknown) => error instanceof AbortError;
 
 function normalizeResult(result: SubagentResult): SubagentResult {
   if (result.stopReason === "aborted") return cancelled(result.error ?? "Subagent aborted");
-  if (result.stopReason === "max_turns") return failed(result.error ?? "Subagent reached max turns", "max_turns");
   if (result.status === "cancelled") return cancelled(result.error);
   if (result.status === "failed") return failed(result.error ?? "Subagent failed", result.stopReason);
-  if (!result.text?.trim()) return failed("Subagent stopped without a final answer", result.stopReason);
-  return { status: "completed", text: result.text, stopReason: result.stopReason };
+  if (result.stopReason !== "stop") {
+    return failed(
+      result.stopReason === "max_turns" ? "Subagent reached max turns" : "Subagent stopped without a terminal stop reason",
+      result.stopReason,
+    );
+  }
+  if (!result.text?.trim()) return failed("Subagent stopped without a final answer", "stop");
+  return { status: "completed", text: result.text, stopReason: "stop" };
 }
 
 function groupStatus(results: SubagentResult[]): BackgroundRunResult["status"] {
@@ -112,10 +122,10 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
       ): Promise<BackgroundRunResult> => {
         const children = tasks.map((task): Child => {
           const definition = loader.get(task.subagent_type);
-          const displayName = sanitize(task.display_name) || "subagent";
+          const displayName = cleanDisplayName(task.display_name) || "subagent";
           const eventId = definition
-            ? (task.resume ? sanitize(task.resume) : `agent-${sanitize(task.subagent_type) || "unknown"}-${shortId()}`)
-            : `agent-${sanitize(task.subagent_type) || "unknown"}-${shortId()}`;
+            ? (task.resume ? sanitizeId(task.resume) : `agent-${sanitizeId(task.subagent_type) || "unknown"}-${shortId()}`)
+            : `agent-${sanitizeId(task.subagent_type) || "unknown"}-${shortId()}`;
           const child: Child = {
             task,
             definition,
@@ -172,7 +182,9 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
             emitResult(child, result);
             return { child, result };
           } catch (error) {
-            const result = childSignal.aborted ? cancelled() : failed(errorMessage(error));
+            const result = childSignal.aborted || isAbortError(error)
+              ? cancelled(errorMessage(error))
+              : failed(errorMessage(error));
             emitResult(child, result);
             return { child, result };
           }
@@ -184,7 +196,9 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
         const outcomes = settled.map((entry, index): ChildOutcome => {
           if (entry.status === "fulfilled") return entry.value;
           const child = children[index]!;
-          const result = signal.aborted ? cancelled() : failed(errorMessage(entry.reason));
+          const result = signal.aborted || isAbortError(entry.reason)
+            ? cancelled(errorMessage(entry.reason))
+            : failed(errorMessage(entry.reason));
           emitResult(child, result);
           return { child, result };
         });
@@ -199,7 +213,8 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
       };
 
       const handle = ctx.background.spawn({
-        label: `Subagent group: ${tasks.map((task) => sanitize(task.display_name) || "subagent").join(", ")}`,
+        label: `Subagent group: ${tasks.map((task) => cleanDisplayName(task.display_name) || "subagent").join(", ")}`,
+        kind: "detached",
         run: (signal, emit) => runBatch(signal, emit),
       });
       const noun = tasks.length === 1 ? "subagent" : "subagents";

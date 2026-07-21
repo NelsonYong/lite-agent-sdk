@@ -8,6 +8,7 @@ import { AgentLoader } from "../src/agents/loader";
 import { createSubagentPool } from "../src/subagentPool";
 import { agentTool } from "../src/tools/agent";
 import type { Spawn, SubagentResult } from "../src/tools/agent";
+import type { SubagentResult as PublicSubagentResult, SubagentStatus as PublicSubagentStatus } from "../src/index";
 
 const completed = (text: string): SubagentResult => ({ status: "completed", text, stopReason: "stop" });
 
@@ -44,6 +45,17 @@ test("task schema rejects a missing or empty display_name", () => {
   const tool = toolWith(loaderWith("worker"), async () => completed("ok"));
   expect(tool.schema.safeParse({ tasks: [{ subagent_type: "worker", prompt: "go" }] }).success).toBe(false);
   expect(tool.schema.safeParse({ tasks: [{ display_name: " ", subagent_type: "worker", prompt: "go" }] }).success).toBe(false);
+  const displayName = "  中文 Agent  ";
+  const parsed = tool.schema.parse({ tasks: [{ display_name: displayName, subagent_type: "worker", prompt: "go" }] }) as {
+    tasks: Array<{ display_name: string }>;
+  };
+  expect(parsed.tasks[0]!.display_name).toBe(displayName);
+});
+
+test("public SDK types expose subagent terminal results", () => {
+  const result: PublicSubagentResult = completed("ok");
+  const status: PublicSubagentStatus = result.status;
+  expect(status).toBe("completed");
 });
 
 test("Agent requires an enabled background registry", async () => {
@@ -169,14 +181,27 @@ test("display names distinguish same-type child tool events and aggregate titles
   const result = await completion(bg);
   const uses = events.filter((event) => event.type === "tool_use") as Array<Extract<AgentEvent, { type: "tool_use" }>>;
   const outcomes = events.filter((event) => event.type === "tool_result") as Array<Extract<AgentEvent, { type: "tool_result" }>>;
-  expect(uses.map((event) => event.call.name)).toEqual(["Research_Notes", "Write_Draft"]);
-  expect(outcomes.map((event) => event.result.name)).toEqual(["Research_Notes", "Write_Draft"]);
+  expect(uses.map((event) => event.call.name)).toEqual(["Research Notes", "Write Draft"]);
+  expect(outcomes.map((event) => event.result.name)).toEqual(["Research Notes", "Write Draft"]);
   expect(uses.map((event) => event.call.input)).toEqual([
     { display_name: "Research Notes", subagent_type: "general-purpose", prompt: "research" },
     { display_name: "Write Draft", subagent_type: "general-purpose", prompt: "write" },
   ]);
-  expect(result.content).toContain("Research_Notes");
-  expect(result.content).toContain("Write_Draft");
+  expect(result.content).toContain("Research Notes");
+  expect(result.content).toContain("Write Draft");
+});
+
+test("display names preserve Unicode and punctuation while removing control characters", async () => {
+  const events: AgentEvent[] = [];
+  const displayName = "  调研・设计\u0007  —  第一轮  ";
+  const tool = toolWith(loaderWith("worker"), async () => completed("ok"));
+  const { ctx, bg } = ctxWithBackground(events);
+  await tool.execute({ tasks: [{ display_name: displayName, subagent_type: "worker", prompt: "go" }] }, ctx);
+  const result = await completion(bg);
+  const use = events.find((event) => event.type === "tool_use") as Extract<AgentEvent, { type: "tool_use" }>;
+  expect(use.call.name).toBe("调研・设计 — 第一轮");
+  expect(use.call.input).toEqual({ display_name: displayName, subagent_type: "worker", prompt: "go" });
+  expect(result.content).toContain("调研・设计 — 第一轮");
 });
 
 test("a failed subagent surfaces a tool_result with isError", async () => {

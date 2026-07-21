@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { createBackgroundTasks } from "@lite-agent/core";
+import { AbortError, createBackgroundTasks } from "@lite-agent/core";
 import type { AgentEvent, ToolContext } from "@lite-agent/core";
 import { agentTool } from "../src/tools/agent";
 import type { Spawn, SubagentResult } from "../src/tools/agent";
@@ -11,8 +11,8 @@ const loader = () => new AgentLoader([], builtinAgents());
 const completed = (text: string): SubagentResult => ({ status: "completed", text, stopReason: "stop" });
 const echoSpawn: Spawn = async (_def, prompt) => completed(`RESULT(${prompt})`);
 
-function toolWith(spawn: Spawn) {
-  return agentTool({ loader: loader(), spawn, pool: createSubagentPool(5) });
+function toolWith(spawn: Spawn, pool = createSubagentPool(5)) {
+  return agentTool({ loader: loader(), spawn, pool });
 }
 
 function ctxWithBackground(opts: { events?: AgentEvent[]; onCompleted?: () => void } = {}) {
@@ -37,7 +37,7 @@ async function completion(bg: ReturnType<typeof createBackgroundTasks>) {
   return completions[0]!;
 }
 
-test("Agent always backgrounds a group and ignores run_in_background", async () => {
+test("Agent always dispatches a detached group and ignores run_in_background", async () => {
   const t = toolWith(echoSpawn);
   const { ctx, bg } = ctxWithBackground();
   const out = await t.execute(
@@ -55,7 +55,7 @@ test("Agent always backgrounds a group and ignores run_in_background", async () 
   expect(result.content).toContain("RESULT(B)");
 });
 
-test("a group publishes exactly one completion after every child settles", async () => {
+test("a detached group returns before its children settle and publishes one completion", async () => {
   let release!: () => void;
   const gate = new Promise<void>((resolve) => { release = resolve; });
   const completionSpy = vi.fn();
@@ -65,14 +65,16 @@ test("a group publishes exactly one completion after every child settles", async
   };
   const t = toolWith(deferredSpawn);
   const { ctx, bg } = ctxWithBackground({ onCompleted: completionSpy });
-  await t.execute(
+  const out = await t.execute(
     { tasks: [
       { display_name: "Fast", subagent_type: "general-purpose", prompt: "fast" },
       { display_name: "Slow", subagent_type: "general-purpose", prompt: "slow" },
     ] },
     ctx,
   );
-  await vi.waitFor(() => expect(bg.pendingJoinable()).toBe(1));
+  expect(out).toMatch(/^\[background:bg_/);
+  await vi.waitFor(() => expect(bg.pendingDetached()).toBe(1));
+  expect(bg.pendingJoinable()).toBe(0);
   expect(bg.hasCompleted()).toBe(false);
   expect(completionSpy).not.toHaveBeenCalled();
   release();
@@ -102,6 +104,7 @@ test("backgrounded subagent events route to the run-level emit, not ctx.emit", a
 });
 
 test.each([
+  ["missing stop reason", async (): Promise<SubagentResult> => ({ status: "completed", text: "unfinished" })],
   ["max_turns", async (): Promise<SubagentResult> => ({ status: "completed", text: "unfinished", stopReason: "max_turns" })],
   ["empty final text", async (): Promise<SubagentResult> => ({ status: "completed", text: "", stopReason: "stop" })],
   ["throw", async (): Promise<SubagentResult> => { throw new Error("boom"); }],
@@ -112,4 +115,28 @@ test.each([
   const result = await completion(bg);
   expect(result.status).toBe("failed");
   expect(result.isError).toBe(true);
+});
+
+test("pool AbortError rejections become a cancelled aggregate without aborting the group signal", async () => {
+  const pool = createSubagentPool(1);
+  const cancelledSpawn: Spawn = async (_def, _prompt, opts) => new Promise<SubagentResult>((_resolve, reject) => {
+    opts.signal.addEventListener("abort", () => reject(new AbortError("running child cancelled")), { once: true });
+  });
+  const t = toolWith(cancelledSpawn, pool);
+  const { ctx, bg } = ctxWithBackground();
+  await t.execute(
+    { tasks: [
+      { display_name: "Running", subagent_type: "general-purpose", prompt: "one" },
+      { display_name: "Queued", subagent_type: "general-purpose", prompt: "two" },
+    ] },
+    ctx,
+  );
+  await vi.waitFor(() => expect(pool.pending()).toEqual({ queued: 1, running: 1 }));
+  expect(ctx.signal.aborted).toBe(false);
+  await pool.close();
+  const result = await completion(bg);
+  expect(result.status).toBe("cancelled");
+  expect(result.isError).toBe(true);
+  expect(result.content).toContain("running child cancelled");
+  expect(result.content).toContain("subagent pool closed");
 });

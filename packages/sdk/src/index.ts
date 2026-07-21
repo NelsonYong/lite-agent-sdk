@@ -48,6 +48,6 @@ export type { Task, TaskStatus, TaskStore, CreateTaskInput, UpdateTaskInput } fr
 export { AgentLoader } from "./agents/loader";
 export { builtinAgents, GENERAL_PURPOSE } from "./agents/builtin";
 export type { AgentDefinition } from "./agents/types";
-export type { Spawn, SpawnOptions } from "./tools/agent";
+export type { Spawn, SpawnOptions, SubagentStatus, SubagentResult } from "./tools/agent";
 export { fileCheckpointer } from "./checkpoint";
 export type { FileCheckpointerOptions } from "./checkpoint";
