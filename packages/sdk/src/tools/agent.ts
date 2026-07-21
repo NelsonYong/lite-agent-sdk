@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { AbortError, defineTool } from "@lite-agent/core";
-import type { AgentEvent, BackgroundRunResult, Tool } from "@lite-agent/core";
+import type { AgentEvent, BackgroundHandle, BackgroundRunResult, Tool } from "@lite-agent/core";
 import type { AgentLoader } from "../agents/loader";
 import type { AgentDefinition } from "../agents/types";
 import { createSubagentPool } from "../subagentPool";
@@ -193,7 +193,9 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
         };
 
         const settled = await Promise.allSettled(
-          children.map((child) => pool.run((childSignal) => runChild(child, childSignal), signal)),
+          children.map((child) =>
+            pool.run((childSignal) => runChild(child, childSignal), signal, ctx.sessionId),
+          ),
         );
         const outcomes = settled.map((entry, index): ChildOutcome => {
           if (entry.status === "fulfilled") return entry.value;
@@ -214,11 +216,18 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
         };
       };
 
-      const handle = ctx.background.spawn({
-        label: `Subagent group: ${tasks.map((task) => cleanDisplayName(task.display_name)).join(", ")}`,
-        kind: "detached",
-        run: (signal, emit) => runBatch(signal, emit),
-      });
+      pool.registerGroup(ctx.sessionId);
+      let handle: BackgroundHandle;
+      try {
+        handle = ctx.background.spawn({
+          label: `Subagent group: ${tasks.map((task) => cleanDisplayName(task.display_name)).join(", ")}`,
+          kind: "detached",
+          run: (signal, emit) => runBatch(signal, emit),
+        });
+      } catch (error) {
+        pool.completeGroup(ctx.sessionId);
+        throw error;
+      }
       const noun = tasks.length === 1 ? "subagent" : "subagents";
       return `[background:${handle.id}] accepted group with ${tasks.length} ${noun}; results will arrive together.`;
     },

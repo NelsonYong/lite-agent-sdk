@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { z } from "zod";
 import { fakeProvider, memoryCheckpointer, policy, textBlock, SteerController } from "@lite-agent/core";
-import type { ModelProvider, ModelRequest } from "@lite-agent/core";
+import type { AgentEvent, ModelProvider, ModelRequest } from "@lite-agent/core";
 import { query } from "../src/query";
 import { tool } from "../src/tool";
 import { mkdtempSync, existsSync, writeFileSync } from "node:fs";
@@ -298,4 +298,86 @@ test("query waits for Agent children, streams their completion, and returns the 
   expect(events.some((event) =>
     event.type === "tool_result" && event.result.name === "Query child 1" && event.result.content === "child result",
   )).toBe(true);
+});
+
+test("query ignores child done events stamped with agentId when selecting root completion", async () => {
+  let releaseChild!: () => void;
+  const dispatch = tool(
+    "Agent",
+    "dispatch groups",
+    z.object({}),
+    async (_input, ctx) => {
+      ctx.background!.spawn({
+        label: "Subagent group: first",
+        kind: "detached",
+        run: async () => "first done",
+      });
+      ctx.background!.spawn({
+        label: "unrelated child",
+        kind: "detached",
+        run: (signal, emit) => new Promise<string>((resolve) => {
+          releaseChild = () => emit({
+            type: "done",
+            agentId: "child-1",
+            reason: "stop",
+            result: {
+              messages: [],
+              text: "WRONG child result",
+              usage: { inputTokens: 0, outputTokens: 0 },
+              stopReason: "stop",
+            },
+          } as AgentEvent);
+          signal.addEventListener("abort", () => resolve("cancelled"), { once: true });
+        }),
+      });
+      return "accepted";
+    },
+  );
+  const model: ModelProvider = {
+    id: "query-agent-id-filter",
+    async *stream(request) {
+      const last = request.messages.at(-1);
+      const text = last?.role === "user" && typeof last.content === "string" ? last.content : "";
+      if (text === "start") {
+        yield {
+          type: "message_done",
+          message: {
+            role: "assistant",
+            content: [{ type: "tool_call", id: "dispatch", name: "Agent", input: {} }],
+          },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      if (text.includes("<background-task-completed")) {
+        releaseChild();
+        await Promise.resolve();
+        yield {
+          type: "message_done",
+          message: { role: "assistant", content: [textBlock("ROOT result")] },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      yield {
+        type: "message_done",
+        message: { role: "assistant", content: [textBlock("initial result")] },
+        usage: { inputTokens: 0, outputTokens: 0 },
+      };
+    },
+  };
+  const stream = query({
+    prompt: "start",
+    model,
+    cwd: mkdtempSync(join(tmpdir(), "q-agent-id-filter-")),
+    tools: [dispatch],
+    agents: false,
+    tasks: false,
+    sessions: false,
+    cleanup: false,
+  });
+  let result = await stream.next();
+  while (!result.done) result = await stream.next();
+
+  expect(result.value.text).toBe("ROOT result");
 });
