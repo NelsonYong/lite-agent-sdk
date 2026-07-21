@@ -56,18 +56,26 @@ unsubscribe();
 await agent.close();
 ```
 
-Ordinary `Agent` calls remain blocking. `run_in_background: true` on `Agent` or
-`bash` returns immediately and keeps working across later turns of the same live
-session. Completion wakes the originating session automatically; user and
-completion turns for one session are serialized. In-flight work does not survive
-a process restart. `query()` remains one-shot and closes its temporary background
-work; use `createLiteAgent()` plus `subscribe()` for long-lived interaction.
+Every `Agent` call creates a detached sibling group and returns immediately;
+after all children settle, one ordered aggregate completion wakes the originating
+session. Each task needs a visible `display_name`; `subagent_type` selects its
+definition, while `agentId` is the stable resume identity. The legacy Agent
+`run_in_background` input is accepted but does not change this behavior, and
+`background: false` makes dispatch fail explicitly. Root-owned FIFO scheduling is
+shared across all groups through `maxParallelSubagents` (default `5`).
+
+`bash` still uses `run_in_background: true` for detached commands. User and
+completion turns for one session are serialized, and in-flight work does not
+survive a process restart. `query()` waits for Agent groups it initiated and
+their autonomous completion before closing, but does not wait for detached Bash
+daemons; use `createLiteAgent()` plus `subscribe()` / `close()` for long-lived
+interaction.
 
 ## Features
 
 - **Default tools** — `bash`, `read_file`, `write_file`, `edit_file`, `delete_file`, scoped to `workdir`, with atomic writes and pre-change snapshots so session restore can undo them.
 - **Skills** — `SKILL.md` files loaded from `~/.lite-agent/skills`, `<workdir>/.lite-agent/skills`, or `skillsDir`; injected on demand via `load_skill`.
-- **Subagents** — parallel-capable `Agent` dispatch tool with a built-in `general-purpose` agent; add your own as `agents/*.md` (`agents: false` to disable).
+- **Subagents** — detached, pooled `Agent` groups with one ordered aggregate result; a built-in `general-purpose` agent plus custom `agents/*.md` definitions (`agents: false` disables child dispatch and prevents recursion).
 - **Tasks** — persistent task list (`TaskCreate/Update/Get/List`) with a per-turn reminder (`tasks: false` to disable).
 - **Sessions** — event-sourced persistence via `fileCheckpointer`; swap in [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) or any `Checkpointer`.
 - **Compaction** — deterministic default compactor (no LLM call), reactive overflow net, and disk spill for oversized tool results.
@@ -75,7 +83,7 @@ work; use `createLiteAgent()` plus `subscribe()` for long-lived interaction.
 - **Sandbox** — pass a `Sandbox` (e.g. [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic)) to run `bash` inside an OS boundary.
 - **Human input** — an `ask_user` tool is registered when `onAskUser` is set, letting the model ask questions mid-run.
 - **Structured output** — set `outputSchema` (a Zod object) to force a validated final answer, surfaced as `result.output`.
-- **Background tasks** — enabled by default (`background: false` disables them); background Agent/Bash work continues across turns, with `bash_output` / `kill_background` for observation and control.
+- **Background tasks** — enabled by default (`background: false` disables them); Agent groups continue across turns and report `completed` / `partial` / `failed` / `cancelled`, while `bash_output` / `kill_background` observe and control background Bash.
 - **Local hardening** — configurable prompt codec/repair, context budget, snapshot limits, crash recovery, and hash-chained event sinks; strict defaults via [`@lite-agent/local`](../local).
 
 ## API

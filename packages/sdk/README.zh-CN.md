@@ -55,18 +55,23 @@ unsubscribe();
 await agent.close();
 ```
 
-普通 `Agent` 调用仍默认阻塞。为 `Agent` 或 `bash` 显式设置
-`run_in_background: true` 后会立即返回，并在同一个存活进程的 session
-中跨后续轮次继续执行；完成时自动唤醒其原始 session。同一个 session
-里的用户轮次和 completion 轮次严格串行。进程重启后不会恢复尚未完成的
-任务。`query()` 仍是一次性 API，会关闭其临时后台任务；长生命周期交互请使用
-`createLiteAgent()` 配合 `subscribe()`。
+每次 `Agent` 调用都会创建 detached 同级组并立即返回；全部 child settle 后，按输入
+顺序的一次聚合 completion 会唤醒其原始 session。每个任务需要可见的
+`display_name`；`subagent_type` 选择 definition，`agentId` 是稳定的续接身份。旧的
+Agent `run_in_background` 输入仍可解析但不再改变这一语义；`background: false` 会让
+派发明确失败。根实例持有共享 FIFO 调度，所有 group 共用 `maxParallelSubagents`
+（默认 `5`）。
+
+`bash` 仍以 `run_in_background: true` 启动 detached 命令。同一 session 的用户轮次和
+completion 轮次严格串行，进程重启后不会恢复未完成工作。`query()` 关闭前会等待它
+发起的 Agent groups 及其自主 completion，但不会等待 detached Bash daemon；长生命周期
+交互请使用 `createLiteAgent()` 配合 `subscribe()` / `close()`。
 
 ## 特性
 
 - **默认工具** —— `bash`、`read_file`、`write_file`、`edit_file`、`delete_file`，限定在 `workdir` 内；原子写 + 变更前快照，会话恢复可撤销这些修改。
 - **技能（Skills）** —— 从 `~/.lite-agent/skills`、`<workdir>/.lite-agent/skills` 或 `skillsDir` 加载 `SKILL.md`；通过 `load_skill` 按需注入。
-- **子 Agent** —— 可并行的 `Agent` 派发工具，内置 `general-purpose` agent；可用 `agents/*.md` 自定义（`agents: false` 关闭）。
+- **子 Agent** —— detached、pooled 的 `Agent` 组，只送达一次按输入顺序排列的聚合结果；内置 `general-purpose` agent，可用 `agents/*.md` 自定义（`agents: false` 关闭 child 派发并阻止递归）。
 - **任务（Tasks）** —— 持久化任务列表（`TaskCreate/Update/Get/List`），带每轮提醒（`tasks: false` 关闭）。
 - **会话（Sessions）** —— 通过 `fileCheckpointer` 做事件溯源持久化；可替换为 [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) 或任意 `Checkpointer`。
 - **压缩（Compaction）** —— 确定性默认 compactor（不调用 LLM）、反应式溢出兜底，超大 tool_result 落盘 spill。
@@ -74,7 +79,7 @@ await agent.close();
 - **沙箱** —— 传入一个 `Sandbox`（如 [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic)），让 `bash` 在操作系统边界内运行。
 - **人工输入** —— 设置 `onAskUser` 后注册 `ask_user` 工具，允许模型在运行中向你提问。
 - **结构化输出** —— 设置 `outputSchema`（Zod object）强制返回经校验的最终答案，通过 `result.output` 暴露。
-- **后台任务** —— 默认启用（`background: false` 关闭）；后台 Agent/Bash 可跨轮次继续运行，并通过 `bash_output` / `kill_background` 观察和控制。
+- **后台任务** —— 默认启用（`background: false` 关闭）；Agent group 可跨轮次继续运行并报告 `completed` / `partial` / `failed` / `cancelled`，`bash_output` / `kill_background` 用于观察和控制后台 Bash。
 - **本地加固** —— 可配置 prompt codec/修复、上下文预算、快照限制、崩溃恢复和带 hash chain 的事件日志；严格默认值见 [`@lite-agent/local`](../local)。
 
 ## API

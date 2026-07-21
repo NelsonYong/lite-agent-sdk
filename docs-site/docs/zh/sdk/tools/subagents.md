@@ -27,18 +27,64 @@ You are a research agent. Always cite your sources ...
 
 ## 派发
 
-一次 `Agent` 调用接收一个 `tasks` 数组；同一次调用中的多个条目并行运行（有并发上限），每个结果块都标注 `agentId`，之后可把它作为 `resume` 传回以继续该子代理：
+每次 `Agent` 调用都会创建一个同级**组**。每个任务必须提供非空、可见的
+`display_name`：它是本次调用在 UI 和结果中的名称。`subagent_type` 只用于选择
+`AgentLoader` definition；返回的 `agentId` 则是稳定的运行身份，之后可作为
+`resume` 继续该子代理。
+
+长期 `createLiteAgent()` 会话中的组一律 detached。工具会立即返回“已接受组”的
+占位结果；仅在**所有** child settle 后，会话才收到一次、按输入顺序排列的聚合
+completion。旧的 `run_in_background` 字段仍可解析，但不再改变语义；即使传入
+`run_in_background: false` 也不会使组同步。只有在希望 Agent 派发明确失败、而非
+创建后台任务时，才设置 `background: false`。
+
+根 agent 持有一个共享 FIFO pool。`maxParallelSubagents` 默认是 5，且由同一根
+实例的所有 session/group 共用，因此两个各含三个任务的组不会各自获得五个 child
+槽位。结果保持任务输入顺序：全成功才是 `completed`；混合结果为 `partial`；全部
+失败或取消分别为 `failed`、`cancelled`。child 抛异常、被取消、达到 `max_turns`，
+或停止却没有最终文本时，绝不会伪装成成功。
+
+例如，可以用两次调用提交两个各含三个任务的组：
 
 ```json
 {
   "tasks": [
-    { "subagent_type": "researcher", "prompt": "Compare Rspress and VitePress" },
-    { "subagent_type": "general-purpose", "prompt": "Audit deps for vulnerabilities" }
+    { "display_name": "架构调研", "subagent_type": "researcher", "prompt": "比较 Rspress 和 VitePress" },
+    { "display_name": "依赖审计", "subagent_type": "general-purpose", "prompt": "审计依赖中的漏洞" },
+    { "display_name": "测试计划", "subagent_type": "general-purpose", "prompt": "起草回归测试" }
   ]
 }
 ```
 
-默认情况下调用会**阻塞**到所有子代理完成；`run_in_background: true` 则为即发即弃，聚合结果稍后以 `<background-task-completed>` 通知形式送达。
+```json
+{
+  "tasks": [
+    { "display_name": "API 审查", "subagent_type": "reviewer", "prompt": "审查公开 API" },
+    { "display_name": "文档审查", "subagent_type": "writer", "prompt": "找出迁移缺口" },
+    { "display_name": "安全审查", "subagent_type": "general-purpose", "prompt": "审查安全假设" }
+  ]
+}
+```
+
+某个组混合完成时，只会在组 settle 后送达一次：
+
+```xml
+<background-task-completed id="bg_…" label="Subagent group: 架构调研, 依赖审计, 测试计划" status="partial">
+## 架构调研 (agentId: agent-researcher-…; status: completed)
+…最终文本…
+
+## 依赖审计 (agentId: agent-general-purpose-…; status: failed)
+Error: Subagent reached max turns
+</background-task-completed>
+```
+
+长期交互请用 `createLiteAgent()` 配合 `subscribe()` / `close()`：同一 session 的用户
+轮次和自主 completion 轮次会串行，订阅可收到 child 与聚合事件。`query()` 是一次性
+API：关闭临时 agent 前会等待自己发起的 Agent groups 及其自主 completion，不会等待
+不相关的 detached daemon（例如后台 Bash）。
+
+child 使用 `agents: false`；不支持递归子代理、Agent Teams、消息总线、共享收件箱
+或任务认领。
 
 :::warning
 子代理默认**不继承父代理的权限闸门和 `onApproval` 处理器**——交互式审批无法服务并行的子代理。sandbox 仍然包裹每条命令。如需对子代理启用闸门，传入 `subagentPermission`（用 allow/deny 规则，不要用 `ask`）。

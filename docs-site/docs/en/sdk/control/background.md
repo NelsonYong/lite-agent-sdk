@@ -1,65 +1,88 @@
 # Background tasks
 
-Long-running work doesn't have to block the agent. With `background: true` (the default), the agent can detach slow shell commands and subagent batches into background tasks, keep working in the foreground, and pick up the results when they land. You get incremental output polling, cancellation, and a `background_completed` event per finished task — all surfaced through the normal event stream.
-
-## Use it
-
-Nothing to configure — background tasks are on by default. The model opts in per call:
-
-- **`bash` with `run_in_background: true`** runs detached — it returns a `bg_…` id immediately and never blocks the run's end. Poll incremental output with the `BashOutput` tool; the process is stopped automatically when the run ends.
-- **`Agent` with `run_in_background: true`** (opt-in; blocking is the default) dispatches a subagent batch as one **joinable** task — the run stays alive until it finishes, and the aggregated result arrives as a `<background-task-completed>` notification.
-- **`KillBackground`** cancels any running background task by id.
-
-```xml
-<background-task-completed id="bg_…" label="…">
-…aggregated result…
-</background-task-completed>
-```
-
-Detached vs. joinable: a **detached** task (background `bash`) is fire-and-forget — the run may end while it runs, and it is stopped at run end. A **joinable** task (background `Agent`) keeps the run alive until it completes, so its result is always delivered.
-
-## The `background_completed` event
-
-As each task finishes, a `background_completed` event is emitted into the run's event stream (and persisted into the session log like every other event):
+With `background: true` (the default), a long-lived `createLiteAgent()` owns
+session-scoped background work. Subscribe once to observe ordinary user turns,
+child events, and autonomous completion turns; call `close()` to cancel live
+work and release the session runner.
 
 ```ts
-for await (const ev of query({ /* … */ })) {
-  if (ev.type === "background_completed") {
-    console.log(ev.completion.id, ev.completion.content);
-  }
-}
+const agent = createLiteAgent({ model, workdir: process.cwd() });
+const unsubscribe = agent.subscribe(({ sessionId, source, event }) => {
+  render(sessionId, source, event);
+});
+
+await agent.send("Delegate the review");
+await agent.send("Answer another question while it runs");
+
+unsubscribe();
+await agent.close();
 ```
 
-This makes background completions visible to UIs and audit sinks — see [Observability](/sdk/control/observability).
+## Bash and Agent have different lifecycles
+
+- **`bash` with `run_in_background: true`** starts a detached process and
+  returns a `bg_…` id immediately. Use `BashOutput` to read incremental output
+  and `KillBackground` to cancel it. This remains suitable for daemons.
+- **`Agent`** always registers one detached subagent group. Its
+  `run_in_background` input is accepted only as a compatibility adapter and
+  cannot make the group synchronous. `background: false` instead rejects Agent
+  dispatch explicitly.
+
+An Agent group emits one aggregate `background_completed` event only after all
+children settle. The owning session is then woken for one autonomous completion
+turn; user turns and completion turns are serialized per session.
+
+`query()` is deliberately finite: it waits for Agent groups it created and
+their autonomous completion turns before closing its temporary agent. It does
+not wait for unrelated detached Bash daemons. Choose `createLiteAgent()` for
+work that must remain interactive after the initiating turn returns.
 
 ## Options
 
 | Option | Default | Description |
 | --- | --- | --- |
-| `background` | `true` | Master switch. `false` disables the feature and removes the `BashOutput` / `KillBackground` tools. |
-| `backgroundLimits` | — | Caps on background tasks (see below). |
+| `background` | `true` | Master switch. `false` removes `BashOutput` / `KillBackground` and makes Agent dispatch fail. |
+| `backgroundLimits` | — | Limits for session background handles and detached Bash output. |
+| `maxParallelSubagents` | `5` | Shared FIFO limit for child kernels across every group on one root agent. |
 
 `backgroundLimits` fields:
 
 | Field | Description |
 | --- | --- |
-| `maxTotal` | Max background tasks overall. |
-| `maxJoinable` | Max joinable tasks (background `Agent` batches). |
-| `maxDetached` | Max detached tasks (background `bash`). |
+| `maxTotal` | Max background handles overall. |
+| `maxJoinable` | Max low-level joinable handles. Agent groups are detached. |
+| `maxDetached` | Max detached handles. |
 | `bufferBytes` | Output ring-buffer size per detached task (default 1 MB, drop-oldest). |
 | `maxTaskMs` | Max wall-clock lifetime of a background task. |
 
-## Built-in tools
+## Completion status
+
+Inspect `event.completion.status` in `background_completed`; it is the
+authoritative result. `completed` means every child succeeded. `partial` keeps
+both successful output and unsuccessful diagnostics; `failed` and `cancelled`
+are not successes. The compatibility `isError` field is derived as
+`status !== "completed"`.
+
+```ts
+for await (const event of query({ /* … */ })) {
+  if (event.type === "background_completed") {
+    console.log(event.completion.status, event.completion.content);
+  }
+}
+```
+
+## Built-in controls
 
 | Tool | Description |
 | --- | --- |
 | `BashOutput` | Read incremental output from a backgrounded `bash` command by its `bg_…` id. |
-| `KillBackground` | Cancel a running background task by id. |
+| `KillBackground` | Cancel a live background handle by id. |
 
-Both are registered only when `background` is enabled, and can be filtered like any other tool via `allowedTools` / `disallowedTools`.
+Both are registered only when `background` is enabled and can be filtered with
+`allowedTools` / `disallowedTools`.
 
 ## See also
 
-- [Subagents](/sdk/tools/subagents) — the `Agent` tool and background dispatch.
+- [Subagents](/sdk/tools/subagents) — task naming, group delivery, and pool semantics.
+- [Core background lifecycle](/core/background) — statuses and XML notification mapping.
 - [Observability](/sdk/control/observability) — consuming `background_completed` events.
-- [Checkpointing](/sdk/control/checkpointing) — background completions land in the session event log.

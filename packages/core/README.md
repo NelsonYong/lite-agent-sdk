@@ -45,7 +45,7 @@ console.log(result.text);
 - **Context management** — compaction toolkit (snip/micro passes, reactive trim, LLM summarizer, token budgets, spill store) and a `ContextEngine` with planner/archiver hooks.
 - **Event-sourced checkpoints** — session persistence and time-travel via the `Checkpointer` interface; in-memory implementation included, durable backends in sibling packages.
 - **Permission middleware** — composable policies with rule matching and sensitive-data redaction.
-- **Steering & background tasks** — inject input mid-run with `SteerController`, spawn background work with `createBackgroundTasks`.
+- **Steering & background tasks** — inject input mid-run with `SteerController`, spawn joinable or detached work with `createBackgroundTasks`, and report authoritative `BackgroundStatus` (`completed` / `partial` / `failed` / `cancelled`) through structured completions.
 - **Pluggable sandbox** — default `noopSandbox`; an OS-level boundary lives in [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic).
 - **Testing utilities** — `fakeProvider` plus conformance suites for providers and checkpointers.
 
@@ -64,10 +64,10 @@ console.log(result.text);
 | `ContextEngine` / `createContextEngine` / `projectContext` | Automatic context management with planner/archiver hooks and projected views. |
 | `memoryCheckpointer` / `foldEvents` / `storeEvents` / `legacyStoreAdapter` / `memoryStore` | Event-sourced session persistence primitives (in-memory). |
 | `noopSandbox` | The default no-boundary sandbox. |
-| `SteerController` / `createBackgroundTasks` | Inject input mid-run; spawn and manage background tasks. |
+| `SteerController` / `createBackgroundTasks` / `backgroundCompletionMessage` | Inject input mid-run; spawn/manage background tasks; map a structured completion into the next model notification. |
 | `fakeProvider` / `checkpointerConformance` / `providerConformance` | Test double and conformance test suites. |
 | `AgentError` + `ProviderError` / `ToolError` / `CodecError` / `MaxTurnsError` / `AbortError` / `CheckpointConflictError` | Error hierarchy. |
-| Types: `ModelProvider`, `ToolCallCodec`, `Tool`, `Compactor`, `PermissionPolicy`, `ApprovalHandler`, `InputHandler`, `Store`, `Sandbox`, `Message`, `ContentBlock`, `AgentEvent`, `RunResult`, … | All strategy interfaces, normalized message types, and the event union. |
+| Types: `ModelProvider`, `ToolCallCodec`, `Tool`, `Compactor`, `PermissionPolicy`, `ApprovalHandler`, `InputHandler`, `Store`, `Sandbox`, `Message`, `ContentBlock`, `AgentEvent`, `RunResult`, `BackgroundStatus`, `BackgroundRunResult`, `BackgroundCompletion`, … | All strategy interfaces, normalized message types, background lifecycle results, and the event union. |
 
 ## Related
 

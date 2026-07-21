@@ -27,18 +27,70 @@ A built-in `general-purpose` agent (inherits the parent's full tool set and mode
 
 ## Dispatch
 
-One `Agent` call takes a batch of `tasks`; entries in a single call run in parallel (bounded concurrency), and each result block is labeled with an `agentId` that can be passed back as `resume` to continue that subagent later:
+Every `Agent` call creates one sibling **group**. Each task must include a
+non-empty, visible `display_name`: it is the UI and result label for this
+invocation. `subagent_type` only selects an `AgentLoader` definition, while
+the returned `agentId` is the stable run identity to pass as `resume` later.
+
+Groups are always detached from a long-lived `createLiteAgent()` session. The
+tool immediately returns an accepted-group placeholder; after **all** children
+settle, the session receives exactly one ordered aggregate completion. The
+legacy `run_in_background` field is still accepted for parsing, but no longer
+changes this behavior; `run_in_background: false` does not make a group
+synchronous. Set `background: false` only when you want Agent dispatch to fail
+explicitly instead of creating background work.
+
+The root agent owns one shared FIFO pool. `maxParallelSubagents` defaults to 5
+and is shared by groups from every session on that root, so two groups with
+three tasks each never get separate five-child limits. Results retain task
+input order. A group is `completed` only when all children complete; mixed
+outcomes are `partial`; wholly failed or cancelled groups are respectively
+`failed` or `cancelled`. A child that throws, is cancelled, reaches
+`max_turns`, or stops without final text is never represented as success.
+
+For example, two calls can submit two groups of three tasks:
 
 ```json
 {
   "tasks": [
-    { "subagent_type": "researcher", "prompt": "Compare Rspress and VitePress" },
-    { "subagent_type": "general-purpose", "prompt": "Audit deps for vulnerabilities" }
+    { "display_name": "Architecture research", "subagent_type": "researcher", "prompt": "Compare Rspress and VitePress" },
+    { "display_name": "Dependency audit", "subagent_type": "general-purpose", "prompt": "Audit dependencies for vulnerabilities" },
+    { "display_name": "Test plan", "subagent_type": "general-purpose", "prompt": "Draft regression tests" }
   ]
 }
 ```
 
-By default the call **blocks** until all children finish; `run_in_background: true` makes it fire-and-forget, with the aggregated results delivered later as a `<background-task-completed>` notification.
+```json
+{
+  "tasks": [
+    { "display_name": "API review", "subagent_type": "reviewer", "prompt": "Review the public API" },
+    { "display_name": "Docs review", "subagent_type": "writer", "prompt": "Find migration gaps" },
+    { "display_name": "Security review", "subagent_type": "general-purpose", "prompt": "Review security assumptions" }
+  ]
+}
+```
+
+One mixed aggregate is delivered after its group settles:
+
+```xml
+<background-task-completed id="bg_…" label="Subagent group: Architecture research, Dependency audit, Test plan" status="partial">
+## Architecture research (agentId: agent-researcher-…; status: completed)
+…final text…
+
+## Dependency audit (agentId: agent-general-purpose-…; status: failed)
+Error: Subagent reached max turns
+</background-task-completed>
+```
+
+Use `createLiteAgent()` with `subscribe()` and `close()` for interactive,
+long-lived work: user and autonomous completion turns are serialized per
+session, while subscription receives child and aggregate events. `query()` is
+one-shot: before it closes its temporary agent it waits for Agent groups it
+started and their autonomous completion turns, but it does not wait for an
+unrelated detached daemon such as background Bash.
+
+Children run with `agents: false`; recursive subagents, Agent Teams, message
+buses, shared inboxes, and task claiming are not supported.
 
 :::warning
 Subagents run **without the parent's permission gate and `onApproval` handler** by default — an interactive approval handler cannot service parallel children. The sandbox still wraps every command. Pass `subagentPermission` (allow/deny rules, not `ask`) to gate subagent runs.
