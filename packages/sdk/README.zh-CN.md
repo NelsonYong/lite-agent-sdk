@@ -67,6 +67,8 @@ completion 轮次严格串行，进程重启后不会恢复未完成工作。`qu
 发起的 Agent groups 及其自主 completion，但不会等待 detached Bash daemon；长生命周期
 交互请使用 `createLiteAgent()` 配合 `subscribe()` / `close()`。
 
+每个 child 都以 `agents: false` 创建；不支持递归子代理或 Agent Teams。
+
 ## 特性
 
 - **默认工具** —— `bash`、`read_file`、`write_file`、`edit_file`、`delete_file`，限定在 `workdir` 内；原子写 + 变更前快照，会话恢复可撤销这些修改。
