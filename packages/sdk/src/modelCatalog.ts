@@ -46,10 +46,24 @@ const profileToResolved = (profile: ModelProfile, tier?: ModelTier): ResolvedMod
   tier,
 });
 
+const assertProvider: (provider: unknown, name: string) => asserts provider is ModelProvider = (provider, name) => {
+  if (!provider || typeof provider !== "object") {
+    throw new AgentError(`${name} provider is required`);
+  }
+  const candidate = provider as Record<string, unknown>;
+  if (typeof candidate.id !== "string" || !candidate.id.trim()) {
+    throw new AgentError(`${name} provider id must be non-empty`);
+  }
+  if (typeof candidate.stream !== "function") {
+    throw new AgentError(`${name} provider stream must be a function`);
+  }
+};
+
 const assertProfile: (profile: unknown, name: string) => asserts profile is ModelProfile = (profile, name) => {
   if (!profile || typeof profile !== "object" || !("provider" in profile) || !profile.provider) {
     throw new AgentError(`models.${name} requires a provider`);
   }
+  assertProvider(profile.provider, `models.${name}`);
   if (!("modelName" in profile) || typeof profile.modelName !== "string" || !profile.modelName.trim()) {
     throw new AgentError(`models.${name}.modelName must be non-empty`);
   }
@@ -67,6 +81,9 @@ const assertExactTierKeys: (models: unknown) => asserts models is ModelProfiles 
 
 export function createModelResolver(config: ModelConfiguration): ModelResolver {
   if (config.models !== undefined) {
+    if (config.model !== undefined || config.modelName !== undefined) {
+      throw new AgentError("model/models configuration conflict; choose either tiered models or legacy model/modelName");
+    }
     assertExactTierKeys(config.models);
     if (!config.defaultModel || !isModelTier(config.defaultModel)) {
       throw new AgentError("defaultModel must be one of simple, medium, or complex");
@@ -81,6 +98,9 @@ export function createModelResolver(config: ModelConfiguration): ModelResolver {
       defaultModel,
       resolve(selection, inherited) {
         if (selection === undefined) return inherited ?? defaultModel;
+        if (typeof selection !== "string" || !selection.trim()) {
+          throw new AgentError("model selection must be non-empty");
+        }
         if (isModelTier(selection)) return profiles[selection];
         const base = inherited ?? defaultModel;
         return { provider: base.provider, modelName: selection, displayName: selection, tier: undefined };
@@ -88,7 +108,11 @@ export function createModelResolver(config: ModelConfiguration): ModelResolver {
     };
   }
 
+  if (config.defaultModel !== undefined) {
+    throw new AgentError("defaultModel requires models; choose either tiered models/defaultModel or legacy model/modelName");
+  }
   if (!config.model) throw new AgentError("model is required when models is not configured");
+  assertProvider(config.model, "model");
   if (typeof config.modelName !== "string" || !config.modelName.trim()) {
     throw new AgentError("modelName must be non-empty when models is not configured");
   }
@@ -98,6 +122,9 @@ export function createModelResolver(config: ModelConfiguration): ModelResolver {
     defaultModel,
     resolve(selection, inherited) {
       if (selection === undefined) return inherited ?? defaultModel;
+      if (typeof selection !== "string" || !selection.trim()) {
+        throw new AgentError("model selection must be non-empty");
+      }
       const base = inherited ?? defaultModel;
       return { provider: base.provider, modelName: selection, displayName: selection, tier: undefined };
     },
