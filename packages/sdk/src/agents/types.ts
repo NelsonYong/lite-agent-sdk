@@ -5,7 +5,7 @@ export interface AgentDefinition {
   description: string;
   /** Allow-list of tool names; absent = inherit the parent's tool set. */
   tools?: string[];
-  /** Override the request-time model id (reuses the same ModelProvider). */
+  /** Model selection; tier aliases may choose another configured provider. */
   model?: string;
   /** The subagent's system prompt. */
   body: string;

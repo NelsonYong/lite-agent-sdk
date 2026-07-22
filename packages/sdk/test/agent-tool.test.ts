@@ -130,6 +130,22 @@ test("isolation: spawn receives exactly the task prompt", async () => {
   expect(seen).toBe("ONLY THIS");
 });
 
+test("task model override is forwarded to spawn", async () => {
+  let seenModel: string | undefined;
+  const spawn: Spawn = async (_def, _prompt, opts) => {
+    seenModel = opts.model;
+    return completed("ok");
+  };
+  const tool = toolWith(loaderWith("worker"), spawn);
+  const { ctx, bg } = ctxWithBackground();
+  await tool.execute(
+    { tasks: [{ display_name: "Worker", subagent_type: "worker", prompt: "go", model: "complex" }] },
+    ctx,
+  );
+  await completion(bg);
+  expect(seenModel).toBe("complex");
+});
+
 test("resume reuses the supplied agentId as the session id", async () => {
   let seenSession = "";
   const spawn: Spawn = async (_def, _prompt, opts) => { seenSession = opts.sessionId; return completed("ok"); };
