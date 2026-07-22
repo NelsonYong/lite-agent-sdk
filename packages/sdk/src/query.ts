@@ -24,11 +24,14 @@ import type { ZodType } from "zod";
 import { createLiteAgent } from "./createLiteAgent";
 import type { LiteAgentResult } from "./createLiteAgent";
 import type { ContextOptions } from "./liteAgent";
+import type { ModelProfiles, ModelTier } from "./modelCatalog";
 
 export interface QueryOptions {
   prompt: string | Message[];
-  model: ModelProvider;
+  model?: ModelProvider;
   modelName?: string;
+  models?: ModelProfiles;
+  defaultModel?: ModelTier;
   cwd?: string;
   systemPrompt?: string;
   skillsDir?: string;
@@ -86,6 +89,8 @@ export function query(
   const agent = createLiteAgent({
     model: opts.model,
     modelName: opts.modelName,
+    models: opts.models,
+    defaultModel: opts.defaultModel,
     workdir: opts.cwd ?? process.cwd(),
     skillsDir: opts.skillsDir,
     tools: opts.tools,

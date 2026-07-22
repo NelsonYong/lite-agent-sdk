@@ -3,6 +3,8 @@ import { resolveProjectPaths } from "./paths";
 import { assembleLiteAgent } from "./liteAgentAssembly";
 import { createLiteAgentFacade } from "./liteAgent";
 import type { CreateLiteAgentConfig, LiteAgent, LiteAgentResult, RuntimeLiteAgentConfig } from "./liteAgent";
+import { createModelResolver } from "./modelCatalog";
+import type { ModelResolver, ResolvedModel } from "./modelCatalog";
 import { createSessionRunner } from "./sessionRunner";
 import { createSubagentPool } from "./subagentPool";
 import type { Spawn, SubagentResult } from "./tools/agent";
@@ -16,6 +18,23 @@ export type {
 } from "./liteAgent";
 
 export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
+  const resolver = createModelResolver({
+    ...cfg,
+    modelName: cfg.modelName ?? cfg.model?.id,
+  });
+  return createLiteAgentInstance(cfg, resolver, resolver.defaultModel);
+}
+
+function createLiteAgentInstance(
+  source: CreateLiteAgentConfig,
+  resolver: ModelResolver,
+  active: ResolvedModel,
+): LiteAgent {
+  const cfg: RuntimeLiteAgentConfig = {
+    ...source,
+    model: active.provider,
+    modelName: active.modelName,
+  };
   const paths = resolveProjectPaths({
     workdir: cfg.workdir,
     home: cfg.home,

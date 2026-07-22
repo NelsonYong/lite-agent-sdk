@@ -39,7 +39,7 @@ const BASE_RULES: PermissionRule[] = [
 ];
 
 type StrictOmissions =
-  | "model" | "codec" | "sandbox" | "checkpointer" | "store" | "sessions"
+  | "model" | "models" | "defaultModel" | "codec" | "sandbox" | "checkpointer" | "store" | "sessions"
   | "permissionAudit" | "fileTools" | "bash" | "crashRecovery"
   | "maxSnapshotBytesPerSession" | "backgroundLimits" | "cleanup" | "contextBudget"
   | "permission" | "subagentPermission" | "permissionMode" | "redact";
