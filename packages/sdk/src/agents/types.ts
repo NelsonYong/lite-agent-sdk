@@ -5,7 +5,7 @@ export interface AgentDefinition {
   description: string;
   /** Allow-list of tool names; absent = inherit the parent's tool set. */
   tools?: string[];
-  /** Model selection; tier aliases may choose another configured provider. */
+  /** Configured tier alias or raw provider model id; aliases may choose another provider. */
   model?: string;
   /** The subagent's system prompt. */
   body: string;
