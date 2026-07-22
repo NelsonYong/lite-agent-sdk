@@ -91,17 +91,27 @@ test("createLiteAgent retains legacy model and modelName", async () => {
   await agent.close();
 });
 
-test("subagent task model wins over definition model and switches tier provider", async () => {
-  const rootSeen: string[] = [];
-  const simpleSeen: string[] = [];
-  const complexSeen: string[] = [];
-  let rootCalls = 0;
-  const root: ModelProvider = {
-    id: "medium",
+type ProviderCall = { provider: string; model: string; child: boolean };
+
+async function runSubagentRoute(opts: { taskModel?: string; definitionModel?: string }): Promise<ProviderCall[]> {
+  const calls: ProviderCall[] = [];
+  let parentCalls = 0;
+  const provider = (id: string): ModelProvider => ({
+    id,
     async *stream(request) {
-      rootSeen.push(request.model);
-      rootCalls += 1;
-      if (rootCalls === 1) {
+      const child = request.system?.startsWith('You are the "worker" subagent') ?? false;
+      calls.push({ provider: id, model: request.model, child });
+      if (child) {
+        yield { type: "text_delta", text: "child done" };
+        yield {
+          type: "message_done",
+          message: { role: "assistant", content: [{ type: "text", text: "child done" }] },
+          usage: { inputTokens: 0, outputTokens: 0 },
+        };
+        return;
+      }
+      parentCalls += 1;
+      if (parentCalls === 1) {
         yield {
           type: "message_done",
           message: {
@@ -110,7 +120,14 @@ test("subagent task model wins over definition model and switches tier provider"
               type: "tool_call",
               id: "agent-1",
               name: "Agent",
-              input: { tasks: [{ display_name: "Worker", subagent_type: "worker", prompt: "go", model: "complex" }] },
+              input: {
+                tasks: [{
+                  display_name: "Worker",
+                  subagent_type: "worker",
+                  prompt: "go",
+                  ...(opts.taskModel === undefined ? {} : { model: opts.taskModel }),
+                }],
+              },
             }],
           },
           usage: { inputTokens: 0, outputTokens: 0 },
@@ -124,27 +141,46 @@ test("subagent task model wins over definition model and switches tier provider"
         usage: { inputTokens: 0, outputTokens: 0 },
       };
     },
-  };
-  const simple = recordingProvider("simple", simpleSeen);
-  const complex = recordingProvider("complex", complexSeen);
+  });
   const agent = createLiteAgent({
     models: {
-      simple: { provider: simple, modelName: "simple-id" },
-      medium: { provider: root, modelName: "medium-id" },
-      complex: { provider: complex, modelName: "complex-id" },
+      simple: { provider: provider("simple"), modelName: "simple-id" },
+      medium: { provider: provider("medium"), modelName: "medium-id" },
+      complex: { provider: provider("complex"), modelName: "complex-id" },
     },
     defaultModel: "medium",
     workdir: workdir(),
-    agentsDir: agentDefinitions("---\nname: worker\ndescription: worker\nmodel: simple\n---\nworker"),
+    agentsDir: agentDefinitions(`---\nname: worker\ndescription: worker${opts.definitionModel === undefined ? "" : `\nmodel: ${opts.definitionModel}`}\n---\nworker`),
     sessions: false,
     cleanup: false,
     tasks: false,
   });
   await agent.send("start");
   await agent.awaitIdle();
-  expect(rootSeen.length).toBeGreaterThanOrEqual(2);
-  expect(rootSeen.every((model) => model === "medium-id")).toBe(true);
-  expect(simpleSeen).toEqual([]);
-  expect(complexSeen).toEqual(["complex-id"]);
   await agent.close();
+  return calls;
+}
+
+test("subagent task model wins over definition model and switches tier provider", async () => {
+  const child = (await runSubagentRoute({ taskModel: "complex", definitionModel: "simple" }))
+    .filter((call) => call.child);
+  expect(child).toEqual([{ provider: "complex", model: "complex-id", child: true }]);
+});
+
+test("subagent definition model selects its tier when task has no model", async () => {
+  const child = (await runSubagentRoute({ definitionModel: "simple" }))
+    .filter((call) => call.child);
+  expect(child).toEqual([{ provider: "simple", model: "simple-id", child: true }]);
+});
+
+test("subagent without model selection inherits the active root profile", async () => {
+  const child = (await runSubagentRoute({}))
+    .filter((call) => call.child);
+  expect(child).toEqual([{ provider: "medium", model: "medium-id", child: true }]);
+});
+
+test("raw subagent model id keeps the inherited active provider", async () => {
+  const child = (await runSubagentRoute({ taskModel: "raw-child-id" }))
+    .filter((call) => call.child);
+  expect(child).toEqual([{ provider: "medium", model: "raw-child-id", child: true }]);
 });
