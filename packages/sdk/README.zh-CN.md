@@ -37,6 +37,28 @@ for await (const ev of query({
 
 `query()` 流式产出类型化的 `AgentEvent`，最终返回 `LiteAgentResult`。多轮场景用 `createLiteAgent(cfg)`：它返回一个有状态、持有当前会话的 `LiteAgent` —— `send()`、`resume(id)`、`clear()`、`listSessions()`、`deleteSession(id)`，通过 `listCheckpoints(id)` / `restore(id, seq)` 做时间旅行，以及手动 `compact()`。
 
+## 模型档位
+
+当应用需要按任务复杂度使用不同 provider 或模型 id 时，配置三个具名档位并选择默认值：
+
+```ts
+createLiteAgent({
+  models: {
+    simple: { provider: fast, modelName: "fast-id", displayName: "Fast" },
+    medium: { provider: balanced, modelName: "balanced-id", displayName: "Balanced" },
+    complex: { provider: strong, modelName: "strong-id", displayName: "Strong" },
+  },
+  defaultModel: "medium",
+  workdir,
+});
+```
+
+`models` 必须且只能包含 `simple`、`medium`、`complex`，`defaultModel` 必须指向其中之一。profile 的 `modelName` 是实际发送给 provider 的具体 id。`displayName` 是用于 UI、日志和诊断的可选元数据；省略时回退到 `modelName`，且绝不会出现在模型请求中。原有单一 `model` / `modelName` 配置继续支持。
+
+`simple` 适合已知流程、低歧义的工作，例如只读查询或单个小文件的操作；`medium` 适合单个包内的普通多文件工作、修复 bug 和测试；`complex` 适合跨包架构、并发/持久化、外部调研、重复失败或高度不确定的工作。档位只选择 provider/model；权限、审批、推理强度、预算和并发仍是彼此独立的控制项。
+
+本版本不会自动分类任务、在失败后自动升级、重试其他档位，或从权限、推理强度推断档位。父应用或父 agent 应在拥有任务上下文时显式选择档位。
+
 ### 长生命周期后台轮次
 
 交互式客户端可以只订阅一次；即使某次 `run()` 或 `send()` 已经返回，仍能继续接收后续事件：
@@ -68,6 +90,8 @@ completion 轮次严格串行，进程重启后不会恢复未完成工作。`qu
 交互请使用 `createLiteAgent()` 配合 `subscribe()` / `close()`。
 
 每个 child 都以 `agents: false` 创建；不支持递归子代理或 Agent Teams。
+
+对子代理 `Agent` 任务，`task.model` 优先级最高，其次是子代理 definition 的 `model`，最后是当前 agent 已选中的/默认档位。将任一值设为 `simple`、`medium` 或 `complex` 会选择对应的已配置档位；任何其他字符串都会为兼容性保留为 raw model id，并使用继承的 provider。
 
 ## 特性
 

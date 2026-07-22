@@ -11,7 +11,7 @@
 name: researcher
 description: Research a topic and report findings with sources
 tools: [read_file, bash]   # optional allow-list; absent = inherit the parent's tools
-model: claude-haiku-4-5    # optional modelName override (same provider)
+model: simple              # 可选：配置的档位或 raw model id 覆盖
 ---
 
 You are a research agent. Always cite your sources ...
@@ -24,6 +24,31 @@ You are a research agent. Always cite your sources ...
 3. 配置项 `agentsDir`（如设置）
 
 内置的 `general-purpose` 代理（继承父代理的全部工具与模型）总是可用，因此零配置文件也能用子代理。设 `agents: false` 可整体关闭该能力。
+
+## 模型选择
+
+配置了 `models` catalog 后，可以在 definition 或单个任务中选择 `simple`、`medium`、`complex`。选择顺序固定为：
+
+```text
+task.model -> 子代理 definition 的 model -> 当前/默认档位
+```
+
+例如，definition 中的 `simple` 会被此任务中的 `complex` 覆盖：
+
+```json
+{
+  "tasks": [{
+    "display_name": "架构审查",
+    "subagent_type": "researcher",
+    "model": "complex",
+    "prompt": "比较两个跨包设计"
+  }]
+}
+```
+
+除已配置档位名外的任意模型字符串都会为兼容性保留为 raw provider model id，并使用继承的 provider。`simple` 适合已知、低歧义的工作（查询或单个小文件流程）；`medium` 适合单个包内的普通多文件工作、修复 bug 和测试；`complex` 适合跨包架构、并发/持久化、外部调研、重复失败或高度不确定的工作。
+
+档位只选择 provider/model 对，不改变权限、审批、推理强度、预算或并发。SDK 尚不会自动分类任务、失败后自动升级，或重试其他档位；父 agent 需要显式选择档位。
 
 ## 派发
 
