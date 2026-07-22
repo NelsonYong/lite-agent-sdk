@@ -6,6 +6,9 @@ export type { SubagentPool } from "./subagentPool";
 export type {
   CreateLiteAgentConfig, ContextOptions, LiteAgent, LiteAgentEvent, LiteAgentResult,
 } from "./createLiteAgent";
+export type {
+  ModelTier, ModelProfile, ModelProfiles, ModelCatalog, ModelConfiguration,
+} from "./modelCatalog";
 export { query } from "./query";
 export type { QueryOptions } from "./query";
 export { tool } from "./tool";

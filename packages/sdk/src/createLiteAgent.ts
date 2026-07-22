@@ -2,7 +2,7 @@ import { sweepStale } from "./cleanup";
 import { resolveProjectPaths } from "./paths";
 import { assembleLiteAgent } from "./liteAgentAssembly";
 import { createLiteAgentFacade } from "./liteAgent";
-import type { CreateLiteAgentConfig, LiteAgent, LiteAgentResult } from "./liteAgent";
+import type { CreateLiteAgentConfig, LiteAgent, LiteAgentResult, RuntimeLiteAgentConfig } from "./liteAgent";
 import { createSessionRunner } from "./sessionRunner";
 import { createSubagentPool } from "./subagentPool";
 import type { Spawn, SubagentResult } from "./tools/agent";
@@ -98,7 +98,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
   };
 
   const runtime = assembleLiteAgent({
-    cfg,
+    cfg: cfg as RuntimeLiteAgentConfig,
     paths,
     spawn,
     subagentPool,

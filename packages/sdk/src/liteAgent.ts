@@ -30,6 +30,7 @@ import type { BashToolOptions } from "./tools/bash";
 import { newSessionId } from "./store";
 import type { SessionInfo } from "./store";
 import type { LiteAgentEvent, SessionRunner } from "./sessionRunner";
+import type { ModelConfiguration } from "./modelCatalog";
 
 export type { LiteAgentEvent } from "./sessionRunner";
 
@@ -38,9 +39,7 @@ export type ContextOptions = {
   windowTokens?: number;
 };
 
-export interface CreateLiteAgentConfig {
-  model: ModelProvider;
-  modelName?: string;
+export interface CreateLiteAgentConfig extends ModelConfiguration {
   workdir: string;
   skillsDir?: string;
   tools?: Tool[];
@@ -122,6 +121,11 @@ export interface CreateLiteAgentConfig {
   onApproval?: ApprovalHandler;
   onAskUser?: InputHandler;
 }
+
+export type RuntimeLiteAgentConfig = Omit<CreateLiteAgentConfig, "model" | "modelName"> & {
+  model: ModelProvider;
+  modelName: string;
+};
 
 /** A run result, plus the validated structured answer when `outputSchema` is set. */
 export type LiteAgentResult = RunResult & { output?: unknown };

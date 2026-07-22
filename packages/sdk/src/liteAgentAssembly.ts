@@ -33,10 +33,10 @@ import type { SubagentPool } from "./subagentPool";
 import { killBackgroundTool } from "./tools/killBackground";
 import { bashOutputTool } from "./tools/bashOutput";
 import type { ProjectPaths } from "./paths";
-import type { CreateLiteAgentConfig, LiteAgentRuntime } from "./liteAgent";
+import type { LiteAgentRuntime, RuntimeLiteAgentConfig } from "./liteAgent";
 
 interface AssembleLiteAgentOptions {
-  readonly cfg: CreateLiteAgentConfig;
+  readonly cfg: RuntimeLiteAgentConfig;
   readonly paths: ProjectPaths;
   readonly spawn: Spawn;
   readonly subagentPool: SubagentPool;
