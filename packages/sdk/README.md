@@ -37,6 +37,42 @@ for await (const ev of query({
 
 `query()` streams typed `AgentEvent`s and resolves to a `LiteAgentResult`. For multi-turn work, `createLiteAgent(cfg)` returns a stateful `LiteAgent` that owns a current session — `send()`, `resume(id)`, `clear()`, `listSessions()`, `deleteSession(id)`, time-travel via `listCheckpoints(id)` / `restore(id, seq)`, and manual `compact()`.
 
+## Model tiers
+
+For an application that uses different providers or model ids by task complexity,
+configure all three named tiers and choose a default:
+
+```ts
+createLiteAgent({
+  models: {
+    simple: { provider: fast, modelName: "fast-id", displayName: "Fast" },
+    medium: { provider: balanced, modelName: "balanced-id", displayName: "Balanced" },
+    complex: { provider: strong, modelName: "strong-id", displayName: "Strong" },
+  },
+  defaultModel: "medium",
+  workdir,
+});
+```
+
+`models` must contain exactly `simple`, `medium`, and `complex`; `defaultModel`
+must name one of them. A profile's `modelName` is the concrete id sent to its
+provider. `displayName` is optional metadata for UI, logs, and diagnostics: when
+omitted, it falls back to `modelName`, and it is never sent in a model request.
+The legacy single `model` / `modelName` configuration remains supported.
+
+Use `simple` for known, low-ambiguity work such as a read-only lookup or one
+small-file procedure; `medium` for ordinary multi-file work in one package,
+bug fixes, and tests; and `complex` for cross-package architecture,
+concurrency/persistence, external research, repeated failures, or high
+uncertainty. A tier controls only provider/model selection. Permissions,
+approval, reasoning effort, budgets, and concurrency remain independent
+controls.
+
+This release does not automatically classify tasks, escalate after failures,
+retry another tier, or infer a tier from permissions or reasoning effort. The
+parent application or agent selects a tier explicitly when it has the task
+context.
+
 ### Long-lived background turns
 
 Interactive consumers can subscribe once and keep receiving events after an
@@ -73,6 +109,12 @@ interaction.
 
 Each child is created with `agents: false`: recursive subagents and Agent Teams
 are not supported.
+
+For a child `Agent` task, `task.model` has highest priority, followed by the
+subagent definition's `model`, then the current agent's selected/default tier.
+Set either value to `simple`, `medium`, or `complex` to select a configured
+tier. Any other string remains a raw model id for compatibility and uses the
+inherited provider.
 
 ## Features
 

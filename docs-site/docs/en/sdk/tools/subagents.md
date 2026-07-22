@@ -11,7 +11,7 @@ A subagent is an `agents/*.md` file with YAML frontmatter; the body becomes the 
 name: researcher
 description: Research a topic and report findings with sources
 tools: [read_file, bash]   # optional allow-list; absent = inherit the parent's tools
-model: claude-haiku-4-5    # optional modelName override (same provider)
+model: simple              # optional configured tier or raw model id override
 ---
 
 You are a research agent. Always cite your sources ...
@@ -24,6 +24,40 @@ You are a research agent. Always cite your sources ...
 3. `agentsDir` config option, if set
 
 A built-in `general-purpose` agent (inherits the parent's full tool set and model) is always seeded, so subagents work with zero files. Set `agents: false` to disable the whole capability.
+
+## Model selection
+
+With a `models` catalog, choose `simple`, `medium`, or `complex` in a
+definition or in an individual task. Selection is deterministic:
+
+```text
+task.model -> subagent definition model -> current/default tier
+```
+
+For example, this `simple` definition is overridden by one `complex` task:
+
+```json
+{
+  "tasks": [{
+    "display_name": "Architecture review",
+    "subagent_type": "researcher",
+    "model": "complex",
+    "prompt": "Compare the two cross-package designs"
+  }]
+}
+```
+
+Any model string other than the configured tier names remains a raw provider
+model id for backward compatibility, using the inherited provider. Use
+`simple` for known low-ambiguity work (a lookup or one small-file procedure),
+`medium` for ordinary multi-file work in one package, bug fixes, and tests, and
+`complex` for cross-package architecture, concurrency/persistence, external
+research, repeated failures, or high uncertainty.
+
+Tiers only select a provider/model pair. They do not change permissions,
+approval, reasoning effort, budgets, or concurrency. The SDK does not yet
+classify tasks automatically, escalate after failures, or retry on another
+tier; the parent chooses the tier explicitly.
 
 ## Dispatch
 
