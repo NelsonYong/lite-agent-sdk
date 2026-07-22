@@ -19,6 +19,8 @@ export interface SubagentResult {
 export interface SpawnOptions {
   signal: AbortSignal;
   sessionId: string;
+  /** Per-task model selection; tier aliases may select another provider. */
+  model?: string;
   /** Live child event sink. The Agent tool stamps each event with the child agentId. */
   onEvent?: (e: AgentEvent) => void;
 }
@@ -39,6 +41,7 @@ const TASK = z.object({
   display_name: z.string().refine(hasVisibleDisplayName, "display_name must contain visible characters"),
   subagent_type: z.string(),
   prompt: z.string(),
+  model: z.string().optional(),
   resume: z.string().optional(),
 });
 
@@ -179,6 +182,7 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
             const result = normalizeResult(await spawn(child.definition, child.task.prompt, {
               signal: childSignal,
               sessionId: child.eventId,
+              model: child.task.model,
               onEvent: (event) => emit({ ...event, agentId: child.eventId }),
             }));
             emitResult(child, result);

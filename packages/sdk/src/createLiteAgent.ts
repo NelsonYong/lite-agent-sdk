@@ -64,14 +64,14 @@ function createLiteAgentInstance(
   const spawn: Spawn = async (
     definition,
     prompt,
-    { signal, sessionId, onEvent },
+    { signal, sessionId, model, onEvent },
   ) => {
-    const child = createLiteAgent({
-      ...cfg,
+    const childModel = resolver.resolve(model ?? definition.model, active);
+    const child = createLiteAgentInstance({
+      ...source,
       system:
         `You are the "${definition.name}" subagent operating in ${cfg.workdir}. ` +
         `Return your final answer as your last message.\n\n${definition.body}`,
-      modelName: definition.model ?? cfg.modelName,
       allowedTools: definition.tools ?? cfg.allowedTools,
       agents: false,
       // A caller may provide a custom dispatcher named `Agent`. It must not
@@ -83,7 +83,7 @@ function createLiteAgentInstance(
       onAskUser: undefined,
       outputSchema: undefined,
       checkpointer: cfg.checkpointer,
-    });
+    }, resolver, childModel);
     try {
       const gen = child.run(
         [{ role: "user", content: prompt }],
