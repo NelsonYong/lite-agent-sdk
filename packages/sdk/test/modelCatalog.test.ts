@@ -46,3 +46,20 @@ test("rejects incomplete catalogs, invalid defaults, and empty model ids", () =>
   expect(() => createModelResolver({ ...catalog(), defaultModel: "unknown" as never })).toThrow(/defaultModel/i);
   expect(() => createModelResolver({ ...catalog(), models: { ...catalog().models, simple: { provider: provider("p"), modelName: "" } } })).toThrow(/modelName/i);
 });
+
+test("rejects mixed tiered and legacy configuration instead of choosing silently", () => {
+  expect(() => createModelResolver({ ...catalog(), model: provider("legacy-provider") })).toThrow(/conflict|either|二选一/i);
+  expect(() => createModelResolver({ ...catalog(), modelName: "legacy-id" })).toThrow(/conflict|either|二选一/i);
+  expect(() => createModelResolver({ model: provider("legacy-provider"), modelName: "legacy-id", defaultModel: "medium" })).toThrow(/conflict|either|二选一/i);
+});
+
+test("rejects malformed providers and blank raw selections", () => {
+  const malformed = (value: unknown) => ({ provider: value, modelName: "id" });
+  expect(() => createModelResolver({ ...catalog(), models: { ...catalog().models, simple: malformed({ id: "", stream: async function* () {} }) } as never })).toThrow(/provider.*id/i);
+  expect(() => createModelResolver({ ...catalog(), models: { ...catalog().models, simple: malformed({ id: "provider", stream: undefined }) } as never })).toThrow(/provider.*stream/i);
+  expect(() => createModelResolver({ model: malformed({ id: "", stream: async function* () {} }) as never, modelName: "id" })).toThrow(/provider.*id/i);
+
+  const resolver = createModelResolver(catalog());
+  expect(() => resolver.resolve("")).toThrow(/selection|modelName/i);
+  expect(() => resolver.resolve("   ")).toThrow(/selection|modelName/i);
+});
