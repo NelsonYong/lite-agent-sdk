@@ -32,6 +32,7 @@ export interface SessionRunner<R extends RunResult> {
   ): AsyncGenerator<AgentEvent, R>;
   backgroundTasks(sessionId: string): BackgroundTasks | undefined;
   subscribe(listener: (entry: LiteAgentEvent) => void): () => void;
+  report(sessionId: string, event: AgentEvent): void;
   awaitIdle(sessionId: string): Promise<void>;
   cancelSession(sessionId: string): Promise<void>;
   operation<T>(sessionId: string, run: (emit: (event: AgentEvent) => void, signal: AbortSignal) => Promise<T>, signal?: AbortSignal): AsyncGenerator<AgentEvent, T>;
@@ -101,7 +102,7 @@ export function createSessionRunner<R extends RunResult>(
     });
 
   const publish = (entry: LiteAgentEvent) => {
-    if (closed) return;
+    if (closed && !(entry.event.type === "diagnostic" && entry.event.code === "hook_failed")) return;
     for (const listener of listeners) {
       try {
         listener(entry);
@@ -307,6 +308,7 @@ export function createSessionRunner<R extends RunResult>(
       return stream;
     },
     backgroundTasks,
+    report: (sessionId, event) => publish({ sessionId, source: "user", event }),
     subscribe(listener) {
       if (closed) return () => {};
       listeners.add(listener);

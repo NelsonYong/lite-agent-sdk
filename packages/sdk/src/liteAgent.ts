@@ -1,3 +1,5 @@
+import type { HookRuntime } from "./hooks/runtime";
+import type { HookHandler, HookName, HookOptions } from "./hooks/types";
 import { AgentError, estimateTokens, foldEvents, abortable } from "@lite-agent/core";
 import type {
   Agent,
@@ -44,6 +46,8 @@ export type ContextOptions = {
 export interface CreateLiteAgentConfig extends ModelConfiguration {
   workdir: string;
   skillsDir?: string;
+  /** Load global and project hooks.json once at root creation. Default true. */
+  hookFiles?: boolean;
   tools?: Tool[];
   /** Tool-call protocol. Default nativeCodec. */
   codec?: ToolCallCodec;
@@ -135,6 +139,7 @@ export type RuntimeLiteAgentConfig = Omit<CreateLiteAgentConfig, "model" | "mode
 export type LiteAgentResult = RunResult & { output?: unknown };
 
 export interface LiteAgent extends Agent {
+  hook<N extends HookName>(name: N, handler: HookHandler<N>, opts?: HookOptions): () => void;
   run(input: string | Message[], opts?: RunOptions): AsyncGenerator<AgentEvent, LiteAgentResult>;
   send(input: string | Message[], opts?: RunOptions): Promise<LiteAgentResult>;
   /** Observe user runs and autonomous background-completion runs. */
@@ -193,6 +198,8 @@ export function createLiteAgentFacade(
   runtime: LiteAgentRuntime,
   workdir: string,
   sessions: SessionRunner<LiteAgentResult>,
+  hooks: HookRuntime,
+  ownsHooks: boolean,
   closeRuntime?: () => Promise<void>,
 ): LiteAgent {
   let currentSessionId = newSessionId();
@@ -202,39 +209,40 @@ export function createLiteAgentFacade(
       new AgentError("session management requires a checkpointer (it is disabled when sessions:false)"),
     );
 
-  sessions.bind((input, opts) => {
-    const gen = runtime.core.run(input, opts);
-    const takeOutput = runtime.takeOutput;
-    if (!takeOutput) return gen;
-    return (async function* () {
-      let result = await gen.next();
-      while (!result.done) {
-        yield result.value;
-        result = await gen.next();
-      }
-      return { ...result.value, output: takeOutput(opts.sessionId) };
-    })();
-  });
+  sessions.bind((input, opts) => hooks.run(
+    runtime.core.run(input, opts), input, opts, runtime.takeOutput,
+    (event) => sessions.report(opts.sessionId, event),
+  ));
 
   const run = (
     input: string | Message[],
     opts?: RunOptions,
   ): AsyncGenerator<AgentEvent, LiteAgentResult> => {
+    hooks.registry.assertNotInHook();
     const sessionId = opts?.sessionId ?? currentSessionId;
     return sessions.run(input, { ...opts, sessionId });
   };
 
   return {
     run,
+    hook: (name, handler, opts) => {
+      if (closePromise) throw new AgentError("LiteAgent is closed");
+      return hooks.registry.register(name, handler, opts);
+    },
     subscribe: (listener) => sessions.subscribe(listener),
-    awaitIdle: (sessionId = currentSessionId) => sessions.awaitIdle(sessionId),
+    awaitIdle: (sessionId = currentSessionId) => { hooks.registry.assertNotInHook(); return sessions.awaitIdle(sessionId); },
     close: () => {
+      hooks.registry.assertNotInHook();
+      if (ownsHooks) hooks.registry.stopRegistration();
       closePromise ??= (async () => {
         try {
           await sessions.close();
         } finally {
           try { await closeRuntime?.(); }
-          finally { await runtime.dispose?.(); }
+          finally {
+            try { await runtime.dispose?.(); }
+            finally { if (ownsHooks) hooks.registry.clear(); }
+          }
         }
       })();
       return closePromise;
@@ -249,14 +257,17 @@ export function createLiteAgentFacade(
       return currentSessionId;
     },
     resume(id: string) {
+      hooks.registry.assertNotInHook();
       currentSessionId = id;
       runtime.context?.invalidate(id);
     },
     clear() {
+      hooks.registry.assertNotInHook();
       currentSessionId = newSessionId();
       return currentSessionId;
     },
     deleteSession: async (id: string) => {
+      hooks.registry.assertNotInHook();
       await sessions.cancelSession(id);
       if (!runtime.checkpointer) return noSessions();
       await runtime.checkpointer.delete(id);
@@ -270,6 +281,7 @@ export function createLiteAgentFacade(
       return checkpointList(await checkpointEntries(runtime.checkpointer, id));
     },
     restore: async (id, toSeq, opts = {}) => {
+      hooks.registry.assertNotInHook();
       if (!runtime.checkpointer) return noSessions();
       const cp = runtime.checkpointer;
       const operation = sessions.operation(id, async (emit, signal) => {
@@ -294,8 +306,9 @@ export function createLiteAgentFacade(
       return next.value;
     },
     async *compact(instructions, opts) {
+      hooks.registry.assertNotInHook();
       const id = currentSessionId;
-      return yield* sessions.operation(id, async (emit, signal) => {
+      return yield* sessions.operation(id, (emit, signal) => hooks.manualCompact(id, instructions, emit, signal, async () => {
         if (runtime.context) return runtime.context.compact(id, instructions, emit, signal);
         let before = 0;
         emit({ type: "compaction", kind: "manual", phase: "start", stage: "measure", before, after: before });
@@ -319,7 +332,7 @@ export function createLiteAgentFacade(
           emit({ type: "compaction", kind: "manual", phase: signal.aborted ? "cancelled" : "error", before, after: before, message: String(error) });
           throw error;
         }
-      }, opts?.signal);
+      }), opts?.signal);
     },
   };
 }

@@ -1,3 +1,6 @@
+import { HookRegistry } from "./hooks/registry";
+import { HookRuntime } from "./hooks/runtime";
+import { loadHookFiles } from "./hooks/files";
 import { sweepStale } from "./cleanup";
 import { resolveProjectPaths } from "./paths";
 import { assembleLiteAgent } from "./liteAgentAssembly";
@@ -26,17 +29,21 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
   // One approval queue belongs to the root, including every child. CLI prompts
   // must never overlap when tools or agents execute concurrently.
   const onApproval = cfg.onApproval ? serialApproval(cfg.onApproval) : undefined;
+  const paths = resolveProjectPaths({ workdir: cfg.workdir, home: cfg.home });
+  const hooks = new HookRegistry(cfg.hookFiles === false ? [] : loadHookFiles(paths.home, cfg.workdir));
   return createLiteAgentInstance({
     ...cfg,
-    permission: cfg.permission ?? policy({ ask: ["bash", "write_file", "edit_file", "delete_file"] }),
+    permission: cfg.permission ?? policy({ ask: ["bash", "write_file", "edit_file", "delete_file", "hook"] }),
     onApproval,
-  }, resolver, resolver.defaultModel);
+  }, resolver, resolver.defaultModel, hooks);
 }
 
 function createLiteAgentInstance(
   source: CreateLiteAgentConfig,
   resolver: ModelResolver,
   active: ResolvedModel,
+  registry: HookRegistry,
+  agentId?: string,
 ): LiteAgent {
   const cfg: RuntimeLiteAgentConfig = {
     ...source,
@@ -44,6 +51,7 @@ function createLiteAgentInstance(
     modelName: active.modelName,
     reasoningEffort: active.reasoningEffort ?? (active.tier ? undefined : source.reasoningEffort),
   };
+  const hooks = new HookRuntime(registry, cfg, agentId);
   const paths = resolveProjectPaths({
     workdir: cfg.workdir,
     home: cfg.home,
@@ -96,7 +104,7 @@ function createLiteAgentInstance(
       onAskUser: undefined,
       outputSchema: undefined,
       checkpointer: cfg.checkpointer,
-    }, resolver, childModel);
+    }, resolver, childModel, registry, sessionId);
     try {
       const gen = child.run(
         [{ role: "user", content: prompt }],
@@ -134,7 +142,8 @@ function createLiteAgentInstance(
     paths,
     spawn,
     subagentPool,
+    hooks,
     backgroundTasks: (sessionId) => sessions.backgroundTasks(sessionId),
   });
-  return createLiteAgentFacade(runtime, cfg.workdir, sessions, () => subagentPool.close());
+  return createLiteAgentFacade(runtime, cfg.workdir, sessions, hooks, agentId === undefined, () => subagentPool.close());
 }

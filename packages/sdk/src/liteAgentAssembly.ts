@@ -1,3 +1,4 @@
+import type { HookRuntime } from "./hooks/runtime";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -45,6 +46,7 @@ interface AssembleLiteAgentOptions {
   readonly paths: ProjectPaths;
   readonly spawn: Spawn;
   readonly subagentPool: SubagentPool;
+  readonly hooks: HookRuntime;
   readonly backgroundTasks: (sessionId: string) => BackgroundTasks | undefined;
 }
 
@@ -53,6 +55,7 @@ export function assembleLiteAgent({
   paths,
   spawn,
   subagentPool,
+  hooks,
   backgroundTasks,
 }: AssembleLiteAgentOptions): LiteAgentRuntime {
   const readRoots = (sessionId: string): readonly string[] => [
@@ -214,7 +217,7 @@ export function assembleLiteAgent({
   const budgetCompactor = legacyContext && cfg.contextBudget
     ? tokenBudgetCompactor(cfg.contextBudget)
     : undefined;
-  const compactor: Compactor | undefined =
+  const baseCompactor: Compactor | undefined =
     structuralCompactor && budgetCompactor
       ? {
           async maybeCompact(messages, usage, instructions) {
@@ -235,6 +238,7 @@ export function assembleLiteAgent({
         }
       : structuralCompactor ?? budgetCompactor;
 
+  const compactor = baseCompactor ? hooks.compactor(baseCompactor) : undefined;
   checkpointer =
     cfg.checkpointer ??
     (cfg.store
@@ -246,7 +250,9 @@ export function assembleLiteAgent({
   // `checkpointer` is declared above the tool closure at runtime; the tool is
   // invoked later, after assembly has completed, so this binding is safe.
 
+  hooks.state = checkpointer;
   const use: Middleware[] = [
+    hooks.middleware(),
     ...(compactor ? [compaction(compactor), reactiveCompaction()] : []),
     ...(cfg.permission
       ? [
@@ -292,6 +298,7 @@ export function assembleLiteAgent({
           windowTokens: contextConfig?.windowTokens,
           planner: contextConfig?.planner,
           archive: archiveFor,
+          onProgress: (event) => hooks.compaction(event),
         },
   });
 

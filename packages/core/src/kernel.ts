@@ -57,6 +57,7 @@ export type KernelContextOptions = {
   readonly windowTokens?: number;
   readonly planner?: ContextPlanner | ContextPlannerProvider;
   readonly archive?: ContextArchive | ((sessionId: string) => ContextArchive | undefined);
+  readonly onProgress?: (event: Extract<AgentEvent, { type: "compaction" }>) => void | Promise<void>;
 };
 
 export async function* runKernel(
@@ -112,7 +113,10 @@ export async function* runKernel(
           : contextOptions?.archive ?? archive,
         staticPrefix: contextStaticPrefix,
         signal,
-        onProgress: (event) => contextProgress?.(event),
+        onProgress: async (event) => {
+          contextProgress?.(event);
+          await contextOptions?.onProgress?.(event);
+        },
       })
     : undefined;
   // Serialize appends so concurrent in-turn tool_result appends can't race `head`.

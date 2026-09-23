@@ -90,7 +90,7 @@ export interface ContextEngineOptions {
   readonly windowTokens?: number;
   readonly staticPrefix?: StaticPrefixInput;
   readonly signal?: AbortSignal;
-  readonly onProgress?: (event: Extract<AgentEvent, { type: "compaction" }>) => void;
+  readonly onProgress?: (event: Extract<AgentEvent, { type: "compaction" }>) => void | Promise<void>;
   readonly plannerTimeoutMs?: number;
 }
 
@@ -251,7 +251,7 @@ export class ContextEngine {
 
     this.progressKind = "auto";
     this.progressBefore = before;
-    this.progress("start", "archive", before);
+    await this.progress("start", "archive", before);
     try {
       const result = await this.applyLevels(base, "pressure", undefined, false, before);
       const compactedTokens = await this.count(req, result.view.messages);
@@ -270,10 +270,10 @@ export class ContextEngine {
         this.recordStatus(5, "overflow", before, after, rendered, result.plannerUsed, result.plannerFallback, result.plannerLatencyMs, true);
       }
       this.snapshotHeads.set(rendered.generation, this.head);
-      this.progress("done", "persist", after);
+      await this.progress("done", "persist", after);
       return freezeDeep(clone(rendered));
     } catch (error) {
-      this.progress(this.signal?.aborted ? "cancelled" : "error", "persist", before, String(error));
+      await this.progress(this.signal?.aborted ? "cancelled" : "error", "persist", before, String(error));
       throw error;
     }
   }
@@ -282,7 +282,7 @@ export class ContextEngine {
   async compact(reason: string, instructions?: string): Promise<ContextView> {
     this.progressKind = reason === "manual" ? "manual" : "auto";
     this.progressBefore = 0;
-    this.progress("start", "measure", 0);
+    await this.progress("start", "measure", 0);
     try {
       await this.assertHead();
       const base = this.baseView();
@@ -290,7 +290,7 @@ export class ContextEngine {
       this.progressBefore = before;
       if (base.messages.length === 0) {
         this.recordStatus(0, reason || "manual", before, before, base, false, false, 0, false);
-        this.progress("done", "measure", before, "No conversation to compact");
+        await this.progress("done", "measure", before, "No conversation to compact");
         return freezeDeep(clone(base));
       }
       const result = await this.applyLevels(base, reason || "manual", instructions, true, before);
@@ -301,24 +301,24 @@ export class ContextEngine {
       const after = await this.measureView(result.view);
       const committed = await this.commit(result.view, reason || "manual", before, after, result);
       this.snapshotHeads.set(committed.generation, this.head);
-      this.progress("done", "persist", after);
+      await this.progress("done", "persist", after);
       return freezeDeep(clone(committed));
     } catch (error) {
-      this.progress(this.signal?.aborted ? "cancelled" : "error", "persist", this.progressBefore, String(error));
+      await this.progress(this.signal?.aborted ? "cancelled" : "error", "persist", this.progressBefore, String(error));
       throw error;
     }
   }
 
-  private progress(
+  private async progress(
     phase: "start" | "progress" | "done" | "error" | "cancelled",
     stage: "measure" | "archive" | "normalize" | "summarize" | "project" | "persist",
     after: number,
     message?: string,
     completed?: number,
     total?: number,
-  ): void {
+  ): Promise<void> {
     try {
-      this.onProgress?.({ type: "compaction", kind: this.progressKind, phase, stage,
+      await this.onProgress?.({ type: "compaction", kind: this.progressKind, phase, stage,
         before: this.progressBefore, after, message, completed, total });
     } catch { /* observers cannot change the operation */ }
   }
@@ -382,21 +382,21 @@ export class ContextEngine {
     let pressure = before;
     if (force || pressure > this.windowTokens * 0.65) {
       this.signal?.throwIfAborted();
-      this.progress("progress", "archive", pressure);
+      await this.progress("progress", "archive", pressure);
       view = await this.levelOne(view);
       level = 1;
       pressure = await this.measureView(view);
     }
     if (force || pressure > this.windowTokens * 0.75) {
       this.signal?.throwIfAborted();
-      this.progress("progress", "normalize", pressure);
+      await this.progress("progress", "normalize", pressure);
       view = levelTwo(view);
       level = 2;
       pressure = await this.measureView(view);
     }
     if ((force || pressure > this.windowTokens * 0.85) && this.planner) {
       this.signal?.throwIfAborted();
-      this.progress("progress", "summarize", pressure);
+      await this.progress("progress", "summarize", pressure);
       const planned = await this.levelThree(view, reason, instructions);
       view = planned.view;
       plannerUsed = planned.used;
@@ -407,7 +407,7 @@ export class ContextEngine {
     }
     if (force || pressure > this.windowTokens * 0.95) {
       this.signal?.throwIfAborted();
-      this.progress("progress", "project", pressure);
+      await this.progress("progress", "project", pressure);
       if (this.archive) {
         const refs = [...view.archiveRefs];
         const segments: ContextSegment[] = [];
@@ -468,7 +468,7 @@ export class ContextEngine {
         marker = `[tool result externalized after presentation] ${preview(item.result.content, 160)}`;
       }
       replacements.set(id, marker);
-      this.progress("progress", "archive", this.progressBefore, undefined, replacements.size, candidates.length);
+      await this.progress("progress", "archive", this.progressBefore, undefined, replacements.size, candidates.length);
     }
     if (replacements.size === 0) return view;
     return mapViewMessages(view, (message) => mapBlocks(message, (block) => {
@@ -523,7 +523,7 @@ export class ContextEngine {
       };
     } catch {
       this.signal?.throwIfAborted();
-      this.progress("progress", "summarize", this.progressBefore, "Planner unavailable; using deterministic compaction");
+      await this.progress("progress", "summarize", this.progressBefore, "Planner unavailable; using deterministic compaction");
       return { view, used: true, fallback: true, latencyMs: Date.now() - started };
     } finally {
       clearTimeout(timeout);
@@ -547,7 +547,7 @@ export class ContextEngine {
     result: LevelResult,
   ): Promise<ContextView> {
     this.signal?.throwIfAborted();
-    this.progress("progress", "persist", after);
+    await this.progress("progress", "persist", after);
     await this.assertHead();
     const committed = freezeDeep(clone({
       ...view,

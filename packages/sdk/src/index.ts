@@ -56,3 +56,5 @@ export { fileCheckpointer } from "./checkpoint";
 export type { FileCheckpointerOptions } from "./checkpoint";
 
 export type { CheckpointInfo, RestoreResult } from "./checkpoints";
+
+export type { HookName, HookStatus, HookEvent, HookEventMap, HookHandler, HookOptions } from "./hooks/types";

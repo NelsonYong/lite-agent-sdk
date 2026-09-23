@@ -21,6 +21,8 @@ interface RuntimeOptions {
   maxOutputBytes: number;
   memoryBytes?: number;
   env?: NodeJS.ProcessEnv;
+  stdin?: string;
+  rejectOnFailure?: boolean;
 }
 
 async function resolveCommand(command: string, workdir: string, ctx: ToolContext): Promise<string> {
@@ -63,14 +65,16 @@ function killTree(child: ChildProcess): void {
   } catch { try { child.kill("SIGKILL"); } catch { /* already exited */ } }
 }
 
-function runProcess(
+/** Internal shared process runner for Bash and configuration hooks. */
+export function runProcess(
   command: string,
   workdir: string,
   signal: AbortSignal,
   opts: RuntimeOptions,
   onChunk?: (chunk: string) => void,
 ): Promise<string> {
-  return new Promise<string>((resolve) => {
+  return new Promise<string>((resolve, reject) => {
+    signal.throwIfAborted();
     const child = spawnChild(command, {
       cwd: workdir,
       shell: true,
@@ -80,23 +84,29 @@ function runProcess(
     });
     child.stdout?.setEncoding("utf8");
     child.stderr?.setEncoding("utf8");
+    child.stdin?.on("error", () => { /* a command may exit without consuming stdin */ });
+    child.stdin?.end(opts.stdin);
     let output = "";
     let bytes = 0;
     let limitError: string | undefined;
     let memoryProbeFailures = 0;
     let settled = false;
-    const settle = (value: string) => {
+    const settle = (value: string, failed = false) => {
       if (settled) return;
       settled = true;
       if (timeout) clearTimeout(timeout);
       if (memoryTimer) clearInterval(memoryTimer);
-      resolve(value);
+      signal.removeEventListener("abort", abort);
+      if (failed && opts.rejectOnFailure) reject(new Error(value));
+      else resolve(value);
     };
     const failLimit = (message: string) => {
       if (limitError) return;
       limitError = message;
       killTree(child);
     };
+    const abort = () => failLimit("Error: command aborted");
+    signal.addEventListener("abort", abort, { once: true });
     const data = (chunk: string) => {
       bytes += Buffer.byteLength(chunk);
       if (bytes > opts.maxOutputBytes) {
@@ -108,11 +118,12 @@ function runProcess(
     };
     child.stdout?.on("data", data);
     child.stderr?.on("data", data);
-    child.on("error", (error) => settle(limitError ?? `Error: ${error.message}`));
+    child.on("error", (error) => { killTree(child); settle(limitError ?? `Error: ${error.message}`, true); });
     child.on("close", (code, sig) => {
-      if (limitError) { settle(limitError); return; }
+      if (limitError) { settle(limitError, true); return; }
       const body = output.trim();
-      if (onChunk) settle(`[${sig ? `killed ${sig}` : `exit ${code}`}] ${body.slice(-500)}`.trim());
+      if (opts.rejectOnFailure && (code !== 0 || sig)) settle(`Command exited with ${sig ?? code}${body ? `: ${body}` : ""}`, true);
+      else if (onChunk) settle(`[${sig ? `killed ${sig}` : `exit ${code}`}] ${body.slice(-500)}`.trim());
       else settle(body || (code === 0 ? "(no output)" : `Error: command exited with code ${code}`));
     });
     const timeout = opts.timeoutMs === undefined
