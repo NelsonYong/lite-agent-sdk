@@ -31,7 +31,7 @@ test("ask_user emits request/resolved and returns the rendered text answer", asy
     ctxWith(input, { id: "t1", name: "ask_user", input: {} }, events),
   );
   expect(out).toBe("Bob");
-  expect(input.request).toHaveBeenCalledWith({ question: "name?" });
+  expect(input.request).toHaveBeenCalledWith({ question: "name?" }, expect.any(AbortSignal));
   expect(events).toEqual([
     {
       type: "input_request",

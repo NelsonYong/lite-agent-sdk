@@ -151,3 +151,17 @@ Operations: `checkIntegrity(): { ok, detail }` runs `PRAGMA quick_check` on dema
 - [Observability](/sdk/control/observability) — recording the same event stream for audit and debugging.
 - [Background tasks](/sdk/control/background) — `background_completed` events land in the same session log.
 - [Core strategies](/core/strategies) — the `Checkpointer` strategy interface.
+
+## Progress and safe recovery
+
+`compact(instructions?, { signal }?)` emits live `compaction` events both through its generator and `agent.subscribe()`. Consume one delivery path in a UI to avoid duplicates. `phase` is `start`, `progress`, `done`, `error`, or `cancelled`; `stage` identifies measurement, archiving, normalization, summarization, projection, or persistence. Archive progress reports `completed/total` items. Token counts are measurements/estimates, not a fabricated percentage. A no-op compaction can finish without reducing the count.
+
+`listCheckpoints(id)` returns `{ seq, prompt, ts, files, unavailableFiles }`. New anchors identify user input explicitly, including block-form prompts. Runtime reminders, repair messages and background completions are not user checkpoints. Old logs use a conservative compatibility heuristic.
+
+`restore(id, seq, { files?, conversation?, signal? })` validates the target and preflights every file before applying changes. It rejects unfinished tool-call boundaries, unavailable/truncated snapshots, unsafe paths and detected out-of-band file changes. If an in-process write/truncate fails, it attempts to restore the pre-operation file contents. This is not a filesystem/database transaction that survives arbitrary process or machine failure.
+
+The result is `{ restoredFiles, conversationRestored }`; `checkpoint_restore` subscription events expose start/progress/done/error. Checkpointing covers recorded file-tool changes. Shell commands, external services and arbitrary custom-tool side effects are not automatically reversible. Use `{ files: false }` explicitly for conversation-only recovery when a file snapshot is unavailable. File mutation hashes are recorded for new snapshots; old snapshots cannot provide equivalent external-edit detection.
+
+Compaction and restore require an idle agent, including its background work. They hold a maintenance lock, so concurrent runs cannot write during recovery. The file backend atomically replaces a truncated log; memory, file and SQLite backends check an optional expected head before truncating. SQLite remains the backend for cross-process coordination.
+
+The CLI supports `/compact [instructions]`, `/checkpoints`, and `/restore <seq> [--conversation-only]`. Ctrl-C cancels manual compaction.

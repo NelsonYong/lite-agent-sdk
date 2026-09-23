@@ -43,7 +43,7 @@ Events forwarded from a subagent carry an `agentId`; the main agent's events don
 | `input_request` | `call`, `question` | The model asks the user a question (`ask_user`). |
 | `input_resolved` | `id`, `answer` | The input handler answered. |
 | `steer` | `messages` | Input was injected mid-run via a `SteerController`. |
-| `compaction` | `kind`, `before`, `after`, `phase?` | Context compaction starts / finishes (`micro` / `auto` / `manual`). |
+| `compaction` | `kind`, `before`, `after`, `phase?`, `stage?`, `completed?`, `total?`, `message?` | Context compaction starts / finishes (`micro` / `auto` / `manual`). |
 | `context_status` | `sessionId`, `level`, `reason`, `beforeTokens`, `afterTokens`, `generation`, `plannerUsed`, `plannerFallback`, `plannerLatencyMs`, `archiveRefs`, `retry` | The `ContextEngine` reports automatic context management. |
 | `background_completed` | `completion` | A background task finished. |
 | `diagnostic` | `level`, `code`, `message` | Non-fatal diagnostics (info / warning / error). |
@@ -65,3 +65,5 @@ Middleware and tools can emit through `ctx.emit(ev)`; the kernel buffers those e
 - [Middleware](/core/middleware) — `ctx.emit` and the layers that observe the loop.
 - [Context compaction](/core/compaction) — the `compaction` and `context_status` events.
 - [Persistence](/core/persistence) — the durable `SessionEvent` log behind session replay.
+
+`checkpoint_restore` reports `{ phase, sessionId, toSeq, completed, total, message? }` during manual recovery. Manual compaction and recovery share the subscription stream with normal runs.

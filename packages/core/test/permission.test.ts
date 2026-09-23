@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { policy, permission, strictPolicy, defaultRedactor, composePolicies } from "../src/permission";
+import { policy, permission, strictPolicy, defaultRedactor, composePolicies, serialApproval } from "../src/permission";
 import type { PermissionRule } from "../src/permission";
 import type { PermissionPolicy } from "../src/strategies";
 import { composeToolCall } from "../src/middleware";
@@ -18,6 +18,20 @@ function ctxFor(name: string, emit: (e: AgentEvent) => void): ToolCallContext {
 }
 
 const okExec = async (): Promise<ToolResult> => ({ id: "t1", name: "x", content: "ran" });
+
+test("a queued approval can cancel before the active prompt settles", async () => {
+  let complete!: (answer: "allow") => void;
+  const handler = serialApproval({ request: () => new Promise((resolve) => { complete = resolve; }) });
+  const activeSignal = new AbortController(), queuedSignal = new AbortController();
+  const active = handler.request({ id: "a", name: "tool", input: {} }, activeSignal.signal);
+  await Promise.resolve(); await Promise.resolve();
+  const queued = handler.request({ id: "b", name: "tool", input: {} }, queuedSignal.signal);
+  queuedSignal.abort();
+  await expect(queued).resolves.toBe("deny");
+  activeSignal.abort();
+  await expect(active).resolves.toBe("deny");
+  complete("allow");
+});
 
 // --- policy() ---
 test("policy: exact allow / ask / deny and unmatched default", () => {

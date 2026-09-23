@@ -1,3 +1,5 @@
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 import {
   compaction,
   createAgent,
@@ -12,7 +14,7 @@ import {
   tokenBudgetCompactor,
   toToolSpec,
 } from "@lite-agent/core";
-import type { BackgroundTasks, Checkpointer, Compactor, Middleware, Tool } from "@lite-agent/core";
+import type { AgentEvent, BackgroundTasks, Checkpointer, Compactor, Middleware, Tool } from "@lite-agent/core";
 import { tool } from "./tool";
 import { askUserTool, defaultTools } from "./tools";
 import { SkillLoader } from "./skills/loader";
@@ -53,8 +55,13 @@ export function assembleLiteAgent({
   subagentPool,
   backgroundTasks,
 }: AssembleLiteAgentOptions): LiteAgentRuntime {
+  const readRoots = (sessionId: string): readonly string[] => [
+    sessionContextDir(paths.sessionsDir, sessionId),
+    ...(/^[a-zA-Z0-9_-]+$/.test(sessionId) ? [join(paths.sessionsDir, `${sessionId}.jsonl`)] : []),
+    ...(cfg.fileTools?.readRoots?.(sessionId) ?? []),
+  ];
   let tools: Tool[] = [
-    ...defaultTools(cfg.workdir, { files: cfg.fileTools, bash: cfg.bash }),
+    ...defaultTools(cfg.workdir, { files: { ...cfg.fileTools, readRoots }, bash: cfg.bash }),
   ];
 
   const skillLoader = new SkillLoader([
@@ -84,17 +91,15 @@ export function assembleLiteAgent({
     return archive;
   };
   if (legacyContext && spillStore) tools.push(readSpilledTool(spillStore));
-  if (!legacyContext && cfg.context !== false) {
+  tools.push(contextLookupTool({
+    archiveFor,
+    name: "context",
+    generationFor: async (sessionId) => checkpointer?.head(sessionId) ?? 0,
+  }));
+  if (cfg.spill !== false && (!legacyContext || !spillStore)) {
+    // Compatibility alias uses the same session archive and read boundaries.
     tools.push(contextLookupTool({
-      archiveFor,
-      name: "context",
-      generationFor: async (sessionId) => checkpointer?.head(sessionId) ?? 0,
-    }));
-    // One-release migration alias for callers/models that learned the old name.
-    tools.push(contextLookupTool({
-      archiveFor,
-      name: "read_spilled",
-      legacyMissing: true,
+      archiveFor, name: "read_spilled", legacyMissing: true,
       generationFor: async (sessionId) => checkpointer?.head(sessionId) ?? 0,
     }));
   }
@@ -245,7 +250,7 @@ export function assembleLiteAgent({
     ...(compactor ? [compaction(compactor), reactiveCompaction()] : []),
     ...(cfg.permission
       ? [
-          permission(workspacePolicy(cfg.permission, cfg.workdir), cfg.onApproval, {
+          permission(workspacePolicy(cfg.permission, cfg.workdir, readRoots), cfg.onApproval, {
             redact: cfg.redact,
             mode: cfg.permissionMode,
             audit: cfg.permissionAudit,
@@ -280,6 +285,7 @@ export function assembleLiteAgent({
     sandbox: cfg.sandbox,
     checkpointer,
     input: cfg.onAskUser,
+    archive: archiveFor,
     context: legacyContext || cfg.context === false
       ? false
       : {
@@ -296,6 +302,7 @@ export function assembleLiteAgent({
             sessionId,
             checkpointer,
             provider: cfg.model,
+            model: cfg.modelName,
             windowTokens: contextConfig?.windowTokens,
             planner: contextConfig?.planner,
             archive: archiveFor(sessionId),
@@ -304,20 +311,21 @@ export function assembleLiteAgent({
           const view = await engine.snapshot();
           return estimateTokens([...view.messages]);
         },
-        compact: async (sessionId: string, instructions?: string) => {
+        compact: async (sessionId: string, instructions: string | undefined, emit: (event: AgentEvent) => void, signal: AbortSignal) => {
           const engine = new ContextEngine({
             sessionId,
             checkpointer,
             provider: cfg.model,
+            model: cfg.modelName,
             windowTokens: contextConfig?.windowTokens,
             planner: contextConfig?.planner,
             archive: archiveFor(sessionId),
             staticPrefix: contextStaticPrefix(),
+            signal,
+            onProgress: emit,
           });
-          const beforeView = await engine.snapshot();
-          const before = estimateTokens([...beforeView.messages]);
-          const afterView = await engine.compact("manual", instructions);
-          return { before, after: estimateTokens([...afterView.messages]) };
+          await engine.compact("manual", instructions);
+          return { before: engine.status.beforeTokens, after: engine.status.afterTokens };
         },
         invalidate: (sessionId: string) => {
           archives.delete(sessionId);
@@ -340,5 +348,22 @@ export function assembleLiteAgent({
   // background completion. Keep runtime state in memory, without exposing the
   // persistent session-management API in this mode.
   const persistent = cfg.checkpointer !== undefined || cfg.store !== undefined || cfg.sessions !== false;
-  return { core, checkpointer: persistent ? checkpointer : undefined, compactor: legacyContext ? compactor : undefined, takeOutput, context };
+  return {
+    core, state: checkpointer, checkpointer: persistent ? checkpointer : undefined,
+    compactor: legacyContext ? compactor : undefined, takeOutput, context,
+    async dispose() {
+      archives.clear();
+      taskStores.clear();
+      outputs.clear();
+      if (!persistent) for (const entry of await checkpointer.list()) await checkpointer.delete(entry.id);
+    },
+    removeSession(sessionId) {
+      archives.delete(sessionId);
+      rmSync(sessionContextDir(paths.sessionsDir, sessionId), { recursive: true, force: true });
+      if (!cfg.taskListId && !process.env.LITE_AGENT_TASK_LIST_ID) {
+        taskStores.delete(sessionId);
+        rmSync(join(paths.tasksDir, sessionId.replace(/[^a-zA-Z0-9_-]/g, "_")), { recursive: true, force: true });
+      }
+    },
+  };
 }

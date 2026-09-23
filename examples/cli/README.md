@@ -30,3 +30,5 @@ LITE_AGENT_BASE_URL=https://api.anthropic.com
 The agent operates on the directory you launch it from (`process.cwd()`); skills are loaded from this example's own `skills/`.
 
 Optional `LITE_AGENT_SIMPLE_MODEL_ID` / `LITE_AGENT_COMPLEX_MODEL_ID` select child profiles on the same endpoint. Each profile can set `LITE_AGENT_<TIER>_REASONING_EFFORT` to low/medium/high; `LITE_AGENT_REASONING_EFFORT` sets the base effort. See `.env.example`. The CLI displays child identity, actual model, requested effort, and task state. Unsupported reasoning models report errors rather than silently switching profiles.
+
+Context controls: `/compact [instructions]` streams phase and item progress; Ctrl-C cancels it. `/checkpoints` lists user anchors and unavailable file snapshots. `/restore <seq> [--conversation-only]` validates and restores an idle session. The CLI subscribes once, so both foreground and background operation progress is visible.

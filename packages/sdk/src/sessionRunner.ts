@@ -2,6 +2,7 @@ import {
   AgentError,
   backgroundCompletionMessage,
   createBackgroundTasks,
+  streamOperation,
 } from "@lite-agent/core";
 import type {
   AgentEvent,
@@ -33,6 +34,7 @@ export interface SessionRunner<R extends RunResult> {
   subscribe(listener: (entry: LiteAgentEvent) => void): () => void;
   awaitIdle(sessionId: string): Promise<void>;
   cancelSession(sessionId: string): Promise<void>;
+  operation<T>(sessionId: string, run: (emit: (event: AgentEvent) => void, signal: AbortSignal) => Promise<T>, signal?: AbortSignal): AsyncGenerator<AgentEvent, T>;
   close(): Promise<void>;
 }
 
@@ -62,6 +64,10 @@ export function createSessionRunner<R extends RunResult>(
   const idleWaiters = new Map<string, Set<() => void>>();
   let execute: SessionRun<R> | undefined;
   let closed = false;
+  let maintenance = false;
+  const lifetime = new AbortController();
+  const activeStreams = new Map<AsyncGenerator<AgentEvent, unknown>, { sessionId: string; controller: AbortController }>();
+  const cancelledResult = (): RunResult => ({ messages: [], text: "", usage: { inputTokens: 0, outputTokens: 0 }, stopReason: "aborted" });
 
   const wakeIdleWaiters = (sessionId: string) => {
     const waiters = idleWaiters.get(sessionId);
@@ -163,7 +169,7 @@ export function createSessionRunner<R extends RunResult>(
         sessionId,
         "background",
         completions.map(backgroundCompletionMessage),
-        { signal: scope.abort.signal },
+        { signal: scope.abort.signal, inputSource: "background" },
       );
     } finally {
       for (const completion of completions) {
@@ -205,7 +211,7 @@ export function createSessionRunner<R extends RunResult>(
     const abort = new AbortController();
     let scope!: Scope;
     const tasks = createBackgroundTasks({
-      emit: (event) => publish({ sessionId, source: "background", event }),
+      emit: (event) => { if (scope.active) publish({ sessionId, source: "background", event }); },
       signal: abort.signal,
       limits: opts.limits,
       onCompleted: (completion) => {
@@ -219,13 +225,18 @@ export function createSessionRunner<R extends RunResult>(
   };
 
   const cancelSession = async (sessionId: string) => {
+    const foreground = [...activeStreams].filter(([, entry]) => entry.sessionId === sessionId);
+    for (const [, entry] of foreground) entry.controller.abort();
     const scope = scopes.get(sessionId);
-    if (!scope) return;
-    scope.active = false;
-    scopes.delete(sessionId);
-    scope.abort.abort();
-    scope.tasks.cancelAll();
-    if (scope.draining && scope.completion) await scope.completion;
+    if (scope) {
+      scope.active = false;
+      scopes.delete(sessionId);
+      scope.abort.abort();
+      scope.tasks.cancelAll();
+    }
+    await Promise.allSettled(foreground.map(([stream]) => stream.return(cancelledResult())));
+    if (scope?.draining && scope.completion) await scope.completion;
+    await opts.waitForBackgroundIdle?.(sessionId);
     wakeIdleWaiters(sessionId);
   };
 
@@ -236,13 +247,18 @@ export function createSessionRunner<R extends RunResult>(
     },
     run(input, runOpts) {
       const sessionId = runOpts.sessionId;
-      return (async function* () {
+      const controller = new AbortController();
+      const signal = AbortSignal.any([lifetime.signal, controller.signal, ...(runOpts.signal ? [runOpts.signal] : [])]);
+      let stream!: AsyncGenerator<AgentEvent, R>;
+      stream = (async function* () {
+        if (maintenance) throw new AgentError("Agent is performing session maintenance");
+        activeStreams.set(stream, { sessionId, controller });
         userRuns.set(sessionId, (userRuns.get(sessionId) ?? 0) + 1);
         const release = await acquire(sessionId);
         let generator: AsyncGenerator<AgentEvent, R> | undefined;
         let next: IteratorResult<AgentEvent, R> | undefined;
         try {
-          generator = requireExecute()(input, { ...runOpts, sessionId });
+          generator = requireExecute()(input, { ...runOpts, signal, sessionId });
           next = await generator.next();
           while (!next.done) {
             publish({ sessionId, source: "user", event: next.value });
@@ -251,9 +267,11 @@ export function createSessionRunner<R extends RunResult>(
           }
           return next.value;
         } finally {
+          controller.abort();
           if (generator && next && !next.done) {
             await generator.return(undefined as unknown as R);
           }
+          activeStreams.delete(stream);
           release();
           const remaining = (userRuns.get(sessionId) ?? 1) - 1;
           if (remaining > 0) userRuns.set(sessionId, remaining);
@@ -261,6 +279,32 @@ export function createSessionRunner<R extends RunResult>(
           wakeIdleWaiters(sessionId);
         }
       })();
+      return stream;
+    },
+    operation<T>(sessionId: string, operation: (emit: (event: AgentEvent) => void, signal: AbortSignal) => Promise<T>, signal?: AbortSignal) {
+      const controller = new AbortController();
+      const linked = AbortSignal.any([lifetime.signal, controller.signal, ...(signal ? [signal] : [])]);
+      const inner = streamOperation<AgentEvent, T>(async (emit, operationSignal) => {
+        if (maintenance || userRuns.size > 0 || [...scopes].some(([id, scope]) => !runnerIdle(id) || scope.tasks.pendingDetached()))
+          throw new AgentError("Session is busy; wait for its run and background work before compacting or restoring");
+        maintenance = true;
+        const release = await acquire(sessionId);
+        try {
+          requireExecute();
+          operationSignal.throwIfAborted();
+          return await operation((event) => {
+            publish({ sessionId, source: "user", event });
+            emit(event);
+          }, operationSignal);
+        } finally { maintenance = false; release(); }
+      }, linked);
+      let stream!: AsyncGenerator<AgentEvent, T>;
+      stream = (async function* () {
+        activeStreams.set(stream, { sessionId, controller });
+        try { return yield* inner; }
+        finally { activeStreams.delete(stream); }
+      })();
+      return stream;
     },
     backgroundTasks,
     subscribe(listener) {
@@ -285,7 +329,9 @@ export function createSessionRunner<R extends RunResult>(
     async close() {
       if (closed) return;
       closed = true;
-      await Promise.all([...scopes.keys()].map(cancelSession));
+      lifetime.abort();
+      const sessionIds = new Set([...scopes.keys(), ...[...activeStreams.values()].map((entry) => entry.sessionId)]);
+      await Promise.all([...sessionIds].map(cancelSession));
       for (const sessionId of [...idleWaiters.keys()]) wakeIdleWaiters(sessionId);
       listeners.clear();
     },

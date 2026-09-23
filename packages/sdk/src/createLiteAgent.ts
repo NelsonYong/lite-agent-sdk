@@ -8,7 +8,7 @@ import type { ModelResolver, ResolvedModel } from "./modelCatalog";
 import { createSessionRunner } from "./sessionRunner";
 import { createSubagentPool } from "./subagentPool";
 import type { Spawn, SubagentResult } from "./tools/agent";
-import { composePolicies, policy } from "@lite-agent/core";
+import { composePolicies, policy, serialApproval } from "@lite-agent/core";
 
 export type {
   CreateLiteAgentConfig,
@@ -25,15 +25,7 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
   });
   // One approval queue belongs to the root, including every child. CLI prompts
   // must never overlap when tools or agents execute concurrently.
-  let approvals: Promise<unknown> = Promise.resolve();
-  const handler = cfg.onApproval;
-  const onApproval = handler ? {
-    request: (call: Parameters<typeof handler.request>[0]) => {
-      const next = approvals.then(() => handler.request(call));
-      approvals = next.then(() => undefined, () => undefined);
-      return next;
-    },
-  } : undefined;
+  const onApproval = cfg.onApproval ? serialApproval(cfg.onApproval) : undefined;
   return createLiteAgentInstance({
     ...cfg,
     permission: cfg.permission ?? policy({ ask: ["bash", "write_file", "edit_file", "delete_file"] }),

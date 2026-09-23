@@ -106,7 +106,7 @@ test("read follows only in-workspace symlinks while mutations reject symlink pat
   const [read, write, , remove] = fileTools(dir);
 
   expect(await read!.execute({ path: "inside-link.txt" }, ctx)).toBe("inside");
-  expect(() => read!.execute({ path: "outside-link.txt" }, ctx)).toThrow(/escapes workspace/);
+  await expect(read!.execute({ path: "outside-link.txt" }, ctx)).rejects.toThrow(/escapes workspace/);
   await expect(Promise.resolve(write!.execute({ path: "inside-link.txt", content: "changed" }, ctx))).rejects.toThrow(/Symlink paths/);
   await expect(Promise.resolve(remove!.execute({ path: "inside-link.txt" }, ctx))).rejects.toThrow(/Symlink paths/);
   expect(readFileSync(join(dir, "target.txt"), "utf8")).toBe("inside");

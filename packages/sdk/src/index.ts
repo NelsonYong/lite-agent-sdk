@@ -54,3 +54,5 @@ export type { AgentDefinition } from "./agents/types";
 export type { Spawn, SpawnOptions, SubagentStatus, SubagentResult } from "./tools/agent";
 export { fileCheckpointer } from "./checkpoint";
 export type { FileCheckpointerOptions } from "./checkpoint";
+
+export type { CheckpointInfo, RestoreResult } from "./checkpoints";

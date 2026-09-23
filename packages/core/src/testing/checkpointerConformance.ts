@@ -11,6 +11,18 @@ const drain = async (cp: Checkpointer, id: string, opts?: { sinceSeq?: number })
 /** Behavior every Checkpointer backend must satisfy. Each case throws on failure. */
 export const checkpointerConformance: Array<{ name: string; run: (make: () => Checkpointer) => Promise<void> }> = [
   {
+    name: "truncate rejects a stale expected head without deleting newer events",
+    run: async (make) => {
+      const cp = make();
+      if (!cp.truncate) return;
+      await cp.append("s", [userEvt("first"), userEvt("newer")]);
+      await assert.rejects(() => cp.truncate!("s", 0, 1));
+      assert.deepEqual(await drain(cp, "s"), [1, 2]);
+      await cp.truncate("s", 1, 2);
+      assert.deepEqual(await drain(cp, "s"), [1]);
+    },
+  },
+  {
     name: "append returns monotonic head and read replays in seq order",
     run: async (make) => {
       const cp = make();

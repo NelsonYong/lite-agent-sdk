@@ -3,9 +3,14 @@ import type { Middleware, ToolCallContext } from "../middleware";
 import type { AgentEvent } from "../events";
 import type { ToolCall, ToolResult } from "../types";
 import type { Redactor } from "./redact";
+import { serialApproval } from "./approval";
 import { defaultRedactor } from "./redact";
 
-const norm = (v: Decision | PolicyVerdict): PolicyVerdict => (typeof v === "string" ? { decision: v } : v);
+const norm = (value: Decision | PolicyVerdict): PolicyVerdict => {
+  const verdict = typeof value === "string" ? { decision: value } : value;
+  return verdict && ["allow", "deny", "ask"].includes(verdict.decision)
+    ? verdict : { decision: "deny", reason: "invalid policy decision" };
+};
 
 function denied(ctx: ToolCallContext, base: string, reason?: string): ToolResult {
   return { id: ctx.call.id, name: ctx.call.name, content: `Error: ${base}${reason ? `: ${reason}` : ""}`, isError: true };
@@ -26,14 +31,7 @@ export function permission(
   const redact = opts.redact ?? defaultRedactor;
   const dry = opts.mode === "dry-run";
   const audit = opts.audit === true;
-  // Serialize interactive approval prompts: with concurrent in-turn tool execution,
-  // multiple ask-gated calls would otherwise prompt at the same time and overlap.
-  let lock: Promise<unknown> = Promise.resolve();
-  const requestSerial = (call: ToolCall): Promise<"allow" | "deny"> => {
-    const run = lock.then(() => approval!.request(call));
-    lock = run.then(() => undefined, () => undefined); // advance the chain regardless of outcome
-    return run;
-  };
+  const approver = approval ? serialApproval(approval) : undefined;
   const reportDecision = async (
     ctx: ToolCallContext,
     event: Extract<AgentEvent, { type: "permission_decision" }>,
@@ -46,6 +44,7 @@ export function permission(
   return {
     name: "permission",
     async wrapToolCall(ctx, next) {
+      if (ctx.signal.aborted) return denied(ctx, "call aborted");
       let v: PolicyVerdict;
       try {
         v = norm(await pol.check(ctx.call, { sessionId: ctx.sessionId }));
@@ -59,7 +58,7 @@ export function permission(
       }
       if (v.decision === "allow") {
         await reportDecision(ctx, decisionEvent(ctx.call, "allow", "policy", redact, v));
-        return next();
+        return ctx.signal.aborted ? denied(ctx, "call aborted") : next();
       }
       if (v.decision === "deny") {
         await reportDecision(ctx, decisionEvent(ctx.call, "deny", "policy", redact, v));
@@ -67,11 +66,11 @@ export function permission(
       }
       // ask: keep approval_request/approval_resolved for UI compatibility, then a permission_decision.
       ctx.emit({ type: "approval_request", call: ctx.call });
-      const resolved = approval ? await requestSerial(ctx.call) : "deny";
+      const resolved = approver ? await approver.request(ctx.call, ctx.signal) : "deny";
       const by = approval ? "user" : "auto";
       ctx.emit({ type: "approval_resolved", id: ctx.call.id, decision: resolved, by });
       await reportDecision(ctx, decisionEvent(ctx.call, resolved, by, redact, v));
-      return resolved === "allow" ? next() : denied(ctx, "denied by user");
+      return resolved === "allow" && !ctx.signal.aborted ? next() : denied(ctx, "denied by user");
     },
   };
 }

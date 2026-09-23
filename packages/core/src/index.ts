@@ -1,4 +1,5 @@
 export { createAgent } from "./createAgent";
+export { streamOperation, abortable } from "./channel";
 export type { Agent, CreateAgentConfig, RunOptions } from "./createAgent";
 export type { KernelConfig, KernelContextOptions } from "./kernel";
 
@@ -42,7 +43,7 @@ export type {
   BackgroundTasks, BackgroundHandle, BackgroundCompletion, BackgroundSpawnOptions,
   BackgroundKind, BackgroundRead, BackgroundDeps, BackgroundLimits, BackgroundRunResult, BackgroundStatus,
 } from "./background";
-export { policy, strictPolicy, composePolicies, permission, defaultRedactor } from "./permission";
+export { policy, strictPolicy, composePolicies, permission, serialApproval, defaultRedactor } from "./permission";
 export type { PolicyOptions, PermissionRule, MatchSpec, Condition, Redactor } from "./permission";
 export type {
   ModelProvider, ToolCallCodec, Tool, ToolContext, ToolSecurity, TokenEstimator,

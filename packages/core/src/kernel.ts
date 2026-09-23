@@ -6,7 +6,7 @@ import type { AgentEvent, RunResult } from "./events";
 import { CodecError, ProviderError } from "./events";
 import { composeModelCall, composeToolCall, runLifecycle } from "./middleware";
 import type { AgentContext, Middleware, ToolCallContext } from "./middleware";
-import { channel } from "./channel";
+import { channel, streamOperation } from "./channel";
 import { toToolSpec } from "./tools/define";
 import type { Checkpointer, SessionEvent, StoredEvent } from "./checkpoint";
 import { foldEvents } from "./checkpoint";
@@ -48,6 +48,8 @@ export interface KernelConfig {
   maxSnapshotBytesPerSession?: number;
   /** Automatic context owner. Omitted enables it; false keeps legacy raw messages. */
   context?: false | KernelContextOptions;
+  archive?: ContextArchive | ((sessionId: string) => ContextArchive);
+  inputSource?: "user" | "background";
 }
 
 /** Runtime-only context knobs; pressure thresholds and archive paths stay internal. */
@@ -95,17 +97,22 @@ export async function* runKernel(
         };
       })()
     : {};
+  const archive = typeof cfg.archive === "function" ? cfg.archive(sessionId) : cfg.archive;
+  let contextProgress: ((event: AgentEvent) => void) | undefined;
   const engine = contextEnabled
     ? new ContextEngine({
         sessionId,
         checkpointer: cp,
         provider: cfg.provider,
+        model: cfg.model,
         windowTokens: contextOptions?.windowTokens,
         planner: contextOptions?.planner,
         archive: typeof contextOptions?.archive === "function"
           ? contextOptions.archive(sessionId)
-          : contextOptions?.archive,
+          : contextOptions?.archive ?? archive,
         staticPrefix: contextStaticPrefix,
+        signal,
+        onProgress: (event) => contextProgress?.(event),
       })
     : undefined;
   // Serialize appends so concurrent in-turn tool_result appends can't race `head`.
@@ -165,7 +172,11 @@ export async function* runKernel(
   });
 
   try {
-  await append(...inputMessages.map((m): SessionEvent => ({ type: "user", message: m })));
+  const firstUser = inputMessages.findIndex((m) => m.role === "user");
+  await append(...inputMessages.map((m, i): SessionEvent => ({
+    type: "user", message: m, origin: cfg.inputSource ?? "user",
+    checkpoint: cfg.inputSource !== "background" && i === firstUser,
+  })));
   if (engine) {
     const initial = await engine.snapshot();
     messages = [...initial.messages];
@@ -191,7 +202,7 @@ export async function* runKernel(
     const steers = cfg.steer?.takeSteers() ?? [];
     if (steers.length) {
       ctx.messages.push(...steers);
-      for (const m of steers) await append({ type: "user", message: m });
+      for (const m of steers) await append({ type: "user", message: m, origin: "internal", checkpoint: false });
       yield { type: "steer", messages: steers };
     }
 
@@ -199,25 +210,35 @@ export async function* runKernel(
       for (const c of bg.takeCompleted()) {
         const note = backgroundCompletionMessage(c);
         ctx.messages.push(note);
-        await append({ type: "user", message: note });
+        await append({ type: "user", message: note, origin: "background", checkpoint: false });
         yield { type: "background_completed", completion: c };
       }
     }
 
-    await runLifecycle(cfg.middleware, "beforeModel", ctx);
+    yield* streamOperation<AgentEvent, void>(async (progress) => {
+      const previous = ctx.emit;
+      ctx.emit = progress;
+      try { await runLifecycle(cfg.middleware, "beforeModel", ctx); }
+      finally { ctx.emit = previous; }
+    }, signal);
     yield* drain();
     let contextGeneration: number | undefined;
     if (engine) {
       const durable = await engine.snapshot();
       const overlay = ctx.messages.slice(durable.messages.length);
       const encoded = cfg.codec.encode(modelRequest(cfg, durable.messages), toolSpecs);
-      const prepared = await engine.prepare(encoded, overlay);
+      const prepared = yield* streamOperation<AgentEvent, Awaited<ReturnType<ContextEngine["prepare"]>>>(async (progress) => {
+        contextProgress = progress;
+        try { return await engine.prepare(encoded, overlay); }
+        finally { contextProgress = undefined; }
+      }, signal);
       ctx.messages = [...prepared.messages];
       contextGeneration = prepared.generation;
       if (cp) head = await cp.head(sessionId);
       if (engine.status.level > 0) emitContextStatus(emit, engine.status);
     }
     messages = ctx.messages;
+    yield* drain();
 
     let calls: ToolCall[] = [];
     let decodeAttempts = 0;
@@ -264,7 +285,11 @@ export async function* runKernel(
         };
         if (engine && !streamed && overflowRetries < 1 && isOverflowError(error)) {
           overflowRetries++;
-          const compacted = await engine.compact("overflow");
+          const compacted = yield* streamOperation<AgentEvent, Awaited<ReturnType<ContextEngine["compact"]>>>(async (progress) => {
+            contextProgress = progress;
+            try { return await engine.compact("overflow"); }
+            finally { contextProgress = undefined; }
+          }, signal);
           ctx.messages = [...compacted.messages];
           contextGeneration = compacted.generation;
           if (cp) head = await cp.head(sessionId);
@@ -301,7 +326,7 @@ export async function* runKernel(
           content: `Repair the malformed tool-call response and try again (${error.message}).`,
         };
         ctx.messages.push(repair);
-        await append({ type: "user", message: repair });
+        await append({ type: "user", message: repair, origin: "internal", checkpoint: false });
         continue;
       }
 
@@ -325,7 +350,7 @@ export async function* runKernel(
       if (followUps.length) {
         yield { type: "turn_end", turn, stopReason: "stop" };
         ctx.messages.push(...followUps);
-        for (const m of followUps) await append({ type: "user", message: m });
+        for (const m of followUps) await append({ type: "user", message: m, origin: "internal", checkpoint: false });
         yield { type: "steer", messages: followUps };
         continue; // resurrect: keep looping instead of stopping
       }
@@ -367,12 +392,12 @@ export async function* runKernel(
     const runCall = async (call: ToolCall, i: number): Promise<void> => {
       const callEmit = (ev: AgentEvent) => { ch.push(ev); };
       const recordSnapshot = cfg.checkpointer
-        ? async (path: string, before: string | null, truncated?: boolean, encoding?: "utf8" | "base64") => {
-            let event: SessionEvent = { type: "file_snapshot", path, before, truncated, encoding, turn };
+        ? async (path: string, before: string | null, truncated?: boolean, encoding?: "utf8" | "base64", after?: string | null) => {
+            let event: SessionEvent = { type: "file_snapshot", path, before, truncated, encoding, after, turn };
             const size = snapshotSize(event);
             const limit = cfg.maxSnapshotBytesPerSession;
             if (!truncated && limit !== undefined && snapshotBytes + size > limit) {
-              event = { type: "file_snapshot", path, before: null, truncated: true, turn };
+              event = { type: "file_snapshot", path, before: null, truncated: true, after, turn };
             } else {
               snapshotBytes += size;
             }
@@ -384,8 +409,9 @@ export async function* runKernel(
       const baseExec = async (): Promise<ToolResult> => {
         if (!tool) return { id: call.id, name: call.name, content: `Error: unknown tool '${call.name}'`, isError: true };
         try {
+          signal.throwIfAborted();
           const parsed = tool.schema.parse(call.input);
-          const out = await tool.execute(parsed, { sessionId, signal, emit: callEmit, sandbox: cfg.sandbox, input: cfg.input, call, recordSnapshot, background: bg });
+          const out = await tool.execute(parsed, { sessionId, signal, emit: callEmit, sandbox: cfg.sandbox, input: cfg.input, call, recordSnapshot, background: bg, archive });
           return { id: call.id, name: call.name, content: String(out) };
         } catch (e) {
           return { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true };
@@ -400,6 +426,10 @@ export async function* runKernel(
         result = await composeToolCall(cfg.middleware, tctx, baseExec)();
       } catch (e) {
         result = { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true };
+      }
+      if (archive && Buffer.byteLength(result.content, "utf8") > 16 * 1024) {
+        const saved = await archive.put(result.content, { kind: "tool-result", sessionId, toolCallId: call.id, tool: call.name });
+        result = { ...result, content: `[tool result archived: ${saved.ref}]\n${saved.preview}\nRead using context({ref: "${saved.ref}", offset: 0}).` };
       }
       await append({ type: "tool_result", result: toolResultBlock(result.id, result.content, result.isError), turn });
       results[i] = result;

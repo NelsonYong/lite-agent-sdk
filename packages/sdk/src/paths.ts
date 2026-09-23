@@ -26,7 +26,7 @@ export interface ProjectPaths {
 
 /** Session-local derived context sidecar: never shared across projects/sessions. */
 export function sessionContextDir(sessionsDir: string, sessionId: string): string {
-  const safe = sessionId.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const safe = /^[a-zA-Z0-9_-]+$/.test(sessionId) ? sessionId : `session-${createHash("sha256").update(sessionId).digest("hex")}`;
   return join(sessionsDir, `${safe}.context`);
 }
 

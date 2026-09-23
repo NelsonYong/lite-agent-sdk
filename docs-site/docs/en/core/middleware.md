@@ -57,7 +57,7 @@ The first middleware in the array is the outermost layer — it sees the call fi
 | Middleware | What it does |
 | --- | --- |
 | `retry()` | Retries transient failures with jittered backoff. |
-| `compaction(compactor)` | Runs a `Compactor` in `beforeModel` and swaps in the result, emitting a `compaction` event only when messages actually changed. See [Context compaction](/core/compaction). |
+| `compaction(compactor)` | Runs a `Compactor` in `beforeModel` and swaps in the result, emitting live start/done/error/cancelled `compaction` events. See [Context compaction](/core/compaction). |
 | `reactiveCompaction()` | A `wrapModelCall` safety net: catches a context-overflow rejection, applies `reactiveTrim`, and retries — only if nothing streamed yet. |
 | `permission(...)` | The policy gate: `wrapToolCall` asks the `PermissionPolicy` for a verdict before invoking `next()` — `deny` short-circuits the call, `ask` suspends it on the `ApprovalHandler`. |
 

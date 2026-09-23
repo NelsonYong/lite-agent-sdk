@@ -1,5 +1,6 @@
 import type { Checkpointer, SessionEvent, StoredEvent } from "./checkpoint";
 import { memoryCheckpointer, storeEvents } from "./checkpoint";
+import type { AgentEvent } from "./events";
 import { CheckpointConflictError } from "./events";
 import {
   projectContext,
@@ -83,14 +84,18 @@ export interface ContextEngineOptions {
   readonly sessionId: string;
   readonly checkpointer?: Checkpointer;
   readonly provider?: ModelProvider;
+  readonly model?: string;
   readonly planner?: ContextPlanner | ContextPlannerProvider;
   readonly archive?: ContextArchive;
   readonly windowTokens?: number;
   readonly staticPrefix?: StaticPrefixInput;
+  readonly signal?: AbortSignal;
+  readonly onProgress?: (event: Extract<AgentEvent, { type: "compaction" }>) => void;
+  readonly plannerTimeoutMs?: number;
 }
 
 const DEFAULT_WINDOW = 32_000;
-const PLANNER_TIMEOUT_MS = 100;
+const PLANNER_TIMEOUT_MS = 30_000;
 
 /**
  * Owns one session's derived context view. The log remains the source of truth;
@@ -101,10 +106,17 @@ export class ContextEngine {
 
   private readonly checkpointer: Checkpointer;
   private readonly provider?: ModelProvider;
+  private readonly model: string;
   private readonly planner?: ContextPlanner | ContextPlannerProvider;
   private readonly archive?: ContextArchive;
   private readonly staticPrefix: StaticPrefixInput;
   private readonly windowTokens: number;
+  private readonly signal?: AbortSignal;
+  private readonly onProgress?: ContextEngineOptions["onProgress"];
+  private readonly plannerTimeoutMs: number;
+  private progressKind: "auto" | "manual" = "auto";
+  private progressBefore = 0;
+  private countingUnavailable = false;
   private loaded = false;
   private head = 0;
   private events: StoredEvent[] = [];
@@ -121,8 +133,12 @@ export class ContextEngine {
     this.sessionId = options.sessionId;
     this.checkpointer = options.checkpointer ?? memoryCheckpointer();
     this.provider = options.provider;
+    this.model = options.model ?? options.provider?.id ?? "context";
     this.planner = options.planner;
     this.archive = options.archive;
+    this.signal = options.signal;
+    this.onProgress = options.onProgress;
+    this.plannerTimeoutMs = options.plannerTimeoutMs ?? PLANNER_TIMEOUT_MS;
     this.staticPrefix = clone(options.staticPrefix ?? {});
     const configuredWindow = options.windowTokens ?? options.provider?.context?.contextWindow ?? DEFAULT_WINDOW;
     this.windowTokens = Number.isFinite(configuredWindow) && configuredWindow > 0
@@ -161,6 +177,7 @@ export class ContextEngine {
    * are serialized below, so routine calls do not race each other.
    */
   async assertHead(): Promise<void> {
+    this.signal?.throwIfAborted();
     await this.ensureLoaded();
     const actual = await this.checkpointer.head(this.sessionId);
     if (actual !== this.head) {
@@ -232,40 +249,78 @@ export class ContextEngine {
       return freezeDeep(clone(view));
     }
 
-    const result = await this.applyLevels(base, "pressure", undefined, false, before);
-    const compactedTokens = await this.count(req, result.view.messages);
-    const durable = result.level > 0
-      ? await this.commit(result.view, "pressure", before, compactedTokens, result)
-      : result.view;
-    let rendered = input && input.length > 0 ? appendInput(durable, input) : durable;
-    let after = await this.count(req, rendered.messages);
-    if (after > this.windowTokens) {
-      // Exactly one emergency pass. It is intentionally not a loop: an active
-      // input that cannot fit is never truncated or repeatedly re-summarized.
-      rendered = input && input.length > 0
-        ? appendInput(levelFive(durable), input)
-        : levelFive(rendered);
-      after = await this.count(req, rendered.messages);
-      this.recordStatus(5, "overflow", before, after, rendered, result.plannerUsed, result.plannerFallback, result.plannerLatencyMs, true);
+    this.progressKind = "auto";
+    this.progressBefore = before;
+    this.progress("start", "archive", before);
+    try {
+      const result = await this.applyLevels(base, "pressure", undefined, false, before);
+      const compactedTokens = await this.count(req, result.view.messages);
+      const durable = result.level > 0
+        ? await this.commit(result.view, "pressure", before, compactedTokens, result)
+        : result.view;
+      let rendered = input && input.length > 0 ? appendInput(durable, input) : durable;
+      let after = await this.count(req, rendered.messages);
+      if (after > this.windowTokens) {
+        // Exactly one emergency pass. It is intentionally not a loop: an active
+        // input that cannot fit is never truncated or repeatedly re-summarized.
+        rendered = input && input.length > 0
+          ? appendInput(levelFive(durable), input)
+          : levelFive(rendered);
+        after = await this.count(req, rendered.messages);
+        this.recordStatus(5, "overflow", before, after, rendered, result.plannerUsed, result.plannerFallback, result.plannerLatencyMs, true);
+      }
+      this.snapshotHeads.set(rendered.generation, this.head);
+      this.progress("done", "persist", after);
+      return freezeDeep(clone(rendered));
+    } catch (error) {
+      this.progress(this.signal?.aborted ? "cancelled" : "error", "persist", before, String(error));
+      throw error;
     }
-    this.snapshotHeads.set(rendered.generation, this.head);
-    return freezeDeep(clone(rendered));
   }
 
   /** Run the same policy path as automatic pressure, but force a derived view. */
   async compact(reason: string, instructions?: string): Promise<ContextView> {
-    await this.assertHead();
-    const base = this.baseView();
-    const before = await this.measureView(base);
-    const result = await this.applyLevels(base, reason || "manual", instructions, true, before);
-    if (reason === "overflow") {
-      result.view = levelFive(result.view);
-      result.level = 5;
+    this.progressKind = reason === "manual" ? "manual" : "auto";
+    this.progressBefore = 0;
+    this.progress("start", "measure", 0);
+    try {
+      await this.assertHead();
+      const base = this.baseView();
+      const before = await this.measureView(base);
+      this.progressBefore = before;
+      if (base.messages.length === 0) {
+        this.recordStatus(0, reason || "manual", before, before, base, false, false, 0, false);
+        this.progress("done", "measure", before, "No conversation to compact");
+        return freezeDeep(clone(base));
+      }
+      const result = await this.applyLevels(base, reason || "manual", instructions, true, before);
+      if (reason === "overflow") {
+        result.view = levelFive(result.view);
+        result.level = 5;
+      }
+      const after = await this.measureView(result.view);
+      const committed = await this.commit(result.view, reason || "manual", before, after, result);
+      this.snapshotHeads.set(committed.generation, this.head);
+      this.progress("done", "persist", after);
+      return freezeDeep(clone(committed));
+    } catch (error) {
+      this.progress(this.signal?.aborted ? "cancelled" : "error", "persist", this.progressBefore, String(error));
+      throw error;
     }
-    const after = await this.measureView(result.view);
-    const committed = await this.commit(result.view, reason || "manual", before, after, result);
-    this.snapshotHeads.set(committed.generation, this.head);
-    return freezeDeep(clone(committed));
+  }
+
+  private progress(
+    phase: "start" | "progress" | "done" | "error" | "cancelled",
+    stage: "measure" | "archive" | "normalize" | "summarize" | "project" | "persist",
+    after: number,
+    message?: string,
+    completed?: number,
+    total?: number,
+  ): void {
+    try {
+      this.onProgress?.({ type: "compaction", kind: this.progressKind, phase, stage,
+        before: this.progressBefore, after, message, completed, total });
+    } catch { /* observers cannot change the operation */ }
   }
 
   private async ensureLoaded(): Promise<void> {
@@ -292,11 +347,15 @@ export class ContextEngine {
       system: this.staticPrefix.system ?? req.system,
       messages: [...clone(messages)],
     };
-    if (countTokens) {
+    if (countTokens && !this.countingUnavailable) {
       try {
-        const value = await countTokens(normalized);
+        const signal = AbortSignal.any([AbortSignal.timeout(this.plannerTimeoutMs), ...(this.signal ? [this.signal] : [])]);
+        const value = await withTimeout(countTokens(normalized, signal), signal);
         if (Number.isFinite(value) && value >= 0) return value;
+        this.countingUnavailable = true;
       } catch {
+        this.signal?.throwIfAborted();
+        this.countingUnavailable = true;
         // Provider token counting is an optimization; deterministic fallback below.
       }
     }
@@ -304,7 +363,7 @@ export class ContextEngine {
   }
 
   private async measureView(view: ContextView): Promise<number> {
-    return this.count({ model: "context", system: this.staticPrefix.system, messages: [...view.messages] }, view.messages);
+    return this.count({ model: this.model, system: this.staticPrefix.system, tools: this.staticPrefix.tools ? [...this.staticPrefix.tools] : undefined, messages: [...view.messages] }, view.messages);
   }
 
   private async applyLevels(
@@ -322,16 +381,22 @@ export class ContextEngine {
 
     let pressure = before;
     if (force || pressure > this.windowTokens * 0.65) {
+      this.signal?.throwIfAborted();
+      this.progress("progress", "archive", pressure);
       view = await this.levelOne(view);
       level = 1;
       pressure = await this.measureView(view);
     }
     if (force || pressure > this.windowTokens * 0.75) {
+      this.signal?.throwIfAborted();
+      this.progress("progress", "normalize", pressure);
       view = levelTwo(view);
       level = 2;
       pressure = await this.measureView(view);
     }
     if ((force || pressure > this.windowTokens * 0.85) && this.planner) {
+      this.signal?.throwIfAborted();
+      this.progress("progress", "summarize", pressure);
       const planned = await this.levelThree(view, reason, instructions);
       view = planned.view;
       plannerUsed = planned.used;
@@ -341,6 +406,21 @@ export class ContextEngine {
       pressure = await this.measureView(view);
     }
     if (force || pressure > this.windowTokens * 0.95) {
+      this.signal?.throwIfAborted();
+      this.progress("progress", "project", pressure);
+      if (this.archive) {
+        const refs = [...view.archiveRefs];
+        const segments: ContextSegment[] = [];
+        for (const segment of view.segments) {
+          this.signal?.throwIfAborted();
+          const content = JSON.stringify(segment.messages);
+          if (segment.id === view.segments.at(-1)?.id || content.length < 1024) { segments.push(segment); continue; }
+          const saved = await this.archive.put(content, { kind: "segment", sessionId: this.sessionId, segmentId: segment.id });
+          if (!refs.includes(saved.ref)) refs.push(saved.ref);
+          segments.push({ ...segment, messages: [{ role: "user", content: `[Historical segment archived: ${saved.ref}] Read using context({ref: "${saved.ref}"}).` }] });
+        }
+        view = { ...view, archiveRefs: refs, segments: reindexSegments(segments), messages: segments.flatMap((s) => s.messages) };
+      }
       view = levelFour(view);
       level = 4;
       pressure = await this.measureView(view);
@@ -370,9 +450,9 @@ export class ContextEngine {
     }
     const archiveRefs = [...view.archiveRefs];
     const replacements = new Map<string, string>();
-    for (const [id, item] of byId) {
-      if (externalized.has(id)) continue;
-      if (item.result.content.length < 256 || item.result.content.startsWith("[tool result archived:")) continue;
+    const candidates = [...byId].filter(([id, item]) => !externalized.has(id) && item.result.content.length >= 256 && !item.result.content.startsWith("[tool result archived:"));
+    for (const [id, item] of candidates) {
+      this.signal?.throwIfAborted();
       let marker: string;
       if (this.archive) {
         const saved = await this.archive.put(item.result.content, {
@@ -383,11 +463,12 @@ export class ContextEngine {
           toolCallId: id,
         });
         if (!archiveRefs.includes(saved.ref)) archiveRefs.push(saved.ref);
-        marker = `[tool result archived: ${saved.ref}] ${saved.preview}`;
+        marker = `[tool result archived: ${saved.ref}] ${saved.preview}\nRead using context({ref: "${saved.ref}", offset: 0}).`;
       } else {
         marker = `[tool result externalized after presentation] ${preview(item.result.content, 160)}`;
       }
       replacements.set(id, marker);
+      this.progress("progress", "archive", this.progressBefore, undefined, replacements.size, candidates.length);
     }
     if (replacements.size === 0) return view;
     return mapViewMessages(view, (message) => mapBlocks(message, (block) => {
@@ -423,7 +504,8 @@ export class ContextEngine {
     const started = Date.now();
     const controller = new AbortController();
     this.plannerController = controller;
-    const timeout = setTimeout(() => controller.abort(), PLANNER_TIMEOUT_MS);
+    const timeout = setTimeout(() => controller.abort(), this.plannerTimeoutMs);
+    const signal = this.signal ? AbortSignal.any([this.signal, controller.signal]) : controller.signal;
     try {
       const input: ContextPlannerInput = {
         sessionId: this.sessionId,
@@ -432,7 +514,7 @@ export class ContextEngine {
         view: freezeDeep(clone(view)),
         candidates: freezeDeep(clone(view.segments)),
       };
-      const proposal = await withTimeout(this.callPlanner(input, controller.signal), controller.signal);
+      const proposal = await withTimeout(this.callPlanner(input, signal), signal);
       return {
         view: await applyProposal(view, proposal, this.archive, this.sessionId),
         used: true,
@@ -440,6 +522,8 @@ export class ContextEngine {
         latencyMs: Date.now() - started,
       };
     } catch {
+      this.signal?.throwIfAborted();
+      this.progress("progress", "summarize", this.progressBefore, "Planner unavailable; using deterministic compaction");
       return { view, used: true, fallback: true, latencyMs: Date.now() - started };
     } finally {
       clearTimeout(timeout);
@@ -462,6 +546,8 @@ export class ContextEngine {
     after: number,
     result: LevelResult,
   ): Promise<ContextView> {
+    this.signal?.throwIfAborted();
+    this.progress("progress", "persist", after);
     await this.assertHead();
     const committed = freezeDeep(clone({
       ...view,

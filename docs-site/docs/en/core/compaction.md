@@ -15,7 +15,7 @@ const agent = createAgent({
 });
 ```
 
-`compaction(compactor)` runs the compactor in `beforeModel` and swaps in the result, emitting a `compaction` event only when messages actually changed. `reactiveCompaction()` catches a context-overflow rejection from the provider and retries with a trimmed context — only if nothing has streamed yet.
+`compaction(compactor)` runs the compactor in `beforeModel` and swaps in the result, emitting live start/done/error/cancelled `compaction` events. `reactiveCompaction()` catches a context-overflow rejection from the provider and retries with a trimmed context — only if nothing has streamed yet.
 
 :::info
 When you build on `@lite-agent/sdk`, you usually configure nothing: the SDK passes `context: {}` by default, so the ContextEngine below is already active. The low-level core keeps raw-message behavior when `context` is omitted.
@@ -27,7 +27,7 @@ Deterministic passes and ready-made `Compactor`s, all exported from `@lite-agent
 
 | Symbol | What it does |
 | --- | --- |
-| `compaction(compactor)` | `beforeModel` middleware that runs a compactor and swaps in the result, emitting a `compaction` event only when messages actually changed. |
+| `compaction(compactor)` | `beforeModel` middleware that runs a compactor and swaps in the result, emitting live start/done/error/cancelled `compaction` events. |
 | `defaultCompactor(opts?)` | Zero-API pipeline: `toolResultBudgetPass` (spill) → `snipPass` (drop whole middle turns, keep head + tail) → `microPass` (placeholder old tool-result bodies, keep the newest 3). All cuts are turn-aligned, so tool_call/tool_result pairing stays intact. |
 | `llmCompactor(opts)` | Runs a deterministic base first, then — only if still over `tokenThreshold` — summarizes older turns into one message with a single model call. A circuit breaker (default 2 failures) falls back to the base so compaction can never wedge the run. |
 | `tokenBudgetCompactor(opts)` | Keeps the newest turns that fit a hard `maxTokens` budget; drops older turns behind a marker. |
@@ -49,3 +49,11 @@ Create one standalone with `createContextEngine`, or project a view yourself wit
 - [Model providers](/core/providers) — which providers expose native context-editing capabilities.
 - [Session persistence](/core/persistence) — the event log the ContextEngine builds on.
 - [Tool-call codecs](/core/codecs) — how history is encoded after compaction.
+
+## Large outputs and the SDK data workspace
+
+The project directory and SDK-owned data directory are distinct scopes. SDK sessions and archives live under `<home>/projects/<project-hash>/`, commonly in `~/.lite-agent`; they need not live inside `workdir`. `read_file` can read the current session's authorized archive/log paths outside the project, while ordinary writes remain workspace-scoped. Other sessions, projects and arbitrary host paths are not granted by this exception.
+
+Before a large file is truncated, its complete UTF-8 content is archived. Other tool outputs over 16 KiB are also externalized before the next model call. The model receives a stable SHA-256 reference and a short preview. Use `context({ ref, offset?, limit? })` and the returned `nextOffset` to continue reading. Copy this opaque character offset rather than treating it as a byte count. Reads are capped, Unicode-safe, data-only, checked against the session index and protected against symlink substitution. `read_spilled` remains a compatibility alias; explicit legacy spill configurations keep their old backend.
+
+Compaction creates a derived view without destroying the source event log. Older projected segments are archived before shortening. The active segment and established user facts remain protected, so compression is not guaranteed to fit an arbitrarily small window. Planner work has a bounded timeout and deterministic fallback; cancellation does not commit a partial view. SDK archive bodies and index entries are flushed before their references are returned.

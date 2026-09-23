@@ -57,7 +57,7 @@ use: [A, B, C]
 | 中间件 | 作用 |
 | --- | --- |
 | `retry()` | 带抖动退避的瞬态失败重试。 |
-| `compaction(compactor)` | 在 `beforeModel` 中运行 `Compactor` 并换入结果，仅当消息真的变化时发出 `compaction` 事件。见[上下文压缩](/zh/core/compaction)。 |
+| `compaction(compactor)` | 在 `beforeModel` 中运行 `Compactor` 并换入结果，实时发出开始、完成、错误或取消的 `compaction` 事件。见[上下文压缩](/zh/core/compaction)。 |
 | `reactiveCompaction()` | `wrapModelCall` 安全网：捕获上下文溢出错误，应用 `reactiveTrim` 并重试——仅在尚未流出任何内容时。 |
 | `permission(...)` | 策略闸门：`wrapToolCall` 在调用 `next()` 之前先向 `PermissionPolicy` 要裁决——`deny` 直接短路，`ask` 把调用挂起在 `ApprovalHandler` 上。 |
 

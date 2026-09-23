@@ -206,7 +206,7 @@ function collectFacts(events: readonly StoredEvent[]): Fact[] {
   let sawUser = false;
   for (const entry of events) {
     const evidenceRefs = [`${entry.sessionId}:${entry.seq}`];
-    if (entry.event.type === "user") {
+    if (entry.event.type === "user" && (entry.event.origin === undefined || entry.event.origin === "user")) {
       const text = messageText(entry.event.message).trim();
       if (!text) continue;
       const kind = CONSTRAINT.test(text) ? "constraint" : GOAL.test(text) || !sawUser ? "goal" : undefined;

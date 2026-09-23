@@ -26,12 +26,21 @@ const workdir = process.cwd();
 let pendingApproval: ((decision: "allow" | "deny") => void) | null = null;
 
 const onApproval: ApprovalHandler = {
-  request: (call) =>
+  request: (call, signal) =>
     new Promise((resolve) => {
       process.stdout.write(
         `\n\x1b[33m[approve] ${call.name} ${JSON.stringify(call.input)}? [y/N] \x1b[0m`,
       );
-      pendingApproval = resolve;
+      const abort = () => {
+        pendingApproval = null;
+        resolve("deny");
+      };
+      pendingApproval = (decision) => {
+        signal?.removeEventListener("abort", abort);
+        resolve(decision);
+      };
+      if (signal?.aborted) abort();
+      else signal?.addEventListener("abort", abort, { once: true });
     }),
 };
 
@@ -55,7 +64,7 @@ function parseAnswer(q: UserQuestion, text: string): UserAnswer {
 }
 
 const onAskUser: InputHandler = {
-  request: (q) =>
+  request: (q, signal) =>
     new Promise((resolve) => {
       process.stdout.write(`\n\x1b[36m[ask] ${q.question}\x1b[0m\n`);
       if (q.options && q.options.length) {
@@ -66,10 +75,16 @@ const onAskUser: InputHandler = {
       } else {
         process.stdout.write("> ");
       }
+      const abort = () => { pendingInput = null; resolve({ text: "" }); };
       pendingInput = {
         buffer: "",
-        resolve: (text) => resolve(parseAnswer(q, text)),
+        resolve: (text) => {
+          signal?.removeEventListener("abort", abort);
+          resolve(parseAnswer(q, text));
+        },
       };
+      if (signal?.aborted) abort();
+      else signal?.addEventListener("abort", abort, { once: true });
     }),
 };
 
@@ -103,6 +118,15 @@ process.stdout.write(`\x1b[90m[session] ${agent.sessionId}\x1b[0m\n`);
 
 function render(ev: AgentEvent): void {
   switch (ev.type) {
+    case "compaction": {
+      const count = ev.completed !== undefined && ev.total !== undefined ? ` ${ev.completed}/${ev.total}` : "";
+      const tokens = ev.phase === "done" ? ` ${ev.before} → ${ev.after} tokens` : "";
+      process.stdout.write(`\n[compact] ${ev.phase ?? ev.kind} ${ev.stage ?? ""}${count}${tokens}${ev.message ? `: ${ev.message}` : ""}\n`);
+      break;
+    }
+    case "checkpoint_restore":
+      process.stdout.write(`\n[restore] ${ev.phase} ${ev.completed}/${ev.total}${ev.message ? `: ${ev.message}` : ""}\n`);
+      break;
     case "model_call_start":
       process.stdout.write(`\n[${ev.agentId ?? "main"}] model=${ev.model} reasoning=${ev.reasoningEffort ?? "provider default"}\n`);
       break;
@@ -183,7 +207,11 @@ function readPrompt(rl: ReturnType<typeof createInterface>): Promise<string> {
 
 async function main(): Promise<void> {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const unsubscribe = agent.subscribe(({ sessionId, event }) => {
+    if (sessionId === agent.sessionId) render(event);
+  });
 
+  try {
   while (true) {
     const text = (await readPrompt(rl)).trim();
     if (!text) continue;
@@ -205,6 +233,22 @@ async function main(): Promise<void> {
             agent.resume(arg);
             process.stdout.write(`\x1b[90m[session] ${agent.sessionId}\x1b[0m\n`);
           }
+        } else if (cmd === "compact") {
+          const controller = new AbortController();
+          const cancel = () => controller.abort();
+          rl.on("SIGINT", cancel);
+          try { for await (const _ of agent.compact(arg || undefined, { signal: controller.signal })) { /* subscribe renders progress */ } }
+          finally { rl.removeListener("SIGINT", cancel); }
+        } else if (cmd === "checkpoints") {
+          const checkpoints = await agent.listCheckpoints(agent.sessionId);
+          if (!checkpoints.length) process.stdout.write("[checkpoints] no user checkpoints yet\n");
+          for (const cp of checkpoints) {
+            process.stdout.write(`  ${cp.seq}\t${new Date(cp.ts).toLocaleString()}\t${cp.prompt.slice(0, 100)}\t${cp.files.length} files${cp.unavailableFiles.length ? `; unavailable: ${cp.unavailableFiles.join(", ")}` : ""}\n`);
+          }
+        } else if (cmd === "restore") {
+          if (!/^\d+$/u.test(rest[0] ?? "") || rest.length > 2 || (rest[1] && rest[1] !== "--conversation-only"))
+            throw new Error("usage: /restore <checkpoint-seq> [--conversation-only]");
+          await agent.restore(agent.sessionId, Number(rest[0]), { files: rest[1] !== "--conversation-only" });
         } else if (cmd === "clear") {
           process.stdout.write(`\x1b[90m[session] ${agent.clear()} (new)\x1b[0m\n`);
         } else if (cmd === "delete") {
@@ -268,7 +312,6 @@ async function main(): Promise<void> {
       const gen = agent.run([{ role: "user", content: text }], { signal: ac.signal });
       let r = await gen.next();
       while (!r.done) {
-        render(r.value);
         r = await gen.next();
       }
     } catch (e) {
@@ -281,7 +324,11 @@ async function main(): Promise<void> {
       rl.resume();
     }
   }
-  rl.close();
+  } finally {
+    unsubscribe();
+    await agent.close();
+    rl.close();
+  }
 }
 
 main().catch((e) => {

@@ -5,7 +5,7 @@ import type {
   ModelChunk,
   Usage,
 } from "@lite-agent/core";
-import { textBlock } from "@lite-agent/core";
+import { textBlock, ProviderError } from "@lite-agent/core";
 
 type Chunk = OpenAI.Chat.Completions.ChatCompletionChunk;
 
@@ -14,7 +14,7 @@ function safeParse(args: string): unknown {
   try {
     return JSON.parse(args);
   } catch {
-    return {};
+    throw new ProviderError("Malformed JSON in streamed tool arguments");
   }
 }
 
@@ -49,6 +49,7 @@ export async function* translateStream(
   const content: ContentBlock[] = [];
   if (text) content.push(textBlock(text));
   for (const [, c] of [...calls.entries()].sort((a, b) => a[0] - b[0])) {
+    if (!c.id || !c.name) throw new ProviderError("Incomplete streamed tool call identity");
     content.push({
       type: "tool_call",
       id: c.id,

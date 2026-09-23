@@ -34,7 +34,7 @@ const MIB = 1024 * 1024;
 const GIB = 1024 * MIB;
 
 const BASE_RULES: PermissionRule[] = [
-  { id: "builtin-read", tool: ["read_file", "read_spilled", "load_skill", "TaskGet", "TaskList", "BashOutput"], effect: "allow" },
+  { id: "builtin-read", tool: ["read_file", "context", "read_spilled", "load_skill", "TaskGet", "TaskList", "BashOutput"], effect: "allow" },
   { id: "builtin-input", tool: ["ask_user", "final_answer"], effect: "allow" },
 ];
 

@@ -1,4 +1,4 @@
-import { AgentError, estimateTokens, foldEvents } from "@lite-agent/core";
+import { AgentError, estimateTokens, foldEvents, abortable } from "@lite-agent/core";
 import type {
   Agent,
   AgentEvent,
@@ -24,8 +24,9 @@ import type {
 } from "@lite-agent/core";
 import type { ContextPlannerProvider } from "@lite-agent/core";
 import type { ZodType } from "zod";
-import { existsSync, unlinkSync } from "node:fs";
-import { atomicWriteFile, resolveSafePath } from "./tools/file";
+
+import { checkpointEntries, checkpointList, restoreCheckpoint } from "./checkpoints";
+import type { CheckpointInfo, RestoreResult } from "./checkpoints";
 import type { FileToolsOptions } from "./tools/file";
 import type { BashToolOptions } from "./tools/bash";
 import { newSessionId } from "./store";
@@ -155,23 +156,26 @@ export interface LiteAgent extends Agent {
   /** List the rewind anchors (one per user prompt) for a session, oldest-first. Each entry's
    *  `seq` is the value to pass to `restore` to roll back to just BEFORE that prompt (so the
    *  prompt and everything after it are undone) — pass it straight through: `restore(id, cp.seq)`. */
-  listCheckpoints(id: string): Promise<{ seq: number; prompt: string; ts: string }[]>;
+  listCheckpoints(id: string): Promise<CheckpointInfo[]>;
   /** Roll a session back to the state right after event `toSeq`: revert files snapshotted after
    *  it (`files`) and/or truncate the conversation to it (`conversation`). Both default true.
    *  Sets the current session to `id`. Conversation rollback needs an event-sourced checkpointer
    *  with `truncate` (the default file/sqlite backends; a legacy `store` cannot). */
-  restore(id: string, toSeq: number, opts?: { conversation?: boolean; files?: boolean }): Promise<void>;
+  restore(id: string, toSeq: number, opts?: { conversation?: boolean; files?: boolean; signal?: AbortSignal }): Promise<RestoreResult>;
   /** Manually compact the current session: compress the conversation, persist the result,
    *  emit progress + a completion notification, then stop. No model answer is produced.
    *  Optional `instructions` steer this compaction (Claude Code's `/compact <instructions>`) —
    *  passed to the compactor to bias what's preserved; only LLM-summary compactors act on it. */
-  compact(instructions?: string): AsyncGenerator<AgentEvent, { before: number; after: number }>;
+  compact(instructions?: string, opts?: { signal?: AbortSignal }): AsyncGenerator<AgentEvent, { before: number; after: number }>;
 }
 
 /** Internal construction result. Not re-exported from createLiteAgent.ts or index.ts. */
 export interface LiteAgentRuntime {
   readonly core: Agent;
   readonly checkpointer?: Checkpointer;
+  readonly state: Checkpointer;
+  dispose?(): Promise<void>;
+  removeSession?(sessionId: string): void;
   /** The effective composed compactor shared with manual compact(). */
   readonly compactor?: Compactor;
   /** Present only with outputSchema; returns and removes one session's capture. */
@@ -179,7 +183,7 @@ export interface LiteAgentRuntime {
   /** Internal context control shared by automatic and manual compaction. */
   readonly context?: {
     measure(sessionId: string): Promise<number>;
-    compact(sessionId: string, instructions?: string): Promise<{ before: number; after: number }>;
+    compact(sessionId: string, instructions: string | undefined, emit: (event: AgentEvent) => void, signal: AbortSignal): Promise<{ before: number; after: number }>;
     invalidate(sessionId: string): void;
     remove?(sessionId: string): void;
   };
@@ -229,7 +233,8 @@ export function createLiteAgentFacade(
         try {
           await sessions.close();
         } finally {
-          await closeRuntime?.();
+          try { await closeRuntime?.(); }
+          finally { await runtime.dispose?.(); }
         }
       })();
       return closePromise;
@@ -255,113 +260,66 @@ export function createLiteAgentFacade(
       await sessions.cancelSession(id);
       if (!runtime.checkpointer) return noSessions();
       await runtime.checkpointer.delete(id);
-      runtime.context?.remove?.(id);
+      runtime.removeSession?.(id);
       runtime.context?.invalidate(id);
     },
     listSessions: () =>
       runtime.checkpointer ? runtime.checkpointer.list() : noSessions(),
     listCheckpoints: async (id: string) => {
       if (!runtime.checkpointer) return noSessions();
-      const checkpoints: { seq: number; prompt: string; ts: string }[] = [];
-      for await (const entry of runtime.checkpointer.read(id)) {
-        if (entry.event.type === "user" && typeof entry.event.message.content === "string") {
-          checkpoints.push({
-            seq: entry.seq - 1,
-            prompt: entry.event.message.content,
-            ts: entry.ts,
-          });
-        }
-      }
-      return checkpoints;
+      return checkpointList(await checkpointEntries(runtime.checkpointer, id));
     },
-    restore: async (
-      id: string,
-      toSeq: number,
-      opts?: { conversation?: boolean; files?: boolean },
-    ) => {
+    restore: async (id, toSeq, opts = {}) => {
       if (!runtime.checkpointer) return noSessions();
-      const files = opts?.files ?? true;
-      const conversation = opts?.conversation ?? true;
-      if (files) {
-        const earliest = new Map<
-          string,
-          {
-            before: string | null;
-            truncated?: boolean;
-            encoding?: "utf8" | "base64";
-          }
-        >();
-        for await (const entry of runtime.checkpointer.read(id, { sinceSeq: toSeq })) {
-          if (entry.event.type === "file_snapshot" && !earliest.has(entry.event.path)) {
-            earliest.set(entry.event.path, {
-              before: entry.event.before,
-              truncated: entry.event.truncated,
-              encoding: entry.event.encoding,
-            });
-          }
+      const cp = runtime.checkpointer;
+      const operation = sessions.operation(id, async (emit, signal) => {
+        let completed = 0, total = 0;
+        emit({ type: "checkpoint_restore", phase: "start", sessionId: id, toSeq, completed, total });
+        try {
+          const result = await restoreCheckpoint(cp, workdir, id, toSeq, opts, (done, count) => {
+            completed = done; total = count;
+            emit({ type: "checkpoint_restore", phase: "progress", sessionId: id, toSeq, completed, total });
+          }, signal);
+          runtime.context?.invalidate(id);
+          currentSessionId = id;
+          emit({ type: "checkpoint_restore", phase: "done", sessionId: id, toSeq, completed, total });
+          return result;
+        } catch (error) {
+          emit({ type: "checkpoint_restore", phase: "error", sessionId: id, toSeq, completed, total, message: String(error) });
+          throw error;
         }
-        for (const [path, snapshot] of earliest) {
-          if (snapshot.truncated) continue;
-          const file = resolveSafePath(workdir, path, {
-            mode: snapshot.before === null ? "delete" : "write",
-            symlinks: "deny",
-          });
-          if (snapshot.before === null) {
-            if (existsSync(file)) unlinkSync(file);
-          } else {
-            const body = snapshot.encoding === "base64"
-              ? Buffer.from(snapshot.before, "base64")
-              : snapshot.before;
-            atomicWriteFile(file, body);
-          }
-        }
-      }
-      if (conversation) {
-        if (!runtime.checkpointer.truncate) {
-          throw new AgentError("conversation restore requires a checkpointer that supports truncate");
-        }
-        await runtime.checkpointer.truncate(id, toSeq);
-      }
-      runtime.context?.invalidate(id);
-      currentSessionId = id;
+      }, opts.signal);
+      let next = await operation.next();
+      while (!next.done) next = await operation.next();
+      return next.value;
     },
-    async *compact(instructions) {
-      if (!runtime.checkpointer) {
-        await noSessions();
-        return { before: 0, after: 0 };
-      }
+    async *compact(instructions, opts) {
       const id = currentSessionId;
-      if (runtime.context) {
-        const before = await runtime.context.measure(id);
-        yield { type: "compaction", kind: "manual", phase: "start", before, after: before };
-        const result = await runtime.context.compact(id, instructions);
-        yield { type: "compaction", kind: "manual", phase: "done", before: result.before, after: result.after };
-        return result;
-      }
-      if (!runtime.compactor) {
-        throw new AgentError("compact requires a compactor (it is disabled when compactor:false)");
-      }
-      const stored = [];
-      for await (const entry of runtime.checkpointer.read(id)) stored.push(entry);
-      const messages = foldEvents(stored.map((entry) => entry.event));
-      const before = estimateTokens(messages);
-      yield { type: "compaction", kind: "manual", phase: "start", before, after: before };
-      const result = await runtime.compactor.maybeCompact(
-        messages,
-        { inputTokens: 0, outputTokens: 0 },
-        instructions,
-      );
-      const after = estimateTokens(result.messages);
-      if (result.messages !== messages) {
-        const head = stored.length ? stored[stored.length - 1]!.seq : 0;
-        await runtime.checkpointer.append(
-          id,
-          [{ type: "summary", messages: result.messages, throughSeq: head, before, after }],
-          head,
-        );
-      }
-      yield { type: "compaction", kind: "manual", phase: "done", before, after };
-      return { before, after };
+      return yield* sessions.operation(id, async (emit, signal) => {
+        if (runtime.context) return runtime.context.compact(id, instructions, emit, signal);
+        let before = 0;
+        emit({ type: "compaction", kind: "manual", phase: "start", stage: "measure", before, after: before });
+        try {
+          if (!runtime.compactor) throw new AgentError("compact requires context management or a compactor");
+          const stored = await checkpointEntries(runtime.state, id);
+          const messages = foldEvents(stored.map((entry) => entry.event));
+          before = estimateTokens(messages);
+          emit({ type: "compaction", kind: "manual", phase: "progress", stage: "summarize", before, after: before });
+          const result = await abortable(runtime.compactor.maybeCompact(messages, { inputTokens: 0, outputTokens: 0 }, instructions, signal), signal);
+          signal.throwIfAborted();
+          const after = estimateTokens(result.messages);
+          if (result.messages !== messages) {
+            const head = stored.at(-1)?.seq ?? 0;
+            emit({ type: "compaction", kind: "manual", phase: "progress", stage: "persist", before, after });
+            await runtime.state.append(id, [{ type: "summary", messages: result.messages, throughSeq: head, before, after }], head);
+          }
+          emit({ type: "compaction", kind: "manual", phase: "done", stage: "persist", before, after });
+          return { before, after };
+        } catch (error) {
+          emit({ type: "compaction", kind: "manual", phase: signal.aborted ? "cancelled" : "error", before, after: before, message: String(error) });
+          throw error;
+        }
+      }, opts?.signal);
     },
   };
 }

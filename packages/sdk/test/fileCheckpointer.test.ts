@@ -5,6 +5,18 @@ import { join } from "node:path";
 import { checkpointerConformance } from "@lite-agent/core";
 import { fileCheckpointer } from "../src/checkpoint";
 
+test("independent file checkpointers invalidate cached heads after another instance appends", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "fc-cache-"));
+  const a = fileCheckpointer({ dir }), b = fileCheckpointer({ dir });
+  const event = { type: "user" as const, message: { role: "user" as const, content: "hello" } };
+  await a.append("s", [event]);
+  expect(await a.head("s")).toBe(1);
+  await b.append("s", [event], 1);
+  await expect(a.append("s", [event], 1)).rejects.toThrow(/conflict/i);
+  await expect(a.truncate!("s", 0, 1)).rejects.toThrow(/conflict/i);
+  expect(await a.head("s")).toBe(2);
+});
+
 for (const c of checkpointerConformance) {
   test(`fileCheckpointer: ${c.name}`, async () => {
     await c.run(() => fileCheckpointer({ dir: mkdtempSync(join(tmpdir(), "fc-")) }));

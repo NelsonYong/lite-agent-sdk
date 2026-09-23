@@ -4,7 +4,7 @@ import {
 } from "node:fs";
 import type { Stats } from "node:fs";
 import { isUtf8 } from "node:buffer";
-import { randomBytes } from "node:crypto";
+import { randomBytes, createHash } from "node:crypto";
 import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
 import { defineTool } from "@lite-agent/core";
@@ -15,6 +15,8 @@ const MAX_SNAPSHOT_BYTES = 1024 * 1024;
 const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "coverage", ".next", ".lite-agent"]);
 
 export interface FileToolsOptions {
+  /** Additional trusted SDK data paths available for reads only. */
+  readRoots?: (sessionId: string) => readonly string[];
   /** Read symlinks only when their final target remains in the workspace. Mutations always reject them. */
   symlinks?: "inside" | "deny";
   /** Maximum pre-mutation snapshot size. Default 1 MiB. */
@@ -65,6 +67,19 @@ export function resolveSafePath(
     if (!isInside(root, current)) throw new Error(`Path escapes workspace: ${requested}`);
   }
   return current;
+}
+
+export function resolveReadPath(workdir: string, requested: string, roots: readonly string[] = [], symlinks: "inside" | "deny" = "inside"): string {
+  try { return resolveSafePath(workdir, requested, { mode: "read", symlinks }); }
+  catch (error) {
+    if (!isAbsolute(requested)) throw error;
+    for (const root of roots) {
+      if (!existsSync(root) || lstatSync(root).isSymbolicLink()) continue;
+      try { return resolveSafePath(root, requested, { mode: "read", symlinks: "deny" }); }
+      catch { /* Try only explicitly authorized SDK roots. */ }
+    }
+    throw error;
+  }
 }
 
 /** Legacy lexical resolver retained for callers; file tools use resolveSafePath. */
@@ -170,24 +185,30 @@ export function fileTools(workdir: string, opts: FileToolsOptions = {}): Tool[] 
   const safePath = (path: string, mode: PathMode) =>
     resolveSafePath(workdir, path, { mode, symlinks: opts.symlinks ?? "inside" });
   const write = opts.atomicWrites === false ? writeFileSync : atomicWriteFile;
-  const snapshot = async (path: string, fp: string, ctx: ToolContext) => {
+  const snapshot = async (path: string, fp: string, ctx: ToolContext, after: string | null) => {
     if (!ctx.recordSnapshot) return;
-    if (!existsSync(fp)) { await ctx.recordSnapshot(path, null); return; }
+    if (!existsSync(fp)) { await ctx.recordSnapshot(path, null, undefined, undefined, after); return; }
     const size = statSync(fp).size;
-    if (size > maxSnapshotBytes) { await ctx.recordSnapshot(path, null, true); return; }
+    if (size > maxSnapshotBytes) { await ctx.recordSnapshot(path, null, true, undefined, after); return; }
     const body = readFileSync(fp);
-    if (isUtf8(body)) await ctx.recordSnapshot(path, body.toString("utf8"), undefined, "utf8");
-    else await ctx.recordSnapshot(path, body.toString("base64"), undefined, "base64");
+    if (isUtf8(body)) await ctx.recordSnapshot(path, body.toString("utf8"), undefined, "utf8", after);
+    else await ctx.recordSnapshot(path, body.toString("base64"), undefined, "base64", after);
   };
 
   const readFile = defineTool({
     name: "read_file",
     description:
       "Read a file's contents. `path` is relative to the workspace root (an absolute path inside the workspace also works). Pass the optional `limit` to cap how many lines are returned for large files. Prefer this over running cat/head/tail in bash.",
-    schema: z.object({ path: z.string(), limit: z.number().int().optional() }),
+    schema: z.object({ path: z.string(), limit: z.number().int().positive().optional() }),
     security: { network: "none", filesystem: "workspace", sideEffects: "none" },
-    execute: ({ path, limit }) => {
-      const lines = readOrHint(root, path, safePath(path, "read")).split("\n");
+    execute: async ({ path, limit }, ctx) => {
+      const file = resolveReadPath(workdir, path, opts.readRoots?.(ctx.sessionId), opts.symlinks);
+      const content = readOrHint(root, path, file);
+      if (ctx.archive && Buffer.byteLength(content, "utf8") > MAX_BYTES) {
+        const saved = await ctx.archive.put(content, { kind: "file", path, sessionId: ctx.sessionId });
+        return `[tool result archived: ${saved.ref}] ${Buffer.byteLength(content, "utf8")} bytes from ${path}.\n${saved.preview}\nRead the complete file in pages using context({ref: "${saved.ref}", offset: 0}).`;
+      }
+      const lines = content.split("\n");
       if (limit && limit < lines.length) {
         return [...lines.slice(0, limit), `... (${lines.length - limit} more lines)`]
           .join("\n")
@@ -205,7 +226,7 @@ export function fileTools(workdir: string, opts: FileToolsOptions = {}): Tool[] 
     security: { network: "none", filesystem: "workspace", sideEffects: "workspace" },
     execute: async ({ path, content }, ctx) => {
       const fp = safePath(path, "write");
-      await snapshot(path, fp, ctx);
+      await snapshot(path, fp, ctx, createHash("sha256").update(content).digest("hex"));
       write(fp, content);
       return `Wrote ${content.length} bytes to ${path}`;
     },
@@ -221,8 +242,9 @@ export function fileTools(workdir: string, opts: FileToolsOptions = {}): Tool[] 
       const fp = safePath(path, "write");
       const content = readOrHint(root, path, fp);
       if (!content.includes(old_text)) return `Error: Text not found in ${path}`;
-      await snapshot(path, fp, ctx);
-      write(fp, content.replace(old_text, new_text));
+      const updated = content.replace(old_text, new_text);
+      await snapshot(path, fp, ctx, createHash("sha256").update(updated).digest("hex"));
+      write(fp, updated);
       return `Edited ${path}`;
     },
   });
@@ -237,7 +259,7 @@ export function fileTools(workdir: string, opts: FileToolsOptions = {}): Tool[] 
       const fp = safePath(path, "delete");
       const stat = statOrHint(root, path, fp);
       if (!stat.isFile()) throw new Error(`Not a regular file: ${path}`);
-      await snapshot(path, fp, ctx);
+      await snapshot(path, fp, ctx, null);
       unlinkSync(fp);
       return `Deleted ${path}`;
     },

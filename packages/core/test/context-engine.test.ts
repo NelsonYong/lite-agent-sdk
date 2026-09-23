@@ -126,6 +126,7 @@ test("planner timeout falls back to deterministic projection", async () => {
   };
   const engine = new ContextEngine({
     sessionId: "planner-timeout",
+    plannerTimeoutMs: 100,
     staticPrefix: { system: "stable" },
     planner,
     windowTokens: 4,

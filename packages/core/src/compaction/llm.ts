@@ -37,7 +37,7 @@ export function llmCompactor(opts: LlmCompactorOptions): Compactor {
   let failures = 0;
   let circuitOpen = false;
 
-  async function summarize(older: Message[], instructions?: string): Promise<string> {
+  async function summarize(older: Message[], instructions?: string, signal?: AbortSignal): Promise<string> {
     const system = instructions
       ? `${summaryPrompt}\n\nAdditional user instructions for this summary (follow them closely):\n${instructions}`
       : summaryPrompt;
@@ -47,7 +47,7 @@ export function llmCompactor(opts: LlmCompactorOptions): Compactor {
       messages: [...older, { role: "user", content: "Summarize the conversation above as instructed." }],
     };
     let assistant: Message | undefined;
-    for await (const chunk of opts.provider.stream(req)) {
+    for await (const chunk of opts.provider.stream(req, signal)) {
       if (chunk.type === "message_done") assistant = chunk.message;
     }
     if (!assistant || !Array.isArray(assistant.content)) return "";
@@ -55,9 +55,9 @@ export function llmCompactor(opts: LlmCompactorOptions): Compactor {
   }
 
   return {
-    async maybeCompact(messages, usage, instructions) {
+    async maybeCompact(messages, usage, instructions, signal) {
       const before = estimateTokens(messages);
-      const baseResult = await base.maybeCompact(messages, usage);
+      const baseResult = await base.maybeCompact(messages, usage, instructions, signal);
       const msgs = baseResult.messages;
 
       if (circuitOpen || estimateTokens(msgs) <= threshold) {
@@ -70,12 +70,13 @@ export function llmCompactor(opts: LlmCompactorOptions): Compactor {
       const recent = turns.slice(turns.length - keepRecentTurns).flat();
       const older = turns.slice(0, turns.length - keepRecentTurns).flat();
       try {
-        const summary = await summarize(older, instructions);
+        const summary = await summarize(older, instructions, signal);
         failures = 0;
         const summaryMsg: Message = { role: "user", content: `[Summary of earlier conversation]\n${summary}` };
         const out = [summaryMsg, ...recent];
         return { messages: out, kind: "auto", before, after: estimateTokens(out) };
       } catch {
+        signal?.throwIfAborted();
         failures++;
         if (failures >= maxFailures) circuitOpen = true;
         return { messages: msgs, kind: baseResult.kind, before, after: estimateTokens(msgs) };

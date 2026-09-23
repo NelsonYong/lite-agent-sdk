@@ -69,7 +69,7 @@ Use the events to render the prompt in your UI (e.g. show *which* tool call is a
 | `input_request` | `call`, `question` | The model asks the user a question (`ask_user`). |
 | `input_resolved` | `id`, `answer` | The input handler answered. |
 | `steer` | `messages` | Input was injected mid-run via a `SteerController`. |
-| `compaction` | `kind`, `before`, `after`, `phase?` | Context compaction starts / finishes (`micro` / `auto` / `manual`). |
+| `compaction` | `kind`, `before`, `after`, `phase?`, `stage?`, `completed?`, `total?`, `message?` | Context compaction starts / finishes (`micro` / `auto` / `manual`). |
 | `context_status` | `sessionId`, `level`, `reason`, `beforeTokens`, `afterTokens`, `generation`, `plannerUsed`, `plannerFallback`, `plannerLatencyMs`, `archiveRefs`, `retry` | The `ContextEngine` reports automatic context management. |
 | `background_completed` | `completion` | A background task finished. |
 | `diagnostic` | `level`, `code`, `message` | Non-fatal diagnostics (info / warning / error). |
@@ -83,3 +83,5 @@ Use the events to render the prompt in your UI (e.g. show *which* tool call is a
 - [Sessions](/sdk/core-concepts/sessions) — events are what gets persisted per session.
 - [Permissions](/sdk/control/permissions) — the approval flow behind `approval_request` / `approval_resolved`.
 - [Core strategies](/core/strategies) — `ApprovalHandler` and `InputHandler` interfaces.
+
+`checkpoint_restore` reports `{ phase, sessionId, toSeq, completed, total, message? }` during manual recovery. Manual compaction and recovery share the subscription stream with normal runs.

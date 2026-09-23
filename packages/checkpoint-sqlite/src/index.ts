@@ -66,7 +66,9 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): SqliteCheck
     return seq;
   });
 
-  const truncateTxn = db.transaction((id: string, toSeq: number) => {
+  const truncateTxn = db.transaction((id: string, toSeq: number, expectedHead?: number) => {
+    const head = headOf(id);
+    if (expectedHead !== undefined && expectedHead !== head) throw new CheckpointConflictError(id, expectedHead, head);
     db.prepare("DELETE FROM events WHERE session_id = ? AND seq > ?").run(id, toSeq);
     const row = db.prepare("SELECT MAX(seq) AS m FROM events WHERE session_id = ?").get(id) as { m: number | null };
     const newHead = row.m ?? 0;
@@ -102,8 +104,8 @@ export function sqliteCheckpointer(opts: SqliteCheckpointerOptions): SqliteCheck
       db.prepare("DELETE FROM events WHERE session_id = ?").run(sessionId);
       db.prepare("DELETE FROM sessions WHERE id = ?").run(sessionId);
     },
-    async truncate(sessionId, toSeq) {
-      truncateTxn.immediate(sessionId, toSeq);
+    async truncate(sessionId, toSeq, expectedHead) {
+      truncateTxn.immediate(sessionId, toSeq, expectedHead);
     },
     checkIntegrity,
     close() {

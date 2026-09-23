@@ -54,7 +54,11 @@ type AgentEventBody =
   | { type: "input_resolved"; id: string; answer: UserAnswer }
   | { type: "tool_result"; result: ToolResult }
   | { type: "task_update"; taskId: string; status: string; owner?: string }
-  | { type: "compaction"; kind: "micro" | "auto" | "manual"; before: number; after: number; phase?: "start" | "done" }
+  | { type: "compaction"; kind: "micro" | "auto" | "manual"; before: number; after: number;
+      phase?: "start" | "progress" | "done" | "error" | "cancelled";
+      stage?: "measure" | "archive" | "normalize" | "summarize" | "project" | "persist";
+      completed?: number; total?: number; message?: string }
+  | { type: "checkpoint_restore"; phase: "start" | "progress" | "done" | "error"; sessionId: string; toSeq: number; completed: number; total: number; message?: string }
   | {
       type: "context_status";
       sessionId: string;

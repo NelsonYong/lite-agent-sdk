@@ -85,3 +85,5 @@ Multi-**host** concurrency (networked FS, distributed writers) is out of scope f
 - [Checkpointing](/sdk/control/checkpointing) — the `listCheckpoints` / `restore` time-travel model in detail.
 - [Events](/sdk/core-concepts/events) — the `SessionEvent` stream that gets persisted.
 - [Agent loop](/sdk/core-concepts/agent-loop) — what happens inside each turn of a session.
+
+`close()` aborts active foreground streams, background work and maintenance operations before releasing owned state. Approval and input handlers accept an optional second `AbortSignal`; use it to dismiss prompts. Custom tools/providers must cooperate with cancellation. Deleting a session removes its archive and its private task list; explicitly shared task lists remain.

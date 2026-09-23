@@ -53,12 +53,12 @@ test("bash runs the command unchanged under noopSandbox", async () => {
 
 test("bash enforces wall-time, output, and environment limits", async () => {
   const limited = bashTool(process.cwd(), {
-    timeoutMs: 20,
+    timeoutMs: 5000,
     maxOutputBytes: 5,
     env: { PATH: process.env.PATH },
   });
   expect(await limited.execute({ command: "printf 123456" }, ctx)).toMatch(/output exceeded/);
-  expect(await limited.execute({ command: "sleep 1" }, ctx)).toMatch(/timed out/);
+  expect(await bashTool(process.cwd(), { timeoutMs: 20 }).execute({ command: "sleep 1" }, ctx)).toMatch(/timed out/);
   expect(await limited.execute({ command: "printf %s \"$SECRET_NOT_ALLOWED\"" }, ctx)).toBe("(no output)");
 });
 

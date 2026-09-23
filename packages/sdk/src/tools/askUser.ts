@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { defineTool } from "@lite-agent/core";
+import { defineTool, abortable } from "@lite-agent/core";
 import type { Tool, UserAnswer, UserQuestion } from "@lite-agent/core";
 
 function renderAnswer(a: UserAnswer): string {
@@ -9,6 +9,7 @@ function renderAnswer(a: UserAnswer): string {
 }
 
 export function askUserTool(): Tool {
+  let tail: Promise<unknown> = Promise.resolve();
   return defineTool({
     name: "ask_user",
     description:
@@ -27,9 +28,13 @@ export function askUserTool(): Tool {
         ...(options ? { options } : {}),
         ...(multiSelect ? { multiSelect } : {}),
       };
-      if (ctx.call)
-        ctx.emit({ type: "input_request", call: ctx.call, question: q });
-      const answer = await ctx.input.request(q);
+      const queued = tail.then(() => {
+        ctx.signal.throwIfAborted();
+        if (ctx.call) ctx.emit({ type: "input_request", call: ctx.call, question: q });
+        return abortable(ctx.input!.request(q, ctx.signal), ctx.signal);
+      });
+      tail = queued.then(() => undefined, () => undefined);
+      const answer = await abortable(queued, ctx.signal);
       ctx.emit({
         type: "input_resolved",
         id: ctx.call?.id ?? "ask_user",

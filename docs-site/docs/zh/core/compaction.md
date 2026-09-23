@@ -15,7 +15,7 @@ const agent = createAgent({
 });
 ```
 
-`compaction(compactor)` 在 `beforeModel` 中运行 compactor 并换入结果，仅当消息真的变化时发出 `compaction` 事件。`reactiveCompaction()` 捕获 provider 抛出的上下文溢出错误，裁剪上下文后重试——仅在尚未流出任何内容时。
+`compaction(compactor)` 在 `beforeModel` 中运行 compactor 并换入结果，实时发出开始、完成、错误或取消的 `compaction` 事件。`reactiveCompaction()` 捕获 provider 抛出的上下文溢出错误，裁剪上下文后重试——仅在尚未流出任何内容时。
 
 :::info
 基于 `@lite-agent/sdk` 构建时通常什么都不用配：SDK 默认传 `context: {}`，下面的 ContextEngine 已经激活。`context` 省略时，底层 core 保持原始消息行为。
@@ -27,7 +27,7 @@ const agent = createAgent({
 
 | 符号 | 作用 |
 | --- | --- |
-| `compaction(compactor)` | `beforeModel` 中间件：运行 compactor 并换入结果，仅当消息真的变化时发出 `compaction` 事件。 |
+| `compaction(compactor)` | `beforeModel` 中间件：运行 compactor 并换入结果，实时发出开始、完成、错误或取消的 `compaction` 事件。 |
 | `defaultCompactor(opts?)` | 零 API 管道：`toolResultBudgetPass`（spill）→ `snipPass`（整段丢弃中间轮次，保留头部 + 尾部）→ `microPass`（把旧工具结果正文替换为占位符，保留最近 3 条）。所有切割都对齐轮次边界，tool_call/tool_result 配对保持完整。 |
 | `llmCompactor(opts)` | 先跑确定性 base；仅当仍超过 `tokenThreshold` 时，用一次模型调用把较早的轮次总结成一条消息。熔断器（默认 2 次失败）会回退到 base，压缩永远不会卡死运行。 |
 | `tokenBudgetCompactor(opts)` | 保留能塞进硬性 `maxTokens` 预算的最新轮次；更早的轮次用一条标记消息替代。 |
@@ -49,3 +49,11 @@ ContextEngine 是自动、常驻的上下文管理，当 `context` 不是 `false
 - [模型提供方](/zh/core/providers)——哪些 provider 暴露原生上下文编辑能力。
 - [会话持久化](/zh/core/persistence)——ContextEngine 所基于的事件日志。
 - [工具调用 codec](/zh/core/codecs)——压缩后的历史如何被编码。
+
+## 大内容与 SDK 自身的数据工作区
+
+项目目录与 SDK 数据目录是两个范围。会话和归档位于 `<home>/projects/<project-hash>/`，通常在 `~/.lite-agent` 下，无需放进 `workdir`。`read_file` 可以读取工作区外当前会话已授权的归档／日志路径；普通写入仍限制在项目范围。该例外不会授予其他会话、其他项目或任意宿主机路径的访问权。
+
+大文件在截断前完整保存 UTF-8 内容；其他超过 16 KiB 的工具结果也会在下次模型调用前归档。模型只收到稳定的 SHA-256 引用和简短预览。通过 `context({ ref, offset?, limit? })` 读取，并复制返回的 `nextOffset` 续读；这是字符游标，不是字节偏移。读取有上限、保持 Unicode 完整、标记为数据，并检查会话索引与符号链接替换。`read_spilled` 保留兼容别名，显式旧版 spill 配置仍使用原后端。
+
+压缩生成派生视图，不销毁原始事件日志；旧片段先归档再缩短。当前片段和已确立的用户事实仍受保护，因此不能保证适配任意小的窗口。planner 有超时和确定性回退，取消时不提交半成品视图。SDK 归档内容与索引在返回引用前会执行刷盘。

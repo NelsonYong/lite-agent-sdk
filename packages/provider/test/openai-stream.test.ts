@@ -62,31 +62,14 @@ test("accumulates text deltas and a tool call split across chunks, plus usage", 
   ]);
 });
 
-test("malformed tool arguments fall back to empty input", async () => {
-  const out = await collect(
-    translateStream(
-      chunks(
-        {
-          choices: [
-            {
-              delta: {
-                tool_calls: [
-                  {
-                    index: 0,
-                    id: "c1",
-                    function: { name: "t", arguments: "{bad" },
-                  },
-                ],
-              },
-            },
-          ],
-        },
-        { choices: [{ delta: {} }] },
-      ),
-    ),
-  );
-  const done = out.at(-1) as Extract<ModelChunk, { type: "message_done" }>;
-  expect(done.message.content).toEqual([
-    { type: "tool_call", id: "c1", name: "t", input: {} },
-  ]);
+test("malformed tool arguments fail closed instead of invoking a tool with empty input", async () => {
+  await expect(collect(translateStream(chunks({ choices: [{ delta: { tool_calls: [
+    { index: 0, id: "c1", function: { name: "danger", arguments: "{bad" } },
+  ] } }] })))).rejects.toThrow(/Malformed JSON/);
+});
+
+test("a partial tool call without an identity is rejected", async () => {
+  await expect(collect(translateStream(chunks({ choices: [{ delta: { tool_calls: [
+    { index: 0, function: { name: "danger", arguments: "{}" } },
+  ] } }] })))).rejects.toThrow(/Incomplete/);
 });

@@ -55,17 +55,18 @@ test("compaction middleware swaps ctx.messages and emits when the compactor shri
   const ctx = fakeCtx([{ role: "user", content: "a" }, { role: "user", content: "b" }], events);
   await compaction(compactor).beforeModel!(ctx);
   expect(ctx.messages).toEqual([{ role: "user", content: "[compacted]" }]);
-  expect(events).toContainEqual({ type: "compaction", kind: "micro", before: 100, after: 5 });
+  expect(events).toContainEqual({ type: "compaction", kind: "micro", phase: "done", before: 100, after: 5 });
 });
 
-test("compaction middleware is a no-op (no event) when the compactor returns the same messages", async () => {
+test("compaction middleware reports an unchanged result without pretending to reduce tokens", async () => {
   const same: Message[] = [{ role: "user", content: "hi" }];
   const compactor: Compactor = { async maybeCompact(m) { return { messages: m, before: 5, after: 5 }; } };
   const events: AgentEvent[] = [];
   const ctx = fakeCtx(same, events);
   await compaction(compactor).beforeModel!(ctx);
   expect(ctx.messages).toBe(same);
-  expect(events).toEqual([]);
+  expect(events).toHaveLength(2);
+  expect(events.at(-1)).toMatchObject({ type: "compaction", phase: "done", before: 5, after: 5 });
 });
 
 function baseCfg(over: Partial<KernelConfig>): KernelConfig {

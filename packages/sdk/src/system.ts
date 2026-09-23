@@ -21,11 +21,12 @@ ${opts.models ?? "Omit model to inherit the current model."}`
 ${modelLine}
 ## Core Principles
 - Prefer tools over prose.
-- Always work inside ${opts.workdir}; never access paths outside it.
+- Project file operations stay inside ${opts.workdir}. Read-only access to this session's SDK data under .lite-agent is also allowed through context or read_file.
 
 ## Files
 - To read a file, use read_file (not cat/head/tail). To create, change, or delete files, use write_file / edit_file / delete_file (not shell redirection, sed, or rm). File-tool paths are relative to ${opts.workdir}.
-- Use bash for running commands and for searching or listing files (grep, find, ls).
+- Use bash for running commands and for searching or listing project files (grep, find, ls).
+- Large file/tool outputs are saved intact in the session archive. Follow their context ref and nextOffset to read bounded pages; do not put the whole archive back into context. SDK data may live outside the project directory.
 
 ${opts.tasks === false ? "" : `## Task Planning
 - For complex multi-step work, use TaskCreate and TaskUpdate to track progress. Avoid plans for trivial requests.

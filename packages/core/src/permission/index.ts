@@ -3,3 +3,5 @@ export type { PolicyOptions, PermissionRule, MatchSpec, Condition } from "./poli
 export { permission } from "./gate";
 export { defaultRedactor } from "./redact";
 export type { Redactor } from "./redact";
+
+export { serialApproval } from "./approval";

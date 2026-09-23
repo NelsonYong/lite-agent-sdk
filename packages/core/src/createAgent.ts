@@ -7,6 +7,7 @@ import type { Message } from "./types";
 import type { AgentEvent, RunResult } from "./events";
 import { runKernel } from "./kernel";
 import type { KernelConfig, KernelContextOptions } from "./kernel";
+import type { ContextArchive } from "./contextEngine";
 import type { Checkpointer } from "./checkpoint";
 import { legacyStoreAdapter } from "./checkpoint";
 import type { SteerController } from "./steer";
@@ -46,9 +47,10 @@ export interface CreateAgentConfig {
   maxSnapshotBytesPerSession?: number;
   /** Automatic context management; omitted enables the ContextEngine. */
   context?: false | KernelContextOptions;
+  archive?: ContextArchive | ((sessionId: string) => ContextArchive);
 }
 
-export type RunOptions = { signal?: AbortSignal; sessionId?: string; steer?: SteerController };
+export type RunOptions = { signal?: AbortSignal; sessionId?: string; steer?: SteerController; inputSource?: "user" | "background" };
 
 export interface Agent {
   run(input: string | Message[], opts?: RunOptions): AsyncGenerator<AgentEvent, RunResult>;
@@ -81,13 +83,14 @@ export function createAgent(cfg: CreateAgentConfig): Agent {
     crashRecovery: cfg.crashRecovery,
     maxSnapshotBytesPerSession: cfg.maxSnapshotBytesPerSession,
     context: cfg.context,
+    archive: cfg.archive,
   };
 
   const agent: Agent = {
     run(input, opts) {
       const signal = opts?.signal ?? new AbortController().signal;
       const sessionId = opts?.sessionId ?? randomUUID();
-      return runKernel({ ...kernelCfg, steer: opts?.steer }, input, signal, sessionId);
+      return runKernel({ ...kernelCfg, steer: opts?.steer, inputSource: opts?.inputSource }, input, signal, sessionId);
     },
     async send(input, opts) {
       const gen = agent.run(input, opts);

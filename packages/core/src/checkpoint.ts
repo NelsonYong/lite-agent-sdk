@@ -5,11 +5,11 @@ import { CheckpointConflictError } from "./events";
 
 /** One appended fact about a session. The canonical persisted unit. */
 export type SessionEvent =
-  | { type: "user"; message: Message }
+  | { type: "user"; message: Message; origin?: "user" | "background" | "internal"; checkpoint?: boolean }
   | { type: "assistant"; message: AssistantMessage }
   | { type: "tool_started"; id: string; name: string; turn: number }
   | { type: "tool_result"; result: ToolResultBlock; turn: number }
-  | { type: "file_snapshot"; path: string; before: string | null; truncated?: boolean; encoding?: "utf8" | "base64"; turn: number }
+  | { type: "file_snapshot"; path: string; before: string | null; truncated?: boolean; encoding?: "utf8" | "base64"; after?: string | null; turn: number }
   | { type: "artifact_verified"; path: string; revision?: string; command: string; result: string; turn: number }
   | { type: "permission_decision"; call: ToolCall; decision: "allow" | "deny" | "ask"; ruleId?: string; reason?: string; simulated?: boolean; by: "policy" | "user" | "auto"; turn: number }
   | { type: "summary"; messages: Message[]; throughSeq: number; before: number; after: number }
@@ -44,7 +44,7 @@ export interface Checkpointer {
   /** Delete a session's entire log. */
   delete(sessionId: string): Promise<void>;
   /** Drop every event with seq > toSeq. Optional: backends that cannot truncate omit it. */
-  truncate?(sessionId: string, toSeq: number): Promise<void>;
+  truncate?(sessionId: string, toSeq: number, expectedHead?: number): Promise<void>;
 }
 
 /** Build StoredEvents for `events` starting after `fromSeq`. */
@@ -89,8 +89,10 @@ export function memoryCheckpointer(): Checkpointer {
       logs.delete(sessionId);
       updated.delete(sessionId);
     },
-    async truncate(sessionId, toSeq) {
+    async truncate(sessionId, toSeq, expectedHead) {
       const log = logs.get(sessionId);
+      const actual = log?.at(-1)?.seq ?? 0;
+      if (expectedHead !== undefined && actual !== expectedHead) throw new CheckpointConflictError(sessionId, expectedHead, actual);
       if (!log) return;
       logs.set(sessionId, log.filter((e) => e.seq <= toSeq));
       updated.set(sessionId, Date.now());

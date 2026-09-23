@@ -43,7 +43,7 @@ for await (const ev of agent.run("hello")) {
 | `input_request` | `call`, `question` | 模型向用户提问（`ask_user`）。 |
 | `input_resolved` | `id`, `answer` | 输入处理器给出答复。 |
 | `steer` | `messages` | 通过 `SteerController` 在运行中注入了输入。 |
-| `compaction` | `kind`, `before`, `after`, `phase?` | 上下文压缩开始 / 完成（`micro` / `auto` / `manual`）。 |
+| `compaction` | `kind`, `before`, `after`, `phase?`, `stage?`, `completed?`, `total?`, `message?` | 上下文压缩开始 / 完成（`micro` / `auto` / `manual`）。 |
 | `context_status` | `sessionId`, `level`, `reason`, `beforeTokens`, `afterTokens`, `generation`, `plannerUsed`, `plannerFallback`, `plannerLatencyMs`, `archiveRefs`, `retry` | `ContextEngine` 报告自动上下文管理状态。 |
 | `background_completed` | `completion` | 一个后台任务完成。 |
 | `diagnostic` | `level`, `code`, `message` | 非致命诊断（info / warning / error）。 |
@@ -65,3 +65,5 @@ for await (const ev of agent.run("hello")) {
 - [中间件](/zh/core/middleware) —— `ctx.emit` 与观察循环的各层。
 - [上下文压缩](/zh/core/compaction) —— `compaction` 与 `context_status` 事件。
 - [持久化](/zh/core/persistence) —— 会话回放背后的持久 `SessionEvent` 日志。
+
+手动恢复通过 `checkpoint_restore` 报告 `{ phase, sessionId, toSeq, completed, total, message? }`。手动压缩和恢复与正常运行共用订阅事件流。

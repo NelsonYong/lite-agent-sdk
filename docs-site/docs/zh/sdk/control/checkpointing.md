@@ -151,3 +151,17 @@ try {
 - [可观测性](/zh/sdk/control/observability) — 把同一事件流记录下来用于审计与调试。
 - [后台任务](/zh/sdk/control/background) — `background_completed` 事件会进入同一份会话日志。
 - [Core 策略](/zh/core/strategies) — `Checkpointer` 策略接口。
+
+## 进度与安全恢复
+
+`compact(instructions?, { signal }?)` 同时通过生成器和 `agent.subscribe()` 实时发送 `compaction` 事件。界面选择一个通道渲染，避免重复。`phase` 包括 `start`、`progress`、`done`、`error`、`cancelled`；`stage` 表示测量、归档、规范化、摘要、投影、持久化。归档阶段提供 `completed/total` 条目数。token 数为测量或估算值，不伪造百分比；没有可缩减内容时，压缩完成也可能不减少 token。
+
+`listCheckpoints(id)` 返回 `{ seq, prompt, ts, files, unavailableFiles }`。新记录显式标识真实用户输入，支持文本块形式；运行时提醒、修复消息和后台完成消息不会作为用户 checkpoint。旧记录使用保守的兼容规则推断。
+
+`restore(id, seq, { files?, conversation?, signal? })` 在修改前验证目标并预检所有文件。工具调用被截断、快照缺失／被截断、路径不安全或检测到外部修改时拒绝恢复。进程内写入／截断失败时会尝试还原操作前的文件。这不等于可以承受任意进程或机器故障的文件系统／数据库事务。
+
+返回值为 `{ restoredFiles, conversationRestored }`；订阅 `checkpoint_restore` 可观察开始／进度／完成／错误。checkpoint 覆盖有记录的文件工具变更；Shell、外部服务和任意自定义工具副作用不会自动撤销。快照不可用时，显式传 `{ files: false }` 仅恢复对话。新快照记录变更后 hash；旧快照无法提供同等的外部编辑检测。
+
+压缩和恢复要求 Agent 空闲，包含后台任务，并通过维护锁阻止并发运行写入。文件后端以原子替换截断日志；内存、文件及 SQLite 后端在截断前检查可选 expected head。跨进程协调仍应使用 SQLite。
+
+CLI 支持 `/compact [instructions]`、`/checkpoints`、`/restore <seq> [--conversation-only]`；Ctrl-C 可取消手动压缩。

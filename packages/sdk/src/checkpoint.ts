@@ -3,6 +3,7 @@ import {
   readdirSync, statSync, unlinkSync, writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
+import { atomicWriteFile } from "./tools/file";
 import type { Checkpointer, SessionEvent, StoredEvent, SessionInfo } from "@lite-agent/core";
 import { storeEvents, CheckpointConflictError } from "@lite-agent/core";
 
@@ -19,12 +20,12 @@ const SUFFIX = ".jsonl";
 const sanitize = (id: string) => id.replace(/[^a-zA-Z0-9_-]/g, "_");
 
 /**
- * Append-only file Checkpointer: one `StoredEvent` per line. Head is cached in
- * memory (read from disk on first touch). Suitable for single-process/local use;
+ * Append-only file Checkpointer: one `StoredEvent` per line. Cached heads are
+ * invalidated by file identity/size/timestamps. Suitable for single-process/local use;
  * cross-process concurrency is the SQLite backend's job.
  */
 export function fileCheckpointer(opts: FileCheckpointerOptions): Checkpointer {
-  const heads = new Map<string, number>();
+  const heads = new Map<string, { stamp: string; head: number }>();
   const fileFor = (id: string) => join(opts.dir, sanitize(id) + SUFFIX);
   const linesOf = (id: string): StoredEvent[] => {
     const file = fileFor(id);
@@ -43,17 +44,24 @@ export function fileCheckpointer(opts: FileCheckpointerOptions): Checkpointer {
         const isTail = i === nonEmpty.length - 1;
         if (!opts.repairTail || !isTail)
           throw new Error(`Corrupt checkpoint record ${index + 1} in ${file}: ${(error as Error).message}`);
-        writeFileSync(file, parsed.length ? parsed.map((event) => JSON.stringify(event)).join("\n") + "\n" : "");
+        atomicWriteFile(file, parsed.length ? parsed.map((event) => JSON.stringify(event)).join("\n") + "\n" : "");
       }
     }
     return parsed;
   };
+  const stamp = (id: string): string => {
+    const file = fileFor(id);
+    if (!existsSync(file)) return "missing";
+    const info = statSync(file, { bigint: true });
+    return `${info.ino}:${info.size}:${info.mtimeNs}:${info.ctimeNs}`;
+  };
   const headOf = (id: string): number => {
+    const current = stamp(id);
     const cached = heads.get(id);
-    if (cached !== undefined) return cached;
+    if (cached?.stamp === current) return cached.head;
     const lines = linesOf(id);
-    const head = lines.length ? lines[lines.length - 1]!.seq : 0;
-    heads.set(id, head);
+    const head = lines.at(-1)?.seq ?? 0;
+    heads.set(id, { stamp: stamp(id), head });
     return head;
   };
   return {
@@ -71,7 +79,7 @@ export function fileCheckpointer(opts: FileCheckpointerOptions): Checkpointer {
         appendFileSync(fileFor(sessionId), body);
       }
       const newHead = stored.length ? stored[stored.length - 1]!.seq : head;
-      heads.set(sessionId, newHead);
+      heads.set(sessionId, { stamp: stamp(sessionId), head: newHead });
       return newHead;
     },
     async *read(sessionId, opts2) {
@@ -92,15 +100,18 @@ export function fileCheckpointer(opts: FileCheckpointerOptions): Checkpointer {
       if (existsSync(file)) unlinkSync(file);
       heads.delete(sessionId);
     },
-    async truncate(sessionId, toSeq) {
+    async truncate(sessionId, toSeq, expectedHead) {
+      const actual = headOf(sessionId);
+      if (expectedHead !== undefined && expectedHead !== actual)
+        throw new CheckpointConflictError(sessionId, expectedHead, actual);
       if (!existsSync(fileFor(sessionId))) return; // unknown session: no-op (don't create a phantom file)
       const kept = linesOf(sessionId).filter((e) => e.seq <= toSeq);
       mkdirSync(opts.dir, { recursive: true });
-      writeFileSync(
+      atomicWriteFile(
         fileFor(sessionId),
         kept.length ? kept.map((e) => JSON.stringify(e)).join("\n") + "\n" : "",
       );
-      heads.set(sessionId, kept.length ? kept[kept.length - 1]!.seq : 0);
+      heads.delete(sessionId);
     },
   };
 }

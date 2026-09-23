@@ -5,6 +5,7 @@ import type {
 } from "./types";
 import type { AgentEvent } from "./events";
 import type { BackgroundTasks } from "./background";
+import type { ContextArchive } from "./contextEngine";
 
 export interface ModelProvider {
   readonly id: string;
@@ -47,6 +48,8 @@ export interface ToolContext {
   readonly sandbox?: Sandbox;
   readonly background?: BackgroundTasks;
   readonly call?: ToolCall;
+  /** Session-scoped data storage; references never grant arbitrary filesystem access. */
+  readonly archive?: ContextArchive;
   /** Record a file's pre-mutation content into the session log (for restore). Provided by
    *  the kernel only when a checkpointer is active; file-mutating tools call it before writing. */
   recordSnapshot?(
@@ -54,6 +57,7 @@ export interface ToolContext {
     before: string | null,
     truncated?: boolean,
     encoding?: "utf8" | "base64",
+    after?: string | null,
   ): void | Promise<void>;
 }
 
@@ -85,7 +89,7 @@ export interface Compactor {
   /** `instructions` is free-text steering for a manual compaction (Claude Code's `/compact <instructions>`):
    *  appended to the summary prompt to bias what's preserved. Omitted for automatic/proactive compaction.
    *  Structural compactors ignore it; only LLM-summary compactors act on it. */
-  maybeCompact(messages: Message[], usage: Usage, instructions?: string): Promise<CompactResult>;
+  maybeCompact(messages: Message[], usage: Usage, instructions?: string, signal?: AbortSignal): Promise<CompactResult>;
 }
 
 export type Decision = "allow" | "deny" | "ask";
@@ -97,8 +101,8 @@ export interface PermissionPolicy {
   check(call: ToolCall, ctx: PolicyContext): Decision | PolicyVerdict | Promise<Decision | PolicyVerdict>;
 }
 
-export interface ApprovalHandler { request(call: ToolCall): Promise<"allow" | "deny">; }
-export interface InputHandler { request(q: UserQuestion): Promise<UserAnswer>; }
+export interface ApprovalHandler { request(call: ToolCall, signal?: AbortSignal): Promise<"allow" | "deny">; }
+export interface InputHandler { request(q: UserQuestion, signal?: AbortSignal): Promise<UserAnswer>; }
 
 export interface SandboxWrapOptions {
   readonly cwd: string;

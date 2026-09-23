@@ -1,19 +1,24 @@
 import type { Compactor } from "../strategies";
 import type { Middleware } from "../middleware";
+import { abortable } from "../channel";
+import { estimateTokens } from "./types";
 
 const ZERO_USAGE = { inputTokens: 0, outputTokens: 0 };
 
-// The compaction block: a beforeModel middleware that runs a Compactor over the
-// turn's context and swaps in the compacted view (emitting a compaction event
-// only when it actually changed). Plug in via use: [compaction(defaultCompactor())].
 export function compaction(compactor: Compactor): Middleware {
   return {
     name: "compaction",
     async beforeModel(ctx) {
-      const r = await compactor.maybeCompact(ctx.messages, ZERO_USAGE);
-      if (r.messages !== ctx.messages) {
-        ctx.emit({ type: "compaction", kind: r.kind ?? "micro", before: r.before ?? 0, after: r.after ?? 0 });
-        ctx.messages = r.messages;
+      const before = estimateTokens(ctx.messages);
+      ctx.emit({ type: "compaction", kind: "micro", phase: "start", stage: "measure", before, after: before });
+      try {
+        const result = await abortable(compactor.maybeCompact(ctx.messages, ZERO_USAGE, undefined, ctx.signal), ctx.signal);
+        ctx.signal.throwIfAborted();
+        ctx.messages = result.messages;
+        ctx.emit({ type: "compaction", kind: result.kind ?? "micro", phase: "done", before: result.before ?? before, after: result.after ?? estimateTokens(result.messages) });
+      } catch (error) {
+        ctx.emit({ type: "compaction", kind: "micro", phase: ctx.signal.aborted ? "cancelled" : "error", before, after: before, message: String(error) });
+        throw error;
       }
     },
   };
