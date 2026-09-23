@@ -1,6 +1,6 @@
 import pLimit from "p-limit";
 import type { ModelProvider, ToolCallCodec, Tool, Sandbox, InputHandler } from "./strategies";
-import type { AssistantMessage, Message, ModelRequest, ToolCall, ToolChoice, ToolResult, ToolResultBlock, Usage } from "./types";
+import type { AssistantMessage, Message, ModelRequest, ToolCall, ToolChoice, ToolResult, ToolResultBlock, Usage, ReasoningEffort } from "./types";
 import { isTextBlock, textBlock, toolResultBlock } from "./types";
 import type { AgentEvent, RunResult } from "./events";
 import { CodecError, ProviderError } from "./events";
@@ -30,6 +30,7 @@ export interface KernelConfig {
   topP?: number;
   toolChoice?: ToolChoice;
   seed?: number;
+  reasoningEffort?: ReasoningEffort;
   sandbox: Sandbox;
   input?: InputHandler;
   checkpointer?: Checkpointer;
@@ -232,7 +233,8 @@ export async function* runKernel(
       let callUsage: Usage | undefined;
       let streamed = false;
       const modelStarted = Date.now();
-      yield { type: "model_call_start", turn, model: cfg.model };
+      yield { type: "model_call_start", turn, model: cfg.model,
+        ...(cfg.reasoningEffort ? { reasoningEffort: cfg.reasoningEffort } : {}) };
       try {
         for await (const chunk of modelCall()) {
           streamed = true;
@@ -479,6 +481,7 @@ function modelRequest(cfg: KernelConfig, messages: readonly Message[]) {
     topP: cfg.topP,
     toolChoice: cfg.toolChoice,
     seed: cfg.seed,
+    reasoningEffort: cfg.reasoningEffort,
   };
 }
 

@@ -1,5 +1,6 @@
 import type { Middleware } from "@lite-agent/core";
-import type { TaskStore } from "./types";
+import { taskStoreFor } from "./scope";
+import type { TaskStoreSource } from "./scope";
 
 // Re-injects the current task list as a trailing <system-reminder> into the
 // model request ONLY. wrapModelCall mutates ctx.messages just before encode and
@@ -14,11 +15,11 @@ import type { TaskStore } from "./types";
 //     ctx.messages BEFORE the outer middleware trims it. If taskReminder were
 //     OUTER, its `finally` would overwrite (discard) the reactive trim, so the
 //     overflow would recur instead of being recovered.
-export function taskReminder(store: TaskStore): Middleware {
+export function taskReminder(store: TaskStoreSource): Middleware {
   return {
     name: "task-reminder",
     async *wrapModelCall(ctx, next) {
-      const block = store.render();
+      const block = taskStoreFor(store, ctx.sessionId).render({ activeOnly: true });
       if (!block) {
         yield* next();
         return;

@@ -46,9 +46,11 @@ task.model -> 子代理 definition 的 model -> 当前/默认档位
 }
 ```
 
-除已配置档位名外的任意模型字符串都会为兼容性保留为 raw provider model id，并使用继承的 provider。`simple` 适合已知、低歧义的工作（查询或单个小文件流程）；`medium` 适合单个包内的普通多文件工作、修复 bug 和测试；`complex` 适合跨包架构、并发/持久化、外部调研、重复失败或高度不确定的工作。
+配置 catalog 后，工具调用和子代理 definition 只能选择已配置档位；未知模型名会被拒绝。未配置 catalog 时，旧的 raw model 覆盖仍使用继承的 provider。主 Agent 的工具 schema 和说明会展示可用档位。
 
-档位只选择 provider/model 对，不改变权限、审批、推理强度、预算或并发。SDK 尚不会自动分类任务、失败后自动升级，或重试其他档位；父 agent 需要显式选择档位。
+档位支持 `reasoningEffort: "low" | "medium" | "high"`。OpenAI 兼容 provider 发送 `reasoning_effort`；Anthropic 启用 adaptive thinking 和 `output_config.effort`。需要使用支持这些参数的模型；不支持时报告 provider 错误，不自动升级模型。推理配置不能与 temperature/topP 同时设置；Anthropic adaptive thinking 也不支持强制工具选择。权限和并发保持独立。
+
+默认提示会引导模型处理明确的委派请求和独立复杂工作，但自动调用工具仍由模型决定，配置档位本身不保证触发派发。
 
 ## 派发
 
@@ -108,12 +110,11 @@ Error: Subagent reached max turns
 API：关闭临时 agent 前会等待自己发起的 Agent groups 及其自主 completion，不会等待
 不相关的 detached daemon（例如后台 Bash）。
 
-child 使用 `agents: false`；不支持递归子代理、Agent Teams、消息总线、共享收件箱
-或任务认领。
+child 使用 `agents: false`；不支持递归子代理、Agent Teams、消息总线和共享收件箱。
 
-:::warning
-子代理默认**不继承父代理的权限闸门和 `onApproval` 处理器**——交互式审批无法服务并行的子代理。sandbox 仍然包裹每条命令。如需对子代理启用闸门，传入 `subagentPermission`（用 allow/deny 规则，不要用 `ask`）。
-:::
+子代理继承父级权限和工具白名单；`subagentPermission` 与 definition 的 tools 只能进一步收紧。父子代理共用串行审批队列，没有处理器时拒绝 `ask`。
+
+启用任务后，派发会自动创建可追踪任务；传入 `task_id` 可以关联已有任务。子代理成功后进入 `review`，失败和取消保留对应状态。检查结果后再标记 `completed`。
 
 ## 编程式访问
 

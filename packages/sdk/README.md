@@ -54,8 +54,8 @@ createLiteAgent({
 });
 ```
 
-`models` must contain exactly `simple`, `medium`, and `complex`; `defaultModel`
-must name one of them. A profile's `modelName` is the concrete id sent to its
+`models` may contain any non-empty subset of `simple`, `medium`, and `complex`; `defaultModel`
+must name a configured profile. A profile's `modelName` is the concrete id sent to its
 provider. `displayName` is optional metadata for UI, logs, and diagnostics: when
 omitted, it falls back to `modelName`, and it is never sent in a model request.
 The legacy single `model` / `modelName` configuration remains supported.
@@ -64,9 +64,7 @@ Use `simple` for known, low-ambiguity work such as a read-only lookup or one
 small-file procedure; `medium` for ordinary multi-file work in one package,
 bug fixes, and tests; and `complex` for cross-package architecture,
 concurrency/persistence, external research, repeated failures, or high
-uncertainty. A tier controls only provider/model selection. Permissions,
-approval, reasoning effort, budgets, and concurrency remain independent
-controls.
+uncertainty. Each profile can also set `reasoningEffort: "low" | "medium" | "high"`. Permissions, approval, budgets, and concurrency remain independent.
 
 This release does not automatically classify tasks, escalate after failures,
 retry another tier, or infer a tier from permissions or reasoning effort. The
@@ -113,12 +111,11 @@ are not supported.
 For a child `Agent` task, `task.model` has highest priority, followed by the
 subagent definition's `model`, then the current agent's selected/default tier.
 Set either value to `simple`, `medium`, or `complex` to select a configured
-tier. Any other string remains a raw model id for compatibility and uses the
-inherited provider.
+tier. When a catalog is configured, selections outside it are rejected in both tool calls and agent definitions. Without a catalog, legacy raw model overrides use the inherited provider.
 
 ## Features
 
-- **Default tools** — `bash`, `read_file`, `write_file`, `edit_file`, `delete_file`, scoped to `workdir`, with atomic writes and pre-change snapshots so session restore can undo them.
+- **Default tools** — `bash`, `read_file`, `write_file`, `edit_file`, `delete_file`, with file paths scoped to `workdir` (shell containment requires a sandbox), with atomic writes and pre-change snapshots so session restore can undo them.
 - **Skills** — `SKILL.md` files loaded from `~/.lite-agent/skills`, `<workdir>/.lite-agent/skills`, or `skillsDir`; injected on demand via `load_skill`.
 - **Subagents** — detached, pooled `Agent` groups with one ordered aggregate result; a built-in `general-purpose` agent plus custom `agents/*.md` definitions (`agents: false` disables child dispatch and prevents recursion).
 - **Tasks** — persistent task list (`TaskCreate/Update/Get/List`) with a per-turn reminder (`tasks: false` to disable).
@@ -152,3 +149,13 @@ inherited provider.
 - [`@lite-agent/provider`](../provider) — model providers (Anthropic, …).
 - [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) · [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic) · [`@lite-agent/local`](../local) — pluggable backends and hardening.
 - [Monorepo root](../..) — architecture overview; [`examples/cli`](../../examples/cli) — a full interactive REPL wiring provider + sandbox + permission + `ask_user`.
+
+## Safe defaults and migration
+
+- Shell/file mutations ask for approval by default; absent handlers deny them. A supplied `permission` replaces that policy. Custom tools are host-trusted.
+- Children inherit parent permissions and tool restrictions; extra child policy only tightens access. All approvals use one serial queue.
+- `query` now shares configuration with `createLiteAgent`: prefer `workdir` and `system`; `cwd`/`systemPrompt` remain compatible aliases.
+- Task lists default to the current session, with children sharing its list. Set `taskListId: "default"` to reopen an old shared list. Delegation creates a task or accepts `task_id`; successful results enter `review`, not `completed`.
+- Provider reasoning parameters require compatible models. OpenAI sends `reasoning_effort`; Anthropic uses adaptive thinking and effort. Unsupported models fail explicitly; parameters being accepted does not prove a compatible gateway honors their semantics.
+
+For ordinary integration start with `createLiteAgent`, `send`, `subscribe`, `close`, and `tool`. The existing low-level exports remain compatible; advanced assembly belongs in `@lite-agent/core`.

@@ -23,16 +23,11 @@ test("resolves the configured default tier and each tier alias", () => {
   expect(resolver.resolve("complex")).toMatchObject({ tier: "complex", modelName: "strong-id" });
 });
 
-test("inherits the current model when selection is omitted and preserves raw ids", () => {
+test("inherits the current model and rejects selections outside the catalog", () => {
   const resolver = createModelResolver(catalog());
   const inherited = resolver.resolve("complex");
   expect(resolver.resolve(undefined, inherited)).toBe(inherited);
-  expect(resolver.resolve("raw-provider-id", inherited)).toMatchObject({
-    provider: inherited.provider,
-    modelName: "raw-provider-id",
-    tier: undefined,
-    displayName: "raw-provider-id",
-  });
+  expect(() => resolver.resolve("raw-provider-id", inherited)).toThrow(/not configured/);
 });
 
 test("legacy single-model config resolves one provider and model id", () => {
@@ -41,8 +36,11 @@ test("legacy single-model config resolves one provider and model id", () => {
   expect(resolver.defaultModel).toMatchObject({ provider: legacy, modelName: "legacy-id", displayName: "legacy-id" });
 });
 
-test("rejects incomplete catalogs, invalid defaults, and empty model ids", () => {
-  expect(() => createModelResolver({ models: { simple: catalog().models.simple } as never, defaultModel: "simple" })).toThrow(/simple.*medium.*complex|profiles/i);
+test("accepts partial catalogs but rejects missing defaults and empty model ids", () => {
+  const partial = createModelResolver({ models: { simple: catalog().models.simple }, defaultModel: "simple" });
+  expect(partial.defaultModel.modelName).toBe("fast-id");
+  expect(() => partial.resolve("complex")).toThrow(/not configured/);
+  expect(() => createModelResolver({ models: {}, defaultModel: "simple" })).toThrow();
   expect(() => createModelResolver({ ...catalog(), defaultModel: "unknown" as never })).toThrow(/defaultModel/i);
   expect(() => createModelResolver({ ...catalog(), models: { ...catalog().models, simple: { provider: provider("p"), modelName: "" } } })).toThrow(/modelName/i);
 });

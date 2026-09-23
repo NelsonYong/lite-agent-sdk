@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { ModelProvider, Tool, ToolCallCodec, Sandbox, InputHandler, Store } from "./strategies";
-import type { ToolChoice } from "./types";
+import type { ToolChoice, ReasoningEffort } from "./types";
 import { noopSandbox } from "./sandbox";
 import type { Middleware } from "./middleware";
 import type { Message } from "./types";
@@ -25,6 +25,7 @@ export interface CreateAgentConfig {
   topP?: number;
   toolChoice?: ToolChoice;
   seed?: number;
+  reasoningEffort?: ReasoningEffort;
   sandbox?: Sandbox;
   input?: InputHandler;
   checkpointer?: Checkpointer;
@@ -68,6 +69,7 @@ export function createAgent(cfg: CreateAgentConfig): Agent {
     topP: cfg.topP,
     toolChoice: cfg.toolChoice,
     seed: cfg.seed,
+    reasoningEffort: cfg.reasoningEffort,
     sandbox: cfg.sandbox ?? noopSandbox(),
     input: cfg.input,
     checkpointer: cfg.checkpointer ?? (cfg.store ? legacyStoreAdapter(cfg.store) : undefined),

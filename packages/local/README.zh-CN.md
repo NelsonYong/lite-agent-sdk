@@ -71,3 +71,5 @@ await agent.close();
 - [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) —— 本包使用的 SQLite checkpointer。
 - [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic) —— 本包使用的 OS 沙箱运行时。
 - [Monorepo 根目录](../..) —— 完整架构说明。
+
+项目权限文件只能收紧托管／用户／内联授权，不能新增授权。文件工具禁止修改策略文件，沙箱禁止 Shell 写入 SDK home、项目配置目录及显式配置的策略路径。旧的项目 allow 规则应迁移到可信用户／托管文件或 `permissionFiles.inlineRules`。

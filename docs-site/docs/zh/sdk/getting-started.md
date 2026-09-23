@@ -21,16 +21,16 @@ import { query } from "@lite-agent/sdk";
 import { anthropic } from "@lite-agent/provider";
 
 for await (const ev of query({
-  prompt: "List the files here and summarize what this project does.",
+  prompt: "Read README.md and summarize this project.",
   model: anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }),
   modelName: "claude-sonnet-4-6",
-  cwd: process.cwd(),
+  workdir: process.cwd(),
 })) {
   if (ev.type === "text_delta") process.stdout.write(ev.text);
 }
 ```
 
-开箱即用，agent 已经拥有作用域限定在 `cwd` 的默认工具（`bash`、`read_file`、`write_file`、`edit_file`、`delete_file`）。生成器最终 resolve 为一个 `LiteAgentResult`（`messages`、`text`、`usage`、`stopReason`）。
+开箱即用，agent 已经拥有内置默认工具（`bash`、`read_file`、`write_file`、`edit_file`、`delete_file`）。生成器最终 resolve 为一个 `LiteAgentResult`（`messages`、`text`、`usage`、`stopReason`）。
 
 ## 3. 添加自定义工具
 
@@ -75,7 +75,7 @@ const agent = createLiteAgent({
   modelName: "claude-sonnet-4-6",
   workdir: process.cwd(),
   // Every bash / write_file / edit_file call pauses for approval.
-  permission: policy({ ask: ["bash", "write_file", "edit_file"] }),
+  permission: policy({ ask: ["bash", "write_file", "edit_file", "delete_file"] }),
   onApproval: {
     async request(call) {
       const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -106,3 +106,5 @@ console.log(second.text);
 - [权限](/zh/sdk/control/permissions) —— 内容级规则、审计与试运行。
 - [模型 provider](/zh/core/providers) —— Anthropic、OpenAI 及 OpenAI 兼容本地端点。
 - [核心策略](/zh/core/strategies) —— 用内核原语构建自己的 agent。
+
+`query()` 与 `createLiteAgent()` 统一使用 `workdir`、`system`；旧的 `cwd`、`systemPrompt` 仍兼容，但冲突配置会报错。Shell 和文件修改默认需要审批；OS 隔离仍需配置沙箱，工作目录本身不能限制 Shell。普通接入先使用 `createLiteAgent`、`send`、`subscribe`、`close`，底层组装能力按需使用 `@lite-agent/core`。

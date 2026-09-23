@@ -1,59 +1,42 @@
 # Tasks
 
-Multi-step work needs a plan the model can see and update — and that survives context compaction and restarts. The Tasks capability gives the agent a **persistent task list** modeled on Claude Code's Tasks API: four built-in tools (`TaskCreate` / `TaskUpdate` / `TaskGet` / `TaskList`), on-disk storage shared across sessions of the same project, and a per-turn reminder that keeps the current list in front of the model without polluting the transcript.
+Tasks track work and its execution results with four tools: `TaskCreate`, `TaskUpdate`, `TaskGet`, and `TaskList`. They are enabled by default and stored under the project's SDK data directory.
 
-## Usage
+## Scope
 
-Tasks are on by default — nothing to configure. The default [system prompt](/sdk/behavior/system-prompt) already teaches the model the workflow: call `TaskCreate` to capture each step of any 3+ step task, set it `in_progress` before starting, and `completed` only when fully done.
+Each session has its own list. Children share their parent's list. To share deliberately across sessions, set `taskListId` (or `LITE_AGENT_TASK_LIST_ID`). Existing lists named `default` can be reopened with `taskListId: "default"`. Set `tasks: false` to disable task tracking and reminders.
 
-To scope a run to a named list, or turn the capability off:
+## States and execution
 
-```ts
-import { createLiteAgent } from "@lite-agent/sdk";
-import { anthropic } from "@lite-agent/provider";
-
-const agent = createLiteAgent({
-  model: anthropic(),
-  modelName: "claude-sonnet-4-6",
-  workdir: process.cwd(),
-  taskListId: "release-0.4", // which list to use; default "default"
-  // tasks: false,           // disable the tools and the reminder entirely
-});
-```
-
-`query()` accepts the same `tasks` / `taskListId` options. The list can also be selected with the `$LITE_AGENT_TASK_LIST_ID` environment variable (precedence: `taskListId` > env > `"default"`).
-
-## The tools
-
-| Tool | What it does |
+| State | Meaning |
 | --- | --- |
-| `TaskCreate` | Create a task with an imperative `subject` and detailed `description` (optional `activeForm`, `metadata`). Returns the new task id. |
-| `TaskUpdate` | Set `status` (`pending` / `in_progress` / `completed`), edit fields, set `owner`, or wire dependencies via `addBlockedBy` / `addBlocks`. An update that would create a dependency **cycle is rejected**. |
-| `TaskGet` | Fetch one task's full detail by id (description, status, dependency edges). |
-| `TaskList` | List every task with its status and `blockedBy` dependencies. |
+| `pending` | Not started; dependencies may still block it. |
+| `in_progress` | Being worked on. |
+| `review` | Child execution succeeded; its result still needs verification. |
+| `completed` | The task's goal has been checked and met. |
+| `failed` | Execution failed; inspect its result before retrying. |
+| `cancelled` | Execution was cancelled. |
 
-## How it works
+An `Agent` dispatch automatically creates a task. Pass `task_id` to associate an existing task instead. Its `owner` and `execution.agentId` identify the child, and `execution.result` retains the result or error. One task can have only one active child; the model cannot mark it complete while that child is running. After a successful child run, inspect the result with `TaskGet` and use `TaskUpdate` to accept it as `completed`.
 
-- **Persistence** — each task is a JSON file under `~/.lite-agent/projects/<hash>/tasks/<listId>/` (written atomically, guarded by a file lock). The list survives compaction and process restarts, and is **shared across sessions of the same project — including [subagents](/sdk/tools/subagents)**, so a parent and its children coordinate on one list.
-- **Per-turn reminder** — a middleware re-injects the rendered list as a trailing `<system-reminder>` into the model request each turn, just before encoding. The reminder is never appended to the transcript or persisted, so the event log stays clean and the model always sees the latest state.
-- **Dependencies** — `blockedBy` / `blocks` edges are maintained symmetrically by `TaskUpdate`, and a DFS cycle check rejects any update that would deadlock the graph.
+`TaskUpdate` can edit task fields and add `blockedBy`/`blocks` edges. Cycles are rejected. Unfinished prerequisites prevent a task from entering `in_progress`, `review`, or `completed`. Dependencies do not automatically schedule work: the parent chooses when to dispatch a ready task.
 
-## Disabling
+Task writes use a file lock and atomic file replacement. They survive restarts, but active child execution does not resume automatically after a process crash. Inspect any stale `in_progress` task before recovery; persisted task state is not a durable job scheduler.
 
-Set `tasks: false` to remove all four tools **and** the reminder middleware:
+## Model reminders and UI
+
+The per-turn reminder includes active, review, and failed work; completed and cancelled tasks are omitted. `TaskList` still returns the whole list. Reminders are not persisted as conversation messages. Subscribe to `task_update` for state changes and `model_call_start` for the actual model and requested reasoning effort.
 
 ```ts
-const agent = createLiteAgent({
-  model: anthropic(),
-  modelName: "claude-sonnet-4-6",
-  workdir: process.cwd(),
-  tasks: false,
+const agent = createLiteAgent({ model, workdir });
+const unsubscribe = agent.subscribe(({ event }) => {
+  if (event.type === "task_update") console.log(event.taskId, event.status);
 });
+try {
+  await agent.send("Delegate two independent checks and verify their results.");
+  await agent.awaitIdle();
+} finally {
+  unsubscribe();
+  await agent.close();
+}
 ```
-
-## See also
-
-- [System prompt](/sdk/behavior/system-prompt) — the task-planning instructions in the default prompt.
-- [Subagents](/sdk/tools/subagents) — children share the project's task list.
-- [Sessions](/sdk/core-concepts/sessions) — persistence and compaction the task list survives.
-- [Getting started](/sdk/getting-started) — install and run your first agent.

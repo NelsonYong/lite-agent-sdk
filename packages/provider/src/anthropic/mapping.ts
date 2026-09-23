@@ -73,6 +73,14 @@ export function toAnthropicParams(
       .map(toMessageParam),
     stream: true,
   };
+  if (req.reasoningEffort !== undefined) {
+    if (req.temperature !== undefined || req.topP !== undefined)
+      throw new Error("reasoningEffort cannot be combined with temperature or topP");
+    if (req.toolChoice && req.toolChoice !== "auto" && req.toolChoice !== "none")
+      throw new Error("adaptive thinking does not support forced tool choice");
+    params.thinking = { type: "adaptive" };
+    params.output_config = { effort: req.reasoningEffort };
+  }
   if (req.system) {
     params.system = options.promptCache
       ? [{ type: "text", text: req.system, cache_control: { type: "ephemeral" } }]

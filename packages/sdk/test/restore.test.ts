@@ -15,6 +15,7 @@ test("restore reverts a file written via write_file", async () => {
     ]),
     workdir: dir,
     checkpointer: cp,
+    onApproval: { request: async () => "allow" },
   });
   const id = agent.sessionId;
   await agent.send("write it");
@@ -35,6 +36,7 @@ test("restore recreates a file deleted via delete_file", async () => {
     ]),
     workdir: dir,
     checkpointer: cp,
+    onApproval: { request: async () => "allow" },
   });
   const id = agent.sessionId;
 
@@ -57,6 +59,7 @@ test("restore recreates a deleted binary file byte-for-byte", async () => {
     ]),
     workdir: dir,
     checkpointer: cp,
+    onApproval: { request: async () => "allow" },
   });
   const id = agent.sessionId;
   await agent.send("delete it");

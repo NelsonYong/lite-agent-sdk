@@ -44,7 +44,7 @@ await agent.restore(agent.sessionId, checkpoints[2].seq); // undo everything aft
 
 Time travel works because the file tools snapshot every file before modifying it: `restore` replays those snapshots to undo changes on disk, then truncates the event log. See [Checkpointing](/sdk/control/checkpointing) for the full rewind model.
 
-Set `sessions: false` to disable persistence entirely (session methods then reject).
+Set `sessions: false` to keep conversation state in memory without writing a session transcript (persistent session methods then reject). User goals remain available to background completion turns until the agent is closed.
 
 ## Persisting to external storage
 

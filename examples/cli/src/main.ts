@@ -11,7 +11,7 @@ import type {
   UserAnswer,
   UserQuestion,
 } from "@lite-agent/sdk";
-import { resolveModel } from "./model.js";
+import { modelConfiguration, resolveModel } from "./model.js";
 
 // Resolve this example's own root (examples/cli) so its .env + skills/ load
 // regardless of where you launch it from (independent of process.cwd()).
@@ -77,16 +77,16 @@ const { provider, modelName, protocol } = resolveModel();
 process.stdout.write(`\x1b[90m[model] ${modelName} via ${protocol}\x1b[0m\n`);
 
 const agent = createLiteAgent({
-  model: provider,
-  modelName,
+  ...modelConfiguration({ provider, modelName, protocol }),
   workdir,
   skillsDir: join(exampleRoot, "skills"),
-  permission: policy({ ask: ["bash", "write_file", "edit_file"] }),
+  permission: policy({ ask: ["bash", "write_file", "edit_file", "delete_file"] }),
   onApproval,
   onAskUser,
   // OS-level boundary (defense-in-depth with the permission gate). macOS=Seatbelt, Linux=bubblewrap.
-  // Degrades to noop on unsupported envs so bash keeps working.
+  // Fail closed: installing the sandbox is a prerequisite for this shell-capable demo.
   sandbox: sandboxRuntime({
+    requireSandbox: true,
     allowedDomains: [
       "registry.npmjs.org",
       "api.github.com",
@@ -95,10 +95,7 @@ const agent = createLiteAgent({
       "objects.githubusercontent.com",
     ],
     denyRead: ["~/.ssh", "~/.aws"],
-    onUnavailable: (err) =>
-      process.stdout.write(
-        `\x1b[33m[sandbox] unavailable — running without OS boundary: ${err.message}\x1b[0m\n`,
-      ),
+
   }),
 });
 
@@ -106,6 +103,12 @@ process.stdout.write(`\x1b[90m[session] ${agent.sessionId}\x1b[0m\n`);
 
 function render(ev: AgentEvent): void {
   switch (ev.type) {
+    case "model_call_start":
+      process.stdout.write(`\n[${ev.agentId ?? "main"}] model=${ev.model} reasoning=${ev.reasoningEffort ?? "provider default"}\n`);
+      break;
+    case "task_update":
+      process.stdout.write(`\n[task ${ev.taskId}] ${ev.status}${ev.owner ? ` @${ev.owner}` : ""}\n`);
+      break;
     case "text_delta":
       process.stdout.write(ev.text);
       break;

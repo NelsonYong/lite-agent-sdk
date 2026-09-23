@@ -135,6 +135,14 @@ export async function createLocalAgent(cfg: LocalAgentConfig): Promise<LocalAgen
     requireSandbox: true,
     allowedDomains: [],
     allowWrite: [workdir],
+    denyWrite: [
+      paths.home,
+      join(workdir, ".lite-agent"),
+      ...[cfg.permissionFiles?.managed, process.env.LITE_AGENT_MANAGED_PERMISSIONS,
+        cfg.permissionFiles?.user, cfg.permissionFiles?.project]
+        .filter((path): path is string => typeof path === "string").map((path) => resolve(path)),
+      ...(cfg.sandboxOptions?.denyWrite ?? []),
+    ],
     denyRead: ["~/.ssh", "~/.aws", "~/.config", ...(cfg.sandboxOptions?.denyRead ?? [])],
   });
   const resourceLimits = { ...DEFAULT_RESOURCE_LIMITS, ...cfg.resources };

@@ -182,6 +182,7 @@ test("a configured sandbox wraps bash commands end-to-end", async () => {
     model: fp,
     workdir: process.cwd(),
     sandbox: { id: "fake", wrap: () => "echo wrapped-by-sandbox" },
+    onApproval: { request: async () => "allow" },
   });
   const results: string[] = [];
   for await (const ev of agent.run("hi"))
@@ -405,6 +406,7 @@ test("assembles compaction, permission, user middleware, and task reminder in or
     model,
     workdir,
     home,
+    taskListId: "default",
     cleanup: false,
     sessions: false,
     spill: false,

@@ -21,16 +21,16 @@ import { query } from "@lite-agent/sdk";
 import { anthropic } from "@lite-agent/provider";
 
 for await (const ev of query({
-  prompt: "List the files here and summarize what this project does.",
+  prompt: "Read README.md and summarize this project.",
   model: anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }),
   modelName: "claude-sonnet-4-6",
-  cwd: process.cwd(),
+  workdir: process.cwd(),
 })) {
   if (ev.type === "text_delta") process.stdout.write(ev.text);
 }
 ```
 
-Out of the box the agent already has the default tools (`bash`, `read_file`, `write_file`, `edit_file`, `delete_file`) scoped to `cwd`. The generator resolves to a `LiteAgentResult` (`messages`, `text`, `usage`, `stopReason`).
+Out of the box the agent already has the default tools (`bash`, `read_file`, `write_file`, `edit_file`, `delete_file`) with workspace-scoped file access. The generator resolves to a `LiteAgentResult` (`messages`, `text`, `usage`, `stopReason`).
 
 ## 3. Add a custom tool
 
@@ -75,7 +75,7 @@ const agent = createLiteAgent({
   modelName: "claude-sonnet-4-6",
   workdir: process.cwd(),
   // Every bash / write_file / edit_file call pauses for approval.
-  permission: policy({ ask: ["bash", "write_file", "edit_file"] }),
+  permission: policy({ ask: ["bash", "write_file", "edit_file", "delete_file"] }),
   onApproval: {
     async request(call) {
       const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -106,3 +106,5 @@ The `LiteAgent` also gives you session management: `resume(id)`, `clear()`, `lis
 - [Permissions](/sdk/control/permissions) — content-level rules, auditing, and dry-run.
 - [Model providers](/core/providers) — Anthropic, OpenAI, and OpenAI-compatible local endpoints.
 - [Core strategies](/core/strategies) — build your own agent from kernel primitives.
+
+`query()` uses the same `workdir` and `system` names as `createLiteAgent()`. The old `cwd` and `systemPrompt` aliases still work; conflicting aliases are rejected. Shell and file mutations require approval by default. Add a sandbox for OS isolation; setting a working directory does not contain shell commands. Start with `createLiteAgent`, `send`, `subscribe`, and `close`; use `@lite-agent/core` only for lower-level assembly.

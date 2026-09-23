@@ -33,6 +33,9 @@ export type ToolSpec = { name: string; description: string; parameters: Record<s
 /** How the model should choose tools: let it decide, forbid, force any, or force one by name. */
 export type ToolChoice = "auto" | "none" | "required" | { tool: string };
 
+/** Portable effort levels; model support is validated by the provider API. */
+export type ReasoningEffort = "low" | "medium" | "high";
+
 export type ModelRequest = {
   model: string;
   system?: string;
@@ -45,6 +48,7 @@ export type ModelRequest = {
   toolChoice?: ToolChoice;
   /** Reproducibility hint; honored by OpenAI, ignored by providers that lack it (Anthropic). */
   seed?: number;
+  reasoningEffort?: ReasoningEffort;
 };
 
 export type ModelChunk =

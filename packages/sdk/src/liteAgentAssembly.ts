@@ -5,6 +5,7 @@ import {
   ContextEngine,
   estimateTokens,
   legacyStoreAdapter,
+  memoryCheckpointer,
   nativeCodec,
   permission,
   reactiveCompaction,
@@ -17,12 +18,14 @@ import { askUserTool, defaultTools } from "./tools";
 import { SkillLoader } from "./skills/loader";
 import { loadSkillTool } from "./skills/loadSkillTool";
 import { buildSystemPrompt } from "./system";
+import { workspacePolicy } from "./permission/workspace";
 import { fileCheckpointer } from "./checkpoint";
 import { fileSpillStore, readSpilledTool } from "./spill";
 import { contextLookupTool, fileContextArchive } from "./contextArchive";
 import type { ContextArchive as FileContextArchive } from "./contextArchive";
 import { sessionContextDir } from "./paths";
 import { fileTaskStore } from "./tasks/store";
+import type { TaskStore } from "./tasks/types";
 import { taskTools } from "./tools/task";
 import { taskReminder } from "./tasks/reminder";
 import { AgentLoader } from "./agents/loader";
@@ -97,14 +100,23 @@ export function assembleLiteAgent({
   }
 
   const tasksEnabled = cfg.tasks !== false;
-  const taskStore = tasksEnabled
-    ? fileTaskStore({
-        dir: paths.tasksDir,
-        listId: cfg.taskListId ?? process.env.LITE_AGENT_TASK_LIST_ID ?? "default",
-      })
-    : undefined;
+  const taskStores = new Map<string, TaskStore>();
+  const taskStore = tasksEnabled ? (sessionId: string): TaskStore => {
+    const listId = cfg.taskListId ?? process.env.LITE_AGENT_TASK_LIST_ID ?? sessionId;
+    let store = taskStores.get(listId);
+    if (!store) {
+      store = fileTaskStore({ dir: paths.tasksDir, listId });
+      taskStores.set(listId, store);
+    }
+    return store;
+  } : undefined;
   if (taskStore) tools.push(...taskTools(taskStore));
 
+  const descriptions = { simple: "bounded read-only lookup", medium: "ordinary implementation and tests", complex: "architecture, difficult debugging, or security review" };
+  const modelDescription = cfg.models
+    ? "Choose model from these configured profiles: " + Object.entries(cfg.models)
+        .map(([tier, profile]) => `${tier}: ${descriptions[tier as keyof typeof descriptions]} (${profile.modelName}${profile.reasoningEffort ? `, reasoning ${profile.reasoningEffort}` : ""})`).join("; ")
+    : undefined;
   let subagents: string | undefined;
   if (cfg.agents !== false) {
     const agentLoader = new AgentLoader(
@@ -117,7 +129,8 @@ export function assembleLiteAgent({
     );
     if (agentLoader.names().length > 0) {
       subagents = agentLoader.getDescriptions();
-      tools.push(agentTool({ loader: agentLoader, spawn, pool: subagentPool }));
+      tools.push(agentTool({ loader: agentLoader, spawn, pool: subagentPool,
+        models: cfg.models ? Object.keys(cfg.models) : undefined, modelDescription, taskStore }));
     }
   }
 
@@ -156,7 +169,9 @@ export function assembleLiteAgent({
       workdir: cfg.workdir,
       modelName: cfg.modelName,
       skills,
-      subagents,
+      subagents: tools.some((tool) => tool.name === "Agent") ? subagents : undefined,
+      models: modelDescription,
+      tasks: tools.some((tool) => tool.name === "TaskCreate"),
     });
   if (cfg.outputSchema) {
     system +=
@@ -220,7 +235,7 @@ export function assembleLiteAgent({
     (cfg.store
       ? legacyStoreAdapter(cfg.store)
       : cfg.sessions === false
-        ? undefined
+        ? memoryCheckpointer()
         : fileCheckpointer({ dir: paths.sessionsDir }));
 
   // `checkpointer` is declared above the tool closure at runtime; the tool is
@@ -230,7 +245,7 @@ export function assembleLiteAgent({
     ...(compactor ? [compaction(compactor), reactiveCompaction()] : []),
     ...(cfg.permission
       ? [
-          permission(cfg.permission, cfg.onApproval, {
+          permission(workspacePolicy(cfg.permission, cfg.workdir), cfg.onApproval, {
             redact: cfg.redact,
             mode: cfg.permissionMode,
             audit: cfg.permissionAudit,
@@ -254,6 +269,7 @@ export function assembleLiteAgent({
     topP: cfg.topP,
     toolChoice: cfg.toolChoice,
     seed: cfg.seed,
+    reasoningEffort: cfg.reasoningEffort,
     maxParallelTools: cfg.maxParallelTools,
     maxDecodeRetries: cfg.maxDecodeRetries,
     background: cfg.background,
@@ -320,5 +336,9 @@ export function assembleLiteAgent({
       }
     : undefined;
 
-  return { core, checkpointer, compactor: legacyContext ? compactor : undefined, takeOutput, context };
+  // Disabling disk sessions must not erase the goal between a user turn and a
+  // background completion. Keep runtime state in memory, without exposing the
+  // persistent session-management API in this mode.
+  const persistent = cfg.checkpointer !== undefined || cfg.store !== undefined || cfg.sessions !== false;
+  return { core, checkpointer: persistent ? checkpointer : undefined, compactor: legacyContext ? compactor : undefined, takeOutput, context };
 }

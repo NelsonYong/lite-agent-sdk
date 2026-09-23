@@ -1,4 +1,10 @@
-export type TaskStatus = "pending" | "in_progress" | "completed";
+export type TaskStatus = "pending" | "in_progress" | "review" | "completed" | "failed" | "cancelled";
+
+export interface TaskExecution {
+  agentId: string;
+  status: "running" | "succeeded" | "failed" | "cancelled";
+  result?: string;
+}
 
 export interface Task {
   id: string;
@@ -10,6 +16,7 @@ export interface Task {
   blockedBy: string[];
   blocks: string[];
   metadata?: Record<string, unknown>;
+  execution?: TaskExecution;
   createdAt: number;
   updatedAt: number;
 }
@@ -31,6 +38,8 @@ export interface UpdateTaskInput {
   addBlockedBy?: string[];
   addBlocks?: string[];
   metadata?: Record<string, unknown>;
+  /** Runtime-owned execution record; deliberately absent from the model-facing TaskUpdate schema. */
+  execution?: TaskExecution;
 }
 
 export interface TaskStore {
@@ -38,5 +47,5 @@ export interface TaskStore {
   update(input: UpdateTaskInput): Promise<Task>;
   get(taskId: string): Task | null;
   list(): Task[];
-  render(): string;
+  render(opts?: { activeOnly?: boolean }): string;
 }

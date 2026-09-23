@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { lock } from "proper-lockfile";
 import type { Task, TaskStore, CreateTaskInput, UpdateTaskInput, TaskStatus } from "./types";
 
-const MARK: Record<TaskStatus, string> = { pending: "[ ]", in_progress: "[>]", completed: "[x]" };
+const MARK: Record<TaskStatus, string> = { pending: "[ ]", in_progress: "[>]", review: "[?]", completed: "[x]", failed: "[!]", cancelled: "[-]" };
 const LOCK_OPTS = { retries: { retries: 20, factor: 1.4, minTimeout: 5, maxTimeout: 100 } };
 
 // DFS over the blockedBy graph; true if any back-edge (unresolvable deadlock) exists.
@@ -109,12 +109,23 @@ export function fileTaskStore(opts: FileTaskStoreOptions): TaskStore {
         const task = map.get(input.taskId);
         if (!task) throw new Error(`no task '${input.taskId}'`);
 
+        if (task.execution?.status === "running") {
+          if (input.execution?.status === "running") throw new Error(`task '${task.id}' already has a running agent`);
+          if (input.execution && input.execution.agentId !== task.execution.agentId)
+            throw new Error(`task '${task.id}' belongs to another agent`);
+          if (!input.execution && (input.status !== undefined || input.owner !== undefined))
+            throw new Error(`task '${task.id}' is managed by a running agent`);
+        }
+        if (input.execution?.status === "running" && task.status === "completed")
+          throw new Error(`reopen completed task '${task.id}' before dispatching it`);
+
         if (input.status !== undefined) task.status = input.status;
         if (input.subject !== undefined) task.subject = input.subject;
         if (input.description !== undefined) task.description = input.description;
         if (input.activeForm !== undefined) task.activeForm = input.activeForm;
         if (input.owner !== undefined) task.owner = input.owner;
         if (input.metadata !== undefined) task.metadata = { ...task.metadata, ...input.metadata };
+        if (input.execution !== undefined) task.execution = input.execution;
 
         const touched = new Set<string>([task.id]);
         for (const other of input.addBlockedBy ?? []) {
@@ -133,6 +144,12 @@ export function fileTaskStore(opts: FileTaskStoreOptions): TaskStore {
         }
 
         if (hasCycle(map)) throw new Error(`update would create a dependency cycle`);
+        for (const id of touched) {
+          const t = map.get(id)!;
+          if (["in_progress", "review", "completed"].includes(t.status) &&
+              t.blockedBy.some((dep) => map.get(dep)?.status !== "completed"))
+            throw new Error(`task '${t.id}' has unfinished dependencies`);
+        }
 
         const now = Date.now();
         for (const id of touched) {
@@ -144,12 +161,15 @@ export function fileTaskStore(opts: FileTaskStoreOptions): TaskStore {
       });
     },
 
-    render() {
-      const tasks = readAll();
+    render(opts) {
+      const all = readAll();
+      const completed = new Set(all.filter((t) => t.status === "completed").map((t) => t.id));
+      const tasks = opts?.activeOnly ? all.filter((t) => t.status !== "completed" && t.status !== "cancelled") : all;
       if (!tasks.length) return "";
       return tasks
         .map((t) => {
-          const dep = t.blockedBy.length ? ` [blockedBy: ${t.blockedBy.join(", ")}]` : "";
+          const unresolved = t.blockedBy.filter((id) => !completed.has(id));
+          const dep = unresolved.length ? ` [blockedBy: ${unresolved.join(", ")}]` : "";
           const own = t.owner ? ` @${t.owner}` : "";
           return `${MARK[t.status]} #${t.id} ${t.subject} (${t.status})${dep}${own}`;
         })

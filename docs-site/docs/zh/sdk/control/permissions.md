@@ -26,7 +26,7 @@ const agent = createLiteAgent({
 });
 ```
 
-名称匹配使用 glob（`Task*` 匹配 `TaskCreate`、`TaskUpdate` 等）。没有命中任何规则的调用落到 `default`（不设置时为 `"allow"`）。不配策略时一切放行。
+名称匹配使用 glob（`Task*` 匹配 `TaskCreate`、`TaskUpdate` 等）。没有命中任何规则的调用落到 `default`（不设置时为 `"allow"`）。SDK 默认对 `bash`、`write_file`、`edit_file`、`delete_file` 请求审批；没有处理器时拒绝。显式提供的自定义工具由宿主负责信任。传入 `permission` 会替换该默认策略；底层 core 仍由调用方显式配置。
 
 ## 内容级规则
 
@@ -77,9 +77,7 @@ const permission = composePolicies(
 );                                             // …but deny wins: bash stays denied
 ```
 
-:::warning
-子代理默认**不带父级的权限闸门和 `onApproval` 处理器**运行——交互式审批无法服务并行的子代理。sandbox 仍会包裹每条命令。传 `subagentPermission`（allow/deny 规则，不支持 `ask`）来约束子代理运行。见 [子代理](/zh/sdk/tools/subagents)。
-:::
+子代理继承父级权限、沙箱和工具限制，`subagentPermission` 只能收紧。所有审批共用根实例的串行队列。
 
 ## 选项
 
@@ -100,3 +98,9 @@ const permission = composePolicies(
 - [可观测性](/zh/sdk/control/observability) — 从事件流中读取 `permission_decision` 事件。
 - [子代理](/zh/sdk/tools/subagents) — `subagentPermission` 如何约束子代理。
 - [Core 策略](/zh/core/strategies) — `PermissionPolicy` 策略接口。
+
+## 路径与配置边界
+
+SDK 内置文件工具的权限检查使用规范化后的工作区相对路径，覆盖绝对路径和符号链接别名；写操作拒绝符号链接。单独使用 core 策略时不会为任意自定义工具规范化路径。Bash 的 cwd 本身不提供沙箱隔离。
+
+`permissionFilePolicy` 将项目规则视为宿主授权之上的限制：项目不能把默认拒绝变成允许。请在托管文件、用户文件或内联规则中授权。文件工具不能修改策略文件或删除其父目录；local 运行时也阻止 Shell 写入配置路径。任意自定义工具仍属于可信宿主代码。

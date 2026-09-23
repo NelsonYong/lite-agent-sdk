@@ -179,8 +179,8 @@ test("subagent without model selection inherits the active root profile", async 
   expect(child).toEqual([{ provider: "medium", model: "medium-id", child: true }]);
 });
 
-test("raw subagent model id keeps the inherited active provider", async () => {
+test("model-generated selections cannot escape the configured catalog", async () => {
   const child = (await runSubagentRoute({ taskModel: "raw-child-id" }))
     .filter((call) => call.child);
-  expect(child).toEqual([{ provider: "medium", model: "raw-child-id", child: true }]);
+  expect(child).toEqual([]);
 });

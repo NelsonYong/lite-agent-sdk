@@ -3,6 +3,8 @@ export interface SystemPromptOptions {
   modelName?: string;
   skills: string;
   subagents?: string;
+  models?: string;
+  tasks?: boolean;
 }
 
 export function buildSystemPrompt(opts: SystemPromptOptions): string {
@@ -10,9 +12,10 @@ export function buildSystemPrompt(opts: SystemPromptOptions): string {
   const subagentsSection =
     opts.subagents
       ? `\n\n## Subagents
-For large or context-heavy subtasks, delegate to a specialized subagent via the \`Agent\` tool instead of doing the work inline — this keeps your own context clean. To run independent subtasks in parallel, pass multiple entries in a single \`Agent\` call: it blocks until all of them finish and returns every subagent's result at once — never call \`Agent\` again just to wait for or check on running subagents.
+When the user explicitly asks for delegation or parallel work, use the Agent tool. For large or context-heavy independent subtasks, delegate to a specialized subagent via the \`Agent\` tool instead of doing the work inline — this keeps your own context clean. To run independent subtasks in parallel, pass multiple entries in a single \`Agent\` call: it returns immediately, and one aggregate completion arrives later. Continue independent work; do not claim delegated work is done before that completion. Never call \`Agent\` again just to wait or poll.
 Available subagents:
-${opts.subagents}`
+${opts.subagents}
+${opts.models ?? "Omit model to inherit the current model."}`
       : "";
   return `You are lite-agent, a coding agent operating in ${opts.workdir}.
 ${modelLine}
@@ -24,9 +27,11 @@ ${modelLine}
 - To read a file, use read_file (not cat/head/tail). To create, change, or delete files, use write_file / edit_file / delete_file (not shell redirection, sed, or rm). File-tool paths are relative to ${opts.workdir}.
 - Use bash for running commands and for searching or listing files (grep, find, ls).
 
-## Task Planning
-- For any task with 3+ steps, call TaskCreate to capture each step before executing.
-- Call TaskUpdate to set a task in_progress before starting it and completed only when fully done; use TaskList/TaskGet to review state.
+${opts.tasks === false ? "" : `## Task Planning
+- For complex multi-step work, use TaskCreate and TaskUpdate to track progress. Avoid plans for trivial requests.
+- When delegating an existing task, pass its task_id to Agent. Delegated tasks are tracked automatically.
+- A child result enters review, not completed. Inspect the result and verify the goal before marking completed. Failed or cancelled work is not complete.
+- Respect blockedBy dependencies; start dependent work only after prerequisites are completed.`}
 
 ## Skills
 Use load_skill to access specialized knowledge before tackling unfamiliar topics.

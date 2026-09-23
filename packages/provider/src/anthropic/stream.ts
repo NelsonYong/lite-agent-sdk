@@ -61,6 +61,13 @@ export async function* translateStream(
           if (b && b.type === "compaction" && typeof d.content === "string") {
             b.content = (b.content ?? "") + d.content;
           }
+        } else if (d.type === "thinking_delta" || d.type === "signature_delta") {
+          const b = blocks[event.index];
+          if (b?.type === "native" && b.provider === "anthropic") {
+            const data = b.data as Record<string, unknown>;
+            const key = d.type === "thinking_delta" ? "thinking" : "signature";
+            data[key] = String(data[key] ?? "") + String(d[key] ?? "");
+          }
         }
         break;
       }

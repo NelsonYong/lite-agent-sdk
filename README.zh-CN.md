@@ -32,10 +32,10 @@ import { query } from "@lite-agent/sdk";
 import { anthropic } from "@lite-agent/provider";
 
 for await (const ev of query({
-  prompt: "列出当前目录的文件，并总结这个项目是做什么的。",
+  prompt: "读取 README.md，并总结这个项目是做什么的。",
   model: anthropic({ apiKey: process.env.ANTHROPIC_API_KEY }),
   modelName: "claude-sonnet-4-6",
-  cwd: process.cwd(),
+  workdir: process.cwd(),
 })) {
   if (ev.type === "text_delta") process.stdout.write(ev.text);
 }

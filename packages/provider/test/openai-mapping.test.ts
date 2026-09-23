@@ -1,6 +1,13 @@
 import { expect, test } from "vitest";
 import { toOpenAIParams } from "../src/openai/mapping";
 
+test("reasoning effort uses the completion budget and rejects conflicting sampling", () => {
+  const p = toOpenAIParams({ model: "reasoning-model", messages: [], reasoningEffort: "high", maxTokens: 4096 });
+  expect(p).toMatchObject({ reasoning_effort: "high", max_completion_tokens: 4096 });
+  expect(p).not.toHaveProperty("max_tokens");
+  expect(() => toOpenAIParams({ model: "m", messages: [], reasoningEffort: "low", temperature: 0.3 })).toThrow(/temperature/);
+});
+
 test("prepends system, maps user/assistant text", () => {
   const p = toOpenAIParams({ model: "m", system: "sys", messages: [
     { role: "user", content: "hi" },

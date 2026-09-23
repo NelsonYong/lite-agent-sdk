@@ -17,11 +17,11 @@ test("permission files merge layers globally with deny precedence and default de
   writeFileSync(join(workdir, ".lite-agent", "permissions.json"), JSON.stringify({
     version: 1, rules: [{ id: "yes-bash", tool: "bash", effect: "allow" }, { tool: "read_file", effect: "allow" }],
   }));
-  const p = permissionFilePolicy({ workdir, home, managedFile: managed });
+  const p = permissionFilePolicy({ workdir, home, managedFile: managed, inlineRules: [{ tool: "read_file", effect: "allow" }] });
 
   expect(await p.check(call("bash"), { sessionId: "s" })).toMatchObject({ decision: "deny", ruleId: "managed:no-bash" });
   expect(await p.check(call("read_file"), { sessionId: "s" })).toMatchObject({ decision: "allow" });
-  expect(await p.check(call("unknown"), { sessionId: "s" })).toBe("deny");
+  expect(await p.check(call("unknown"), { sessionId: "s" })).toMatchObject({ decision: "deny" });
 });
 
 test("permission files hot reload and fail closed when a changed file becomes invalid", async () => {
@@ -30,7 +30,7 @@ test("permission files hot reload and fail closed when a changed file becomes in
   writeFileSync(project, JSON.stringify({ version: 1, rules: [{ tool: "read_file", effect: "allow" }] }));
   const onReload = vi.fn();
   const p = permissionFilePolicy({
-    workdir: root, home: root, userFile: false, projectFile: project, onReload,
+    workdir: root, home: root, userFile: false, projectFile: project, onReload, inlineRules: [{ tool: "read_file", effect: "allow" }],
   });
   expect(await p.check(call("read_file"), { sessionId: "s" })).toMatchObject({ decision: "allow" });
 

@@ -80,7 +80,12 @@ export function toOpenAIParams(
     stream: true,
     stream_options: { include_usage: true },
   };
-  if (req.maxTokens) params.max_tokens = req.maxTokens;
+  if (req.reasoningEffort !== undefined) {
+    params.reasoning_effort = req.reasoningEffort;
+    if (req.maxTokens !== undefined) params.max_completion_tokens = req.maxTokens;
+    if (req.temperature !== undefined || req.topP !== undefined)
+      throw new Error("reasoningEffort cannot be combined with temperature or topP");
+  } else if (req.maxTokens) params.max_tokens = req.maxTokens;
   if (req.stopSequences) params.stop = req.stopSequences;
   if (req.temperature !== undefined) params.temperature = req.temperature;
   if (req.topP !== undefined) params.top_p = req.topP;

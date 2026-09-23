@@ -36,9 +36,20 @@ function agentsDir(name: string, body = `${name} body`): string {
 // A hermetic per-test project root so sessions/tasks never bleed between tests.
 const workdir = () => mkdtempSync(join(tmpdir(), "wd-"));
 
-// One fakeProvider instance is shared by parent and child kernels; its turn counter
-// advances once per model call, so turns run in deterministic order:
-// parent-turn1 (Agent call) -> child-turn1 -> parent-turn2.
+// Parent and child have separate scripts: asynchronous scheduling must not decide
+// which response they receive.
+function familyProvider(turns: Parameters<typeof fakeProvider>[0]): ModelProvider {
+  if (turns.length < 3) return fakeProvider(turns);
+  const parent = fakeProvider([turns[0]!, turns.at(-1)!]);
+  const child = fakeProvider(turns.slice(1, -1));
+  return {
+    id: "family-test",
+    stream(request, signal) {
+      return (request.system?.startsWith('You are the "') ? child : parent).stream(request, signal);
+    },
+  };
+}
+
 function collectResults(gen: AsyncGenerator<{ type: string }, unknown>) {
   return (async () => {
     const out: string[] = [];
@@ -80,7 +91,7 @@ const lastText = (request: ModelRequest): string | undefined => {
 };
 
 test("registers the Agent tool and runs a child to completion when a definition exists", async () => {
-  const fp = fakeProvider([
+  const fp = familyProvider([
     { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ display_name: "Echo", subagent_type: "echo", prompt: "hi", resume: "agent-echo-fixed1" }], run_in_background: false } }] } },
     { text: "child-done", message: { role: "assistant", content: [textBlock("child-done")] } },
     { text: "parent-done", message: { role: "assistant", content: [textBlock("parent-done")] } },
@@ -97,7 +108,7 @@ test("registers the Agent tool and runs a child to completion when a definition 
 });
 
 test("the built-in general-purpose subagent works with no agent files (default on)", async () => {
-  const fp = fakeProvider([
+  const fp = familyProvider([
     { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ display_name: "General", subagent_type: "general-purpose", prompt: "do it", resume: "agent-gp-default1" }], run_in_background: false } }] } },
     { text: "child-done", message: { role: "assistant", content: [textBlock("child-done")] } },
     { text: "parent-done", message: { role: "assistant", content: [textBlock("parent-done")] } },
@@ -115,7 +126,7 @@ test("the built-in general-purpose subagent works with no agent files (default o
 });
 
 test("agents:false leaves the Agent tool unregistered", async () => {
-  const fp = fakeProvider([
+  const fp = familyProvider([
     { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ display_name: "Echo", subagent_type: "echo", prompt: "hi" }] } }] } },
     { text: "done", message: { role: "assistant", content: [textBlock("done")] } },
   ]);
@@ -127,7 +138,7 @@ test("agents:false leaves the Agent tool unregistered", async () => {
 
 test("a subagent run persists a durable transcript under sessionsDir", async () => {
   const wd = workdir();
-  const fp = fakeProvider([
+  const fp = familyProvider([
     { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ display_name: "Echo", subagent_type: "echo", prompt: "hi", resume: "agent-echo-persist1" }] } }] } },
     { text: "child-done", message: { role: "assistant", content: [textBlock("child-done")] } },
     { text: "parent-done", message: { role: "assistant", content: [textBlock("parent-done")] } },
@@ -142,7 +153,7 @@ test("a subagent run persists a durable transcript under sessionsDir", async () 
 
 test("a spawned child has no Agent tool (no recursion)", async () => {
   const wd = workdir();
-  const fp = fakeProvider([
+  const fp = familyProvider([
     // parent dispatches the child...
     { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ display_name: "Echo", subagent_type: "echo", prompt: "hi", resume: "agent-echo-norecurse" }] } }] } },
     // ...child tries to dispatch its OWN subagent — it must have no Agent tool...
@@ -167,7 +178,7 @@ test("a root Agent dispatcher filters a custom Agent tool before creating its ch
     execute: vi.fn(() => "custom Agent ran"),
   });
   const requests: ModelRequest[] = [];
-  const inner = fakeProvider([
+  const inner = familyProvider([
     // The root was assembled before customAgent was added, so this reaches the
     // built-in dispatcher and creates the child below.
     { message: { role: "assistant", content: [{ type: "tool_call", id: "p1", name: "Agent", input: { tasks: [{ display_name: "Worker", subagent_type: "worker", prompt: "child", resume: "agent-worker-custom-agent" }] } }] } },
@@ -193,7 +204,7 @@ test("a root Agent dispatcher filters a custom Agent tool before creating its ch
   inheritedTools.push(customAgent);
   const events = await collectUntilIdle(agent, "start");
 
-  expect(requests[1]?.tools?.map((tool) => tool.name)).not.toContain("Agent");
+  expect(requests.find((r) => r.system?.startsWith('You are the "worker"'))?.tools?.map((tool) => tool.name)).not.toContain("Agent");
   expect(events).toContainEqual(expect.objectContaining({
     agentId: "agent-worker-custom-agent",
     type: "tool_result",
@@ -209,7 +220,7 @@ test("a root Agent dispatcher filters a custom Agent tool before creating its ch
 
 test("a subagent shares the project task list with its parent", async () => {
   const wd = workdir();
-  const fp = fakeProvider([
+  const fp = familyProvider([
     { message: { role: "assistant", content: [{ type: "tool_call", id: "t1", name: "Agent", input: { tasks: [{ display_name: "Tasker", subagent_type: "tasker", prompt: "make a task", resume: "agent-tasker-share1" }] } }] } },
     { message: { role: "assistant", content: [{ type: "tool_call", id: "c1", name: "TaskCreate", input: { subject: "from child", description: "d" } }] } },
     { text: "child-done", message: { role: "assistant", content: [textBlock("child-done")] } },
@@ -218,12 +229,12 @@ test("a subagent shares the project task list with its parent", async () => {
   const agent = createLiteAgent({ model: fp, workdir: wd, agentsDir: agentsDir("tasker") });
   await collectUntilIdle(agent, "start");
   const paths = resolveProjectPaths({ workdir: wd });
-  const store = fileTaskStore({ dir: paths.tasksDir, listId: "default" });
+  const store = fileTaskStore({ dir: paths.tasksDir, listId: agent.sessionId });
   expect(store.list().some((t) => t.subject === "from child")).toBe(true);
   await agent.close();
 });
 
-test("a child applies definition overrides and strips parent-only facilities", async () => {
+test("a child applies model overrides but cannot widen parent tools", async () => {
   const wd = workdir();
   const dir = mkdtempSync(join(tmpdir(), "subagent-def-"));
   writeFileSync(
@@ -243,7 +254,7 @@ test("a child applies definition overrides and strips parent-only facilities", a
     },
   });
   const requests: ModelRequest[] = [];
-  const inner = fakeProvider([
+  const inner = familyProvider([
     {
       message: {
         role: "assistant",
@@ -302,8 +313,8 @@ test("a child applies definition overrides and strips parent-only facilities", a
 
   await collectUntilIdle(agent, "start");
 
-  const childRequest = requests[1]!;
-  expect(ran).toBe(true);
+  const childRequest = requests.find((r) => r.system?.startsWith('You are the "worker"'))!;
+  expect(ran).toBe(false);
   expect(childRequest.model).toBe("child-model");
   expect(childRequest.temperature).toBe(0.25);
   expect(childRequest.topP).toBe(0.75);
@@ -314,12 +325,12 @@ test("a child applies definition overrides and strips parent-only facilities", a
     `You are the "worker" subagent operating in ${wd}. ` +
       "Return your final answer as your last message.\n\nCHILD BODY",
   );
-  expect(childRequest.tools?.map((entry) => entry.name)).toEqual(["probe"]);
+  expect(childRequest.tools?.map((entry) => entry.name) ?? []).toEqual([]);
   expect(childRequest.system).not.toContain("## Final answer");
   await agent.close();
 });
 
-test("subagentPermission gates child tools without sharing the parent approval handler", async () => {
+test("subagentPermission uses the inherited root approval handler", async () => {
   let ran = false;
   const approval = vi.fn(async (): Promise<"allow" | "deny"> => "allow");
   const probe = defineTool({
@@ -331,7 +342,7 @@ test("subagentPermission gates child tools without sharing the parent approval h
       return "probe ran";
     },
   });
-  const model = fakeProvider([
+  const model = familyProvider([
     {
       message: {
         role: "assistant",
@@ -375,16 +386,15 @@ test("subagentPermission gates child tools without sharing the parent approval h
   });
   const events = await collectUntilIdle(agent, "start");
 
-  expect(ran).toBe(false);
-  expect(approval).not.toHaveBeenCalled();
+  expect(ran).toBe(true);
+  expect(approval).toHaveBeenCalledTimes(1);
   expect(events).toContainEqual(
     expect.objectContaining({
       agentId: "agent-worker-permission",
       type: "tool_result",
       result: expect.objectContaining({
         name: "probe",
-        isError: true,
-        content: "Error: denied by user",
+        content: "probe ran",
       }),
     }),
   );
@@ -394,7 +404,7 @@ test("subagentPermission gates child tools without sharing the parent approval h
 test("subagents inherit explicit checkpointers and legacy stores", async () => {
   const checkpointer = memoryCheckpointer();
   const withCheckpointer = createLiteAgent({
-    model: fakeProvider([
+    model: familyProvider([
       {
         message: {
           role: "assistant",
@@ -429,7 +439,7 @@ test("subagents inherit explicit checkpointers and legacy stores", async () => {
 
   const store = memoryStore();
   const withStore = createLiteAgent({
-    model: fakeProvider([
+    model: familyProvider([
       {
         message: {
           role: "assistant",
@@ -647,7 +657,7 @@ test("child max_turns and empty final text make the persisted group partial", as
 
 test("background:false makes Agent fail explicitly without starting a child", async () => {
   const agent = createLiteAgent({
-    model: fakeProvider([
+    model: familyProvider([
       {
         message: {
           role: "assistant",

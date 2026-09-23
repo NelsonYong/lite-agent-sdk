@@ -7,10 +7,41 @@ import type { AgentEvent, ToolContext } from "@lite-agent/core";
 import { AgentLoader } from "../src/agents/loader";
 import { createSubagentPool } from "../src/subagentPool";
 import { agentTool } from "../src/tools/agent";
+import { fileTaskStore } from "../src/tasks/store";
 import type { Spawn, SubagentResult } from "../src/tools/agent";
 import type { SubagentResult as PublicSubagentResult, SubagentStatus as PublicSubagentStatus } from "../src/index";
 
 const completed = (text: string): SubagentResult => ({ status: "completed", text, stopReason: "stop" });
+
+test.each(["completed", "failed", "cancelled"] as const)("tracked child %s produces the corresponding task state", async (status) => {
+  const store = fileTaskStore({ dir: mkdtempSync(join(tmpdir(), "agent-task-")), listId: "test" });
+  const result: SubagentResult = status === "completed" ? completed("artifact") : { status, error: "synthetic failure" };
+  const tool = agentTool({ loader: loaderWith("worker"), spawn: async () => result, taskStore: store });
+  const { ctx, bg } = ctxWithBackground();
+  await tool.execute({ tasks: [{ display_name: "Worker", subagent_type: "worker", prompt: "go" }] }, ctx);
+  await completion(bg);
+  expect(store.list()).toHaveLength(1);
+  expect(store.list()[0]).toMatchObject({
+    status: status === "completed" ? "review" : status,
+    execution: { status: status === "completed" ? "succeeded" : status, agentId: expect.any(String) },
+  });
+  bg.cancelAll();
+});
+
+test("a blocked task is not dispatched and remains pending", async () => {
+  const store = fileTaskStore({ dir: mkdtempSync(join(tmpdir(), "agent-blocked-")), listId: "test" });
+  await store.create({ subject: "first", description: "d" });
+  await store.create({ subject: "second", description: "d" });
+  await store.update({ taskId: "2", addBlockedBy: ["1"] });
+  const spawn = vi.fn(async () => completed("unexpected"));
+  const tool = agentTool({ loader: loaderWith("worker"), spawn, taskStore: store });
+  const { ctx, bg } = ctxWithBackground();
+  await tool.execute({ tasks: [{ display_name: "Second", subagent_type: "worker", prompt: "go", task_id: "2" }] }, ctx);
+  expect((await completion(bg)).content).toContain("unfinished dependencies");
+  expect(spawn).not.toHaveBeenCalled();
+  expect(store.get("2")?.status).toBe("pending");
+  bg.cancelAll();
+});
 
 function loaderWith(...names: string[]): AgentLoader {
   const d = mkdtempSync(join(tmpdir(), "at-"));

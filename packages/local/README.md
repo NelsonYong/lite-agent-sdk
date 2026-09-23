@@ -71,3 +71,5 @@ Runtime data lives under the SDK project directory: `sessions.sqlite3` and `logs
 - [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) — the SQLite checkpointer used here.
 - [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic) — the OS sandbox runtime used here.
 - [Monorepo root](../..) — full architecture write-up.
+
+Project permission files can only restrict managed/user/inline grants; they cannot grant new capabilities. File tools cannot modify policy files, and the sandbox denies shell writes to the SDK home, project configuration, and explicitly configured policy paths. Move old project allow rules to a trusted user/managed file or `permissionFiles.inlineRules`.

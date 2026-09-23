@@ -85,3 +85,5 @@ SQLite 后端提供基于 WAL 的并发读取、原子 seq 分配和**乐观并�
 - [检查点](/zh/sdk/control/checkpointing) —— `listCheckpoints` / `restore` 时间回溯模型的详细介绍。
 - [事件](/zh/sdk/core-concepts/events) —— 每个会话被持久化的 `SessionEvent` 流。
 - [代理循环](/zh/sdk/core-concepts/agent-loop) —— 会话中每一轮内部发生了什么。
+
+`sessions: false` 关闭会话落盘，但运行期仍在内存中保留对话，使后台补全轮次能看到原始用户目标；持久化会话管理方法仍不可用。关闭 Agent 后不保留该内存状态。

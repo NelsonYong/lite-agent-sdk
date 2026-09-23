@@ -115,3 +115,32 @@ test("a malformed task file is skipped instead of crashing reads", async () => {
   expect(() => s.render()).not.toThrow();
   expect(s.get("2")).toBeNull(); // unparseable single read → null, not a throw
 });
+
+test("dependencies block starting and completing tasks until prerequisites pass", async () => {
+  const s = newStore();
+  await s.create({ subject: "first", description: "d" });
+  await s.create({ subject: "second", description: "d" });
+  await s.update({ taskId: "2", addBlockedBy: ["1"] });
+  await expect(s.update({ taskId: "2", status: "in_progress" })).rejects.toThrow(/unfinished dependencies/);
+  await expect(s.update({ taskId: "2", status: "completed" })).rejects.toThrow(/unfinished dependencies/);
+  expect(s.get("2")?.status).toBe("pending");
+  await s.update({ taskId: "1", status: "completed" });
+  await s.update({ taskId: "2", status: "in_progress" });
+  expect(s.render({ activeOnly: true })).not.toContain("blockedBy");
+  expect(s.render({ activeOnly: true })).not.toContain("#1");
+});
+
+test("concurrent claims have one owner and running work cannot be manually completed", async () => {
+  const s = newStore();
+  await s.create({ subject: "work", description: "d" });
+  const claims = await Promise.allSettled(["a", "b"].map((agentId) => s.update({
+    taskId: "1", status: "in_progress", owner: agentId, execution: { agentId, status: "running" },
+  })));
+  expect(claims.filter((c) => c.status === "fulfilled")).toHaveLength(1);
+  await expect(s.update({ taskId: "1", status: "completed" })).rejects.toThrow(/running agent/);
+  const agentId = s.get("1")!.owner!;
+  await s.update({ taskId: "1", status: "review", execution: { agentId, status: "succeeded", result: "artifact" } });
+  expect(s.get("1")?.status).toBe("review");
+  await s.update({ taskId: "1", status: "completed" });
+  expect(s.render({ activeOnly: true })).toBe("");
+});

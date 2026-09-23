@@ -47,17 +47,11 @@ For example, this `simple` definition is overridden by one `complex` task:
 }
 ```
 
-Any model string other than the configured tier names remains a raw provider
-model id for backward compatibility, using the inherited provider. Use
-`simple` for known low-ambiguity work (a lookup or one small-file procedure),
-`medium` for ordinary multi-file work in one package, bug fixes, and tests, and
-`complex` for cross-package architecture, concurrency/persistence, external
-research, repeated failures, or high uncertainty.
+With a catalog, both tool calls and agent definitions must select a configured tier; unknown model names fail closed. Without a catalog, legacy raw model overrides retain the inherited provider. The tool schema and description expose available profiles to the parent.
 
-Tiers only select a provider/model pair. They do not change permissions,
-approval, reasoning effort, budgets, or concurrency. The SDK does not yet
-classify tasks automatically, escalate after failures, or retry on another
-tier; the parent chooses the tier explicitly.
+Profiles accept `reasoningEffort: "low" | "medium" | "high"`. OpenAI-compatible providers send `reasoning_effort`; Anthropic enables adaptive thinking with `output_config.effort`. Use supported models; unsupported settings produce provider errors, never an automatic model upgrade. Reasoning cannot be combined with temperature/topP; Anthropic adaptive thinking also rejects forced tool choice. Permissions and concurrency remain independent.
+
+The prompt recommends delegation for explicit requests and independent complex work. Automatic tool selection still depends on the model; configuring profiles alone does not force delegation.
 
 ## Dispatch
 
@@ -124,11 +118,11 @@ started and their autonomous completion turns, but it does not wait for an
 unrelated detached daemon such as background Bash.
 
 Children run with `agents: false`; recursive subagents, Agent Teams, message
-buses, shared inboxes, and task claiming are not supported.
+buses and shared inboxes are not supported.
 
-:::warning
-Subagents run **without the parent's permission gate and `onApproval` handler** by default — an interactive approval handler cannot service parallel children. The sandbox still wraps every command. Pass `subagentPermission` (allow/deny rules, not `ask`) to gate subagent runs.
-:::
+Children inherit the parent's policy and tool allow-list. `subagentPermission` and definition tools can only restrict them further. Parent and child approvals share one serial queue; missing approval handlers deny `ask` calls.
+
+When tasks are enabled, delegation creates a tracked task automatically. Pass `task_id` to link an existing task. A successful child enters `review`; failures and cancellations remain explicit. Verify the result before marking the task `completed`.
 
 ## Programmatic access
 

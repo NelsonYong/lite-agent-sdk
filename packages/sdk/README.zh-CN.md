@@ -53,9 +53,9 @@ createLiteAgent({
 });
 ```
 
-`models` 必须且只能包含 `simple`、`medium`、`complex`，`defaultModel` 必须指向其中之一。profile 的 `modelName` 是实际发送给 provider 的具体 id。`displayName` 是用于 UI、日志和诊断的可选元数据；省略时回退到 `modelName`，且绝不会出现在模型请求中。原有单一 `model` / `modelName` 配置继续支持。
+`models` 可以只配置 `simple`、`medium`、`complex` 中需要的档位，`defaultModel` 必须指向已配置的档位。profile 的 `modelName` 是实际发送给 provider 的具体 id。`displayName` 是用于 UI、日志和诊断的可选元数据；省略时回退到 `modelName`，且绝不会出现在模型请求中。原有单一 `model` / `modelName` 配置继续支持。
 
-`simple` 适合已知流程、低歧义的工作，例如只读查询或单个小文件的操作；`medium` 适合单个包内的普通多文件工作、修复 bug 和测试；`complex` 适合跨包架构、并发/持久化、外部调研、重复失败或高度不确定的工作。档位只选择 provider/model；权限、审批、推理强度、预算和并发仍是彼此独立的控制项。
+`simple` 适合已知流程、低歧义的工作，例如只读查询或单个小文件的操作；`medium` 适合单个包内的普通多文件工作、修复 bug 和测试；`complex` 适合跨包架构、并发/持久化、外部调研、重复失败或高度不确定的工作。档位还可以配置 `reasoningEffort: "low" | "medium" | "high"`；权限、审批、预算和并发仍是独立控制项。
 
 本版本不会自动分类任务、在失败后自动升级、重试其他档位，或从权限、推理强度推断档位。父应用或父 agent 应在拥有任务上下文时显式选择档位。
 
@@ -91,11 +91,11 @@ completion 轮次严格串行，进程重启后不会恢复未完成工作。`qu
 
 每个 child 都以 `agents: false` 创建；不支持递归子代理或 Agent Teams。
 
-对子代理 `Agent` 任务，`task.model` 优先级最高，其次是子代理 definition 的 `model`，最后是当前 agent 已选中的/默认档位。将任一值设为 `simple`、`medium` 或 `complex` 会选择对应的已配置档位；任何其他字符串都会为兼容性保留为 raw model id，并使用继承的 provider。
+对子代理 `Agent` 任务，`task.model` 优先级最高，其次是子代理 definition 的 `model`，最后是当前 agent 已选中的/默认档位。将任一值设为 `simple`、`medium` 或 `complex` 会选择对应的已配置档位；配置 catalog 后，工具调用和 definition 中未配置的模型名都会被拒绝；未配置 catalog 时，旧的 raw model 覆盖仍使用继承的 provider。
 
 ## 特性
 
-- **默认工具** —— `bash`、`read_file`、`write_file`、`edit_file`、`delete_file`，限定在 `workdir` 内；原子写 + 变更前快照，会话恢复可撤销这些修改。
+- **默认工具** —— `bash`、`read_file`、`write_file`、`edit_file`、`delete_file`，文件路径限定在 `workdir` 内（Shell 隔离需要沙箱）；原子写 + 变更前快照，会话恢复可撤销这些修改。
 - **技能（Skills）** —— 从 `~/.lite-agent/skills`、`<workdir>/.lite-agent/skills` 或 `skillsDir` 加载 `SKILL.md`；通过 `load_skill` 按需注入。
 - **子 Agent** —— detached、pooled 的 `Agent` 组，只送达一次按输入顺序排列的聚合结果；内置 `general-purpose` agent，可用 `agents/*.md` 自定义（`agents: false` 关闭 child 派发并阻止递归）。
 - **任务（Tasks）** —— 持久化任务列表（`TaskCreate/Update/Get/List`），带每轮提醒（`tasks: false` 关闭）。
@@ -129,3 +129,13 @@ completion 轮次严格串行，进程重启后不会恢复未完成工作。`qu
 - [`@lite-agent/provider`](../provider) —— 模型 provider（Anthropic 等）。
 - [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) · [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic) · [`@lite-agent/local`](../local) —— 可插拔后端与加固。
 - [Monorepo 根目录](../..) —— 架构总览；[`examples/cli`](../../examples/cli) —— 完整的交互式 REPL（串联 provider + 沙箱 + 权限 + `ask_user`）。
+
+## 安全默认值与迁移
+
+- Shell 和文件修改默认请求审批，没有处理器时拒绝；显式 `permission` 会替换该默认策略。自定义工具由宿主负责信任。
+- 子代理继承父级权限与工具限制，额外子策略只能收紧；所有审批共用串行队列。
+- `query` 与 `createLiteAgent` 共用配置定义，推荐统一使用 `workdir`、`system`；兼容 `cwd`、`systemPrompt` 旧别名。
+- 任务默认按会话隔离，子代理共享父列表。通过 `taskListId: "default"` 打开旧共享列表。派发自动建任务或接受 `task_id`，成功结果进入 `review` 而非直接完成。
+- 推理参数需要模型支持：OpenAI 发送 `reasoning_effort`，Anthropic 使用 adaptive thinking 和 effort。不支持时显式失败；网关接受参数不代表其推理语义一定生效。
+
+普通接入先掌握 `createLiteAgent`、`send`、`subscribe`、`close` 和 `tool`。现有底层导出继续兼容，高级组装按需使用 `@lite-agent/core`。

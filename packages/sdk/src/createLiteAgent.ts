@@ -8,6 +8,7 @@ import type { ModelResolver, ResolvedModel } from "./modelCatalog";
 import { createSessionRunner } from "./sessionRunner";
 import { createSubagentPool } from "./subagentPool";
 import type { Spawn, SubagentResult } from "./tools/agent";
+import { composePolicies, policy } from "@lite-agent/core";
 
 export type {
   CreateLiteAgentConfig,
@@ -22,7 +23,22 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
     ...cfg,
     modelName: cfg.modelName ?? cfg.model?.id,
   });
-  return createLiteAgentInstance(cfg, resolver, resolver.defaultModel);
+  // One approval queue belongs to the root, including every child. CLI prompts
+  // must never overlap when tools or agents execute concurrently.
+  let approvals: Promise<unknown> = Promise.resolve();
+  const handler = cfg.onApproval;
+  const onApproval = handler ? {
+    request: (call: Parameters<typeof handler.request>[0]) => {
+      const next = approvals.then(() => handler.request(call));
+      approvals = next.then(() => undefined, () => undefined);
+      return next;
+    },
+  } : undefined;
+  return createLiteAgentInstance({
+    ...cfg,
+    permission: cfg.permission ?? policy({ ask: ["bash", "write_file", "edit_file", "delete_file"] }),
+    onApproval,
+  }, resolver, resolver.defaultModel);
 }
 
 function createLiteAgentInstance(
@@ -34,6 +50,7 @@ function createLiteAgentInstance(
     ...source,
     model: active.provider,
     modelName: active.modelName,
+    reasoningEffort: active.reasoningEffort ?? (active.tier ? undefined : source.reasoningEffort),
   };
   const paths = resolveProjectPaths({
     workdir: cfg.workdir,
@@ -64,7 +81,7 @@ function createLiteAgentInstance(
   const spawn: Spawn = async (
     definition,
     prompt,
-    { signal, sessionId, model, onEvent },
+    { signal, sessionId, model, onEvent, parentSessionId },
   ) => {
     const childModel = resolver.resolve(model ?? definition.model, active);
     const child = createLiteAgentInstance({
@@ -72,14 +89,18 @@ function createLiteAgentInstance(
       system:
         `You are the "${definition.name}" subagent operating in ${cfg.workdir}. ` +
         `Return your final answer as your last message.\n\n${definition.body}`,
-      allowedTools: definition.tools ?? cfg.allowedTools,
+      allowedTools: definition.tools && cfg.allowedTools
+        ? definition.tools.filter((name) => cfg.allowedTools!.includes(name))
+        : definition.tools ?? cfg.allowedTools,
       agents: false,
       // A caller may provide a custom dispatcher named `Agent`. It must not
       // leak into the isolated child and reintroduce recursive subagents.
       tools: cfg.tools?.filter((tool) => tool.name !== "Agent"),
       cleanup: false,
-      permission: cfg.subagentPermission,
-      onApproval: undefined,
+      taskListId: cfg.taskListId ?? process.env.LITE_AGENT_TASK_LIST_ID ?? parentSessionId,
+      permission: cfg.permission && cfg.subagentPermission
+        ? composePolicies(cfg.permission, cfg.subagentPermission)
+        : cfg.permission ?? cfg.subagentPermission,
       onAskUser: undefined,
       outputSchema: undefined,
       checkpointer: cfg.checkpointer,

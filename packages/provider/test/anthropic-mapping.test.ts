@@ -2,6 +2,13 @@ import { expect, test } from "vitest";
 import { toAnthropicParams } from "../src/anthropic/mapping";
 import type { ModelRequest } from "@lite-agent/core";
 
+test("reasoning effort enables adaptive thinking and rejects forced tools", () => {
+  expect(toAnthropicParams({ model: "claude-sonnet-4-6", messages: [], reasoningEffort: "high" }))
+    .toMatchObject({ thinking: { type: "adaptive" }, output_config: { effort: "high" } });
+  expect(() => toAnthropicParams({ model: "m", messages: [], reasoningEffort: "high", toolChoice: "required" }))
+    .toThrow(/forced tool choice/);
+});
+
 test("hoists system, maps blocks, builds tools, strips $schema, defaults max_tokens", () => {
   const req: ModelRequest = {
     model: "m1",

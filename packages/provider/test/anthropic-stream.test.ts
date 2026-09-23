@@ -114,3 +114,21 @@ test("keeps compaction and unknown native blocks typed for checkpoint round-trip
     },
   });
 });
+
+test("thinking and signature deltas survive the next tool round without becoming visible text", async () => {
+  const events = [
+    { type: "content_block_start", index: 0, content_block: { type: "thinking", thinking: "", signature: "" } },
+    { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "internal " } },
+    { type: "content_block_delta", index: 0, delta: { type: "thinking_delta", thinking: "reasoning" } },
+    { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "sig-" } },
+    { type: "content_block_delta", index: 0, delta: { type: "signature_delta", signature: "value" } },
+    { type: "content_block_stop", index: 0 },
+    { type: "message_stop" },
+  ] as unknown as Anthropic.RawMessageStreamEvent[];
+  const chunks: ModelChunk[] = [];
+  for await (const chunk of translateStream(gen(events))) chunks.push(chunk);
+  expect(chunks).toHaveLength(1);
+  expect(chunks[0]).toMatchObject({ type: "message_done", message: { content: [
+    { type: "native", provider: "anthropic", data: { type: "thinking", thinking: "internal reasoning", signature: "sig-value" } },
+  ] } });
+});

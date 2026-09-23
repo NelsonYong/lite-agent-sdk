@@ -1,5 +1,5 @@
 import type {
-  AssistantMessage, Message, StopReason, ToolCall, ToolResult, Usage, UserAnswer, UserQuestion,
+  AssistantMessage, Message, StopReason, ToolCall, ToolResult, Usage, ReasoningEffort, UserAnswer, UserQuestion,
 } from "./types";
 import type { BackgroundCompletion } from "./background";
 
@@ -39,7 +39,7 @@ export class CheckpointConflictError extends AgentError {
 type AgentEventBody =
   | { type: "turn_start"; turn: number }
   | { type: "diagnostic"; level: "info" | "warning" | "error"; code: string; message: string }
-  | { type: "model_call_start"; turn: number; model: string }
+  | { type: "model_call_start"; turn: number; model: string; reasoningEffort?: ReasoningEffort }
   | { type: "model_call_end"; turn: number; model: string; durationMs: number; usage?: Usage; error?: string }
   | { type: "text_delta"; text: string }
   | { type: "message"; message: AssistantMessage }
@@ -53,6 +53,7 @@ type AgentEventBody =
   | { type: "input_request"; call: ToolCall; question: UserQuestion }
   | { type: "input_resolved"; id: string; answer: UserAnswer }
   | { type: "tool_result"; result: ToolResult }
+  | { type: "task_update"; taskId: string; status: string; owner?: string }
   | { type: "compaction"; kind: "micro" | "auto" | "manual"; before: number; after: number; phase?: "start" | "done" }
   | {
       type: "context_status";

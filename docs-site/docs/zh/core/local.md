@@ -239,3 +239,5 @@ d.trace;      // { enabled, file?, integrity: "sha256" | "hmac-sha256" | "custom
 - [工具调用 codec](/zh/core/codecs)——`codec: "auto"` 背后的协议。
 - [会话持久化](/zh/core/persistence)——本装配接入的 SQLite checkpointer。
 - [权限](/zh/sdk/control/permissions)——本装配所加固的 SDK 层权限模型。
+
+项目权限文件只能收紧托管／用户／内联授权，不能新增授权。文件工具禁止修改策略文件，沙箱禁止 Shell 写入 SDK home、项目配置目录及显式配置的策略路径。旧的项目 allow 规则应迁移到可信用户／托管文件或 `permissionFiles.inlineRules`。

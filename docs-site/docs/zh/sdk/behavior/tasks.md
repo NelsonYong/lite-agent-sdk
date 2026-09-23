@@ -1,59 +1,42 @@
 # 任务清单
 
-多步骤工作需要一份模型看得见、改得动的计划——而且它要能扛住上下文压缩和进程重启。任务清单能力为 agent 提供一个**持久化任务列表**，对标 Claude Code 的 Tasks API：四个内置工具（`TaskCreate` / `TaskUpdate` / `TaskGet` / `TaskList`）、同一项目跨 session 共享的磁盘存储，以及一个逐轮 reminder，让当前列表始终呈现在模型面前而不污染会话记录。
+任务通过 `TaskCreate`、`TaskUpdate`、`TaskGet`、`TaskList` 四个工具记录工作及执行结果。默认启用，数据保存在项目对应的 SDK 数据目录中。
 
-## 用法
+## 作用域
 
-任务清单默认开启——无需任何配置。默认[系统提示词](/zh/sdk/behavior/system-prompt)已经教会模型这套工作流：任何 3 步以上的任务先调用 `TaskCreate` 记录每个步骤，开始前置为 `in_progress`，完全做完才标记 `completed`。
+每个会话默认独享列表，子代理共享父会话的列表。需要跨会话共享时显式设置 `taskListId` 或 `LITE_AGENT_TASK_LIST_ID`。旧的 `default` 列表可用 `taskListId: "default"` 重新打开。`tasks: false` 会关闭任务跟踪及提醒。
 
-要为一次运行指定具名列表，或关闭整个能力：
+## 状态与执行
 
-```ts
-import { createLiteAgent } from "@lite-agent/sdk";
-import { anthropic } from "@lite-agent/provider";
-
-const agent = createLiteAgent({
-  model: anthropic(),
-  modelName: "claude-sonnet-4-6",
-  workdir: process.cwd(),
-  taskListId: "release-0.4", // which list to use; default "default"
-  // tasks: false,           // disable the tools and the reminder entirely
-});
-```
-
-`query()` 接受相同的 `tasks` / `taskListId` 选项。列表也可以通过 `$LITE_AGENT_TASK_LIST_ID` 环境变量选择（优先级：`taskListId` > 环境变量 > `"default"`）。
-
-## 工具一览
-
-| 工具 | 作用 |
+| 状态 | 含义 |
 | --- | --- |
-| `TaskCreate` | 创建任务：祈使句 `subject` 加详细 `description`（可选 `activeForm`、`metadata`）。返回新任务 id。 |
-| `TaskUpdate` | 设置 `status`（`pending` / `in_progress` / `completed`）、编辑字段、设置 `owner`，或通过 `addBlockedBy` / `addBlocks` 建立依赖。会造成依赖**环的更新被拒绝**。 |
-| `TaskGet` | 按 id 获取单个任务的完整详情（description、status、依赖边）。 |
-| `TaskList` | 列出所有任务及其 status 和 `blockedBy` 依赖。 |
+| `pending` | 尚未开始，可能仍在等待依赖。 |
+| `in_progress` | 正在处理。 |
+| `review` | 子代理执行成功，结果仍待验收。 |
+| `completed` | 已检查并确认满足任务目标。 |
+| `failed` | 执行失败，重试前应检查结果。 |
+| `cancelled` | 执行已取消。 |
 
-## 工作原理
+`Agent` 派发会自动创建任务；提供 `task_id` 可关联已有任务。`owner` 和 `execution.agentId` 标识执行者，`execution.result` 保存结果或错误。一个任务只能有一个活跃子代理，模型不能在它运行时提前标记完成。子代理成功后，用 `TaskGet` 检查结果，再通过 `TaskUpdate` 标记为 `completed`。
 
-- **持久化** —— 每个任务是 `~/.lite-agent/projects/<hash>/tasks/<listId>/` 下的一个 JSON 文件（原子写入，文件锁保护）。列表能扛住压缩和进程重启，并且在**同一项目的多个 session 之间共享——包括 [subagents](/zh/sdk/tools/subagents)**，因此父子 agent 可以在同一份列表上协作。
-- **逐轮 reminder** —— 一个中间件在每轮模型请求编码前，把渲染后的列表作为末尾的 `<system-reminder>` 重新注入。reminder 从不追加到会话记录、也不持久化，因此事件日志保持干净，而模型始终看到最新状态。
-- **依赖** —— `blockedBy` / `blocks` 边由 `TaskUpdate` 对称维护，DFS 环检测会拒绝任何可能让依赖图死锁的更新。
+`TaskUpdate` 可以修改任务字段并添加 `blockedBy`/`blocks` 依赖边。循环依赖会被拒绝；前置任务未完成时，不能进入 `in_progress`、`review` 或 `completed`。依赖不会自动触发调度，父 Agent 决定何时派发已就绪的任务。
 
-## 关闭
+写入使用文件锁和原子文件替换。任务数据可跨重启保留，但进程崩溃后的活跃子代理不会自动恢复。恢复前应检查遗留的 `in_progress` 任务；持久化任务清单不等于持久化作业调度器。
 
-设置 `tasks: false` 会同时移除全部四个工具**和** reminder 中间件：
+## 模型提醒与界面
+
+每轮提醒展示活跃、待验收和失败任务，省略已完成和已取消任务；`TaskList` 仍返回完整列表。提醒不会写入对话记录。订阅 `task_update` 可观察状态变化，订阅 `model_call_start` 可看到实际模型及请求的推理强度。
 
 ```ts
-const agent = createLiteAgent({
-  model: anthropic(),
-  modelName: "claude-sonnet-4-6",
-  workdir: process.cwd(),
-  tasks: false,
+const agent = createLiteAgent({ model, workdir });
+const unsubscribe = agent.subscribe(({ event }) => {
+  if (event.type === "task_update") console.log(event.taskId, event.status);
 });
+try {
+  await agent.send("派发两个独立检查，随后验收结果。");
+  await agent.awaitIdle();
+} finally {
+  unsubscribe();
+  await agent.close();
+}
 ```
-
-## 另请参阅
-
-- [系统提示词](/zh/sdk/behavior/system-prompt) —— 默认提示词中的任务规划指引。
-- [Subagents](/zh/sdk/tools/subagents) —— 子 agent 共享项目的任务列表。
-- [会话](/zh/sdk/core-concepts/sessions) —— 任务列表所能扛住的持久化与压缩。
-- [快速上手](/zh/sdk/getting-started) —— 安装并运行你的第一个 agent。

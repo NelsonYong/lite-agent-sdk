@@ -1,12 +1,13 @@
 import { z } from "zod";
 import { defineTool } from "@lite-agent/core";
 import type { Tool } from "@lite-agent/core";
-import type { TaskStore } from "../tasks/types";
+import { taskStoreFor } from "../tasks/scope";
+import type { TaskStoreSource } from "../tasks/scope";
 
-const STATUS = z.enum(["pending", "in_progress", "completed"]);
+const STATUS = z.enum(["pending", "in_progress", "review", "completed", "failed", "cancelled"]);
 const META = z.record(z.string(), z.unknown()).optional();
 
-export function taskTools(store: TaskStore): Tool[] {
+export function taskTools(store: TaskStoreSource): Tool[] {
   const create = defineTool({
     name: "TaskCreate",
     description:
@@ -18,8 +19,9 @@ export function taskTools(store: TaskStore): Tool[] {
       metadata: META,
     }),
     security: { network: "none", filesystem: "unrestricted", sideEffects: "workspace" },
-    execute: async (input) => {
-      const t = await store.create(input);
+    execute: async (input, ctx) => {
+      const t = await taskStoreFor(store, ctx.sessionId).create(input);
+      ctx.emit({ type: "task_update", taskId: t.id, status: t.status });
       return `Created task #${t.id}: ${t.subject}`;
     },
   });
@@ -27,7 +29,7 @@ export function taskTools(store: TaskStore): Tool[] {
   const update = defineTool({
     name: "TaskUpdate",
     description:
-      "Update a task: set `status` (mark `completed` ONLY when fully accomplished — not on partial work or unresolved errors), edit fields, set `owner`, or add dependencies via `addBlockedBy`/`addBlocks`. A dependency that would form a cycle is rejected.",
+      "Update a task: mark completed ONLY after verifying its result. Delegated work moves to review on success, failed or cancelled otherwise. Running agent states are managed automatically. Set owner or add dependencies via addBlockedBy/addBlocks. Unfinished dependencies block execution and completion; cycles are rejected.",
     schema: z.object({
       taskId: z.string(),
       status: STATUS.optional(),
@@ -40,8 +42,9 @@ export function taskTools(store: TaskStore): Tool[] {
       metadata: META,
     }),
     security: { network: "none", filesystem: "unrestricted", sideEffects: "workspace" },
-    execute: async (input) => {
-      const t = await store.update(input);
+    execute: async (input, ctx) => {
+      const t = await taskStoreFor(store, ctx.sessionId).update(input);
+      ctx.emit({ type: "task_update", taskId: t.id, status: t.status });
       return `Updated task #${t.id}: ${t.subject} (${t.status})`;
     },
   });
@@ -51,8 +54,8 @@ export function taskTools(store: TaskStore): Tool[] {
     description: "Fetch the full detail of one task by id (description, status, dependency edges).",
     schema: z.object({ taskId: z.string() }),
     security: { network: "none", filesystem: "unrestricted", sideEffects: "none" },
-    execute: ({ taskId }) => {
-      const t = store.get(taskId);
+    execute: ({ taskId }, ctx) => {
+      const t = taskStoreFor(store, ctx.sessionId).get(taskId);
       return t ? JSON.stringify(t, null, 2) : `No task '${taskId}'`;
     },
   });
@@ -62,7 +65,7 @@ export function taskTools(store: TaskStore): Tool[] {
     description: "List every task with its status and blockedBy dependencies.",
     schema: z.object({}),
     security: { network: "none", filesystem: "unrestricted", sideEffects: "none" },
-    execute: () => store.render() || "No tasks.",
+    execute: (_, ctx) => taskStoreFor(store, ctx.sessionId).render() || "No tasks.",
   });
 
   return [create, update, get, list];

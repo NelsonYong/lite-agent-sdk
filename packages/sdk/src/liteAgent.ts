@@ -14,6 +14,7 @@ import type {
   Redactor,
   RunOptions,
   RunResult,
+  ReasoningEffort,
   Sandbox,
   Store,
   Tool,
@@ -58,6 +59,7 @@ export interface CreateLiteAgentConfig extends ModelConfiguration {
   toolChoice?: ToolChoice;
   /** Reproducibility seed (OpenAI only; ignored by Anthropic). Inherited by subagents. */
   seed?: number;
+  reasoningEffort?: ReasoningEffort;
   /**
    * Require a structured final answer. When set, a `final_answer` tool (whose
    * parameters are this schema) is registered and the model is instructed to call
@@ -78,19 +80,19 @@ export interface CreateLiteAgentConfig extends ModelConfiguration {
   store?: Store;
   /** Override the global home (default `$LITE_AGENT_HOME` || `~/.lite-agent`). */
   home?: string;
-  /** Persist sessions under the project's sessions dir (default fileCheckpointer). Default true. Ignored when `checkpointer`/`store` is set. */
+  /** Persist sessions to disk by default. False retains only in-memory conversation state. Ignored with an explicit checkpointer/store. */
   sessions?: boolean;
   /** @deprecated Use automatic `context` archive management. Kept as a one-release adapter. */
   spill?: boolean | { budgetBytes?: number };
   /** Persistent Tasks API (TaskCreate/Update/Get/List) + per-turn reminder. Default true. */
   tasks?: boolean;
-  /** Task-list id under tasksDir. Default `$LITE_AGENT_TASK_LIST_ID` || "default". */
+  /** Explicit shared task-list id. Default `$LITE_AGENT_TASK_LIST_ID` or the current session id. */
   taskListId?: string;
   /** File-defined subagents + the `Agent` dispatch tool. Default true. */
   agents?: boolean;
   /** Extra agents dir, appended last so it overrides global + project. */
   agentsDir?: string;
-  /** Permission policy applied to subagent runs. Default: none (lenient — sandbox still applies). */
+  /** Additional child restrictions, composed with the inherited parent policy (deny wins). */
   subagentPermission?: PermissionPolicy;
   /** Non-blocking background tasks (bash run_in_background + background subagents) + the KillBackground tool. Default true. */
   background?: boolean;
@@ -111,6 +113,7 @@ export interface CreateLiteAgentConfig extends ModelConfiguration {
   contextBudget?: { maxTokens: number; estimator?: TokenEstimator };
   /** Sweep stale spill/session files once at startup. Default true (30 days). */
   cleanup?: boolean | { maxAgeDays?: number; maxBytes?: number };
+  /** Defaults to asking before shell/file mutations; no approval handler means deny. Custom tools are host-trusted. */
   permission?: PermissionPolicy;
   /** Redactor for permission audit payloads. Default: core `defaultRedactor`. */
   redact?: Redactor;

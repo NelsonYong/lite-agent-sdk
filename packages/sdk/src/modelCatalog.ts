@@ -1,5 +1,5 @@
 import { AgentError } from "@lite-agent/core";
-import type { ModelProvider } from "@lite-agent/core";
+import type { ModelProvider, ReasoningEffort } from "@lite-agent/core";
 
 export const MODEL_TIERS = ["simple", "medium", "complex"] as const;
 export type ModelTier = (typeof MODEL_TIERS)[number];
@@ -8,9 +8,10 @@ export type ModelProfile = {
   provider: ModelProvider;
   modelName: string;
   displayName?: string;
+  reasoningEffort?: ReasoningEffort;
 };
 
-export type ModelProfiles = Record<ModelTier, ModelProfile>;
+export type ModelProfiles = Partial<Record<ModelTier, ModelProfile>>;
 
 export type ModelCatalog = {
   models: ModelProfiles;
@@ -29,6 +30,7 @@ export type ResolvedModel = {
   modelName: string;
   displayName: string;
   tier?: ModelTier;
+  reasoningEffort?: ReasoningEffort;
 };
 
 export type ModelResolver = {
@@ -44,6 +46,7 @@ const profileToResolved = (profile: ModelProfile, tier?: ModelTier): ResolvedMod
   modelName: profile.modelName,
   displayName: profile.displayName ?? profile.modelName,
   tier,
+  ...(profile.reasoningEffort === undefined ? {} : { reasoningEffort: profile.reasoningEffort }),
 });
 
 const assertProvider: (provider: unknown, name: string) => asserts provider is ModelProvider = (provider, name) => {
@@ -64,19 +67,21 @@ const assertProfile: (profile: unknown, name: string) => asserts profile is Mode
     throw new AgentError(`models.${name} requires a provider`);
   }
   assertProvider(profile.provider, `models.${name}`);
+  if ("reasoningEffort" in profile && profile.reasoningEffort !== undefined && !["low", "medium", "high"].includes(String(profile.reasoningEffort)))
+    throw new AgentError(`models.${name}.reasoningEffort must be low, medium, or high`);
   if (!("modelName" in profile) || typeof profile.modelName !== "string" || !profile.modelName.trim()) {
     throw new AgentError(`models.${name}.modelName must be non-empty`);
   }
 };
 
-const assertExactTierKeys: (models: unknown) => asserts models is ModelProfiles = (models) => {
-  if (!models || typeof models !== "object") throw new AgentError("models requires simple, medium, and complex profiles");
+const assertTierKeys: (models: unknown) => asserts models is ModelProfiles = (models) => {
+  if (!models || typeof models !== "object") throw new AgentError("models requires at least one simple, medium, or complex profile");
   const candidate = models as Record<string, unknown>;
   const keys = Object.keys(candidate);
-  if (keys.length !== MODEL_TIERS.length || !MODEL_TIERS.every((tier) => keys.includes(tier))) {
-    throw new AgentError("models requires exactly simple, medium, and complex profiles");
+  if (keys.length === 0 || keys.some((key) => !isModelTier(key))) {
+    throw new AgentError("models accepts only simple, medium, and complex profiles");
   }
-  for (const tier of MODEL_TIERS) assertProfile(candidate[tier], tier);
+  for (const tier of keys) assertProfile(candidate[tier], tier);
 };
 
 export function createModelResolver(config: ModelConfiguration): ModelResolver {
@@ -84,15 +89,15 @@ export function createModelResolver(config: ModelConfiguration): ModelResolver {
     if (config.model !== undefined || config.modelName !== undefined) {
       throw new AgentError("model/models configuration conflict; choose either tiered models or legacy model/modelName");
     }
-    assertExactTierKeys(config.models);
-    if (!config.defaultModel || !isModelTier(config.defaultModel)) {
-      throw new AgentError("defaultModel must be one of simple, medium, or complex");
+    assertTierKeys(config.models);
+    if (!config.defaultModel || !isModelTier(config.defaultModel) || !config.models[config.defaultModel]) {
+      throw new AgentError("defaultModel must name a configured simple, medium, or complex profile");
     }
 
     const profiles = Object.fromEntries(
-      MODEL_TIERS.map((tier) => [tier, profileToResolved(config.models![tier], tier)]),
-    ) as Record<ModelTier, ResolvedModel>;
-    const defaultModel = profiles[config.defaultModel];
+      Object.entries(config.models).map(([tier, profile]) => [tier, profileToResolved(profile, tier as ModelTier)]),
+    ) as Partial<Record<ModelTier, ResolvedModel>>;
+    const defaultModel = profiles[config.defaultModel]!;
 
     return {
       defaultModel,
@@ -101,9 +106,12 @@ export function createModelResolver(config: ModelConfiguration): ModelResolver {
         if (typeof selection !== "string" || !selection.trim()) {
           throw new AgentError("model selection must be non-empty");
         }
-        if (isModelTier(selection)) return profiles[selection];
-        const base = inherited ?? defaultModel;
-        return { provider: base.provider, modelName: selection, displayName: selection, tier: undefined };
+        if (isModelTier(selection)) {
+          const profile = profiles[selection];
+          if (!profile) throw new AgentError(`model profile ${selection} is not configured`);
+          return profile;
+        }
+        throw new AgentError(`model profile ${selection} is not configured`);
       },
     };
   }

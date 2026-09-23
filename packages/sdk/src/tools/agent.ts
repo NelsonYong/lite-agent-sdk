@@ -5,6 +5,8 @@ import type { AgentEvent, BackgroundRunResult, Tool } from "@lite-agent/core";
 import type { AgentLoader } from "../agents/loader";
 import type { AgentDefinition } from "../agents/types";
 import { createSubagentPool } from "../subagentPool";
+import { taskStoreFor } from "../tasks/scope";
+import type { TaskStoreSource } from "../tasks/scope";
 import type { SubagentPool } from "../subagentPool";
 
 export type SubagentStatus = "completed" | "failed" | "cancelled";
@@ -19,6 +21,7 @@ export interface SubagentResult {
 export interface SpawnOptions {
   signal: AbortSignal;
   sessionId: string;
+  parentSessionId?: string;
   /** Per-task model selection; tier aliases may select another provider. */
   model?: string;
   /** Live child event sink. The Agent tool stamps each event with the child agentId. */
@@ -43,6 +46,7 @@ const TASK = z.object({
   prompt: z.string(),
   model: z.string().optional(),
   resume: z.string().optional(),
+  task_id: z.string().optional().describe("Existing TaskCreate id to execute. Omit to create a tracked task automatically."),
 });
 
 type Task = z.infer<typeof TASK>;
@@ -54,6 +58,9 @@ interface Child {
   agentId: string;
   eventId: string;
   resultEmitted: boolean;
+  taskId?: string;
+  claimed?: boolean;
+  createdTask?: boolean;
 }
 
 interface ChildOutcome {
@@ -97,7 +104,7 @@ function groupStatus(results: SubagentResult[]): BackgroundRunResult["status"] {
   return "partial";
 }
 
-export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: SubagentPool }): Tool {
+export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: SubagentPool; taskStore?: TaskStoreSource; models?: string[]; modelDescription?: string }): Tool {
   const { loader, spawn } = opts;
   // Task 4 supplies one root-owned pool. This fallback keeps a directly created tool
   // usable while retaining the same non-blocking session-owned background contract.
@@ -108,9 +115,12 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
     description:
       "Delegate a large or context-heavy subtask to a specialized subagent, keeping your own context clean. Each entry in tasks is accepted as an asynchronous group member and the complete group result arrives together later in this session. " +
       "Give every task a distinct display_name for user-visible progress. To run subtasks in parallel, pass them as MULTIPLE entries in a SINGLE call — do not issue separate Agent calls for that. " +
-      "To continue a previous subagent, pass its reported agentId as resume.",
+      "To continue a previous subagent, pass its reported agentId as resume. " + (opts.modelDescription ?? "Omit model to inherit the parent model."),
     schema: z.object({
-      tasks: z.array(TASK).min(1),
+      tasks: z.array(TASK.extend({
+        model: (opts.models?.length ? z.enum(opts.models as [string, ...string[]]) : z.string())
+          .optional().describe(opts.modelDescription ?? "Omit to inherit the parent model."),
+      })).min(1),
       // Accepted for one release so old callers parse, but Agent groups are always backgrounded.
       run_in_background: z.boolean().optional(),
     }),
@@ -119,13 +129,17 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
       if (tasks.some((task) => !hasVisibleDisplayName(task.display_name))) {
         throw new Error("display_name must contain visible characters");
       }
+      const linkedIds = tasks.flatMap((task) => task.task_id ? [task.task_id] : []);
+      if (new Set(linkedIds).size !== linkedIds.length) throw new Error("a task may only be dispatched once per group");
+      if (linkedIds.length && !opts.taskStore) throw new Error("task_id requires task tracking");
+      const store = opts.taskStore ? taskStoreFor(opts.taskStore, ctx.sessionId) : undefined;
       if (!ctx.background) throw new Error("Agent requires background tasks; enable background to dispatch subagents.");
 
       const runBatch = async (
         signal: AbortSignal,
         emit: (e: AgentEvent) => void,
       ): Promise<BackgroundRunResult> => {
-        const children = tasks.map((task): Child => {
+        const children = await Promise.all(tasks.map(async (task): Promise<Child> => {
           const definition = loader.get(task.subagent_type);
           const displayName = cleanDisplayName(task.display_name);
           const eventId = definition
@@ -139,6 +153,14 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
             eventId,
             resultEmitted: false,
           };
+          if (store) {
+            const tracked = task.task_id ? store.get(task.task_id) : await store.create({
+              subject: displayName, description: task.prompt,
+            });
+            if (!tracked) throw new Error(`no task '${task.task_id}'`);
+            child.taskId = tracked.id;
+            child.createdTask = task.task_id === undefined;
+          }
           emit({
             type: "tool_use",
             call: {
@@ -152,10 +174,19 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
             },
           });
           return child;
-        });
+        }));
 
-        const emitResult = (child: Child, result: SubagentResult) => {
+        const emitResult = async (child: Child, result: SubagentResult) => {
           if (child.resultEmitted) return;
+          if (store && child.taskId && (child.claimed || child.createdTask)) {
+            const task = await store.update({
+              taskId: child.taskId,
+              status: result.status === "completed" ? "review" : result.status,
+              execution: { agentId: child.agentId, status: result.status === "completed" ? "succeeded" : result.status,
+                result: childContent(result) },
+            });
+            emit({ type: "task_update", taskId: task.id, status: task.status, owner: task.owner });
+          }
           child.resultEmitted = true;
           emit({
             type: "tool_result",
@@ -175,23 +206,30 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
                 loader.names().join(", ") || "(none)"
               }`,
             );
-            emitResult(child, result);
+            await emitResult(child, result);
             return { child, result };
           }
           try {
+            if (store && child.taskId) {
+              const task = await store.update({ taskId: child.taskId, status: "in_progress", owner: child.agentId,
+                execution: { agentId: child.agentId, status: "running" } });
+              child.claimed = true;
+              emit({ type: "task_update", taskId: task.id, status: task.status, owner: task.owner });
+            }
             const result = normalizeResult(await spawn(child.definition, child.task.prompt, {
               signal: childSignal,
               sessionId: child.eventId,
+              parentSessionId: ctx.sessionId,
               model: child.task.model,
               onEvent: (event) => emit({ ...event, agentId: child.eventId }),
             }));
-            emitResult(child, result);
+            await emitResult(child, result);
             return { child, result };
           } catch (error) {
             const result = childSignal.aborted || isAbortError(error)
               ? cancelled(errorMessage(error))
               : failed(errorMessage(error));
-            emitResult(child, result);
+            await emitResult(child, result);
             return { child, result };
           }
         };
@@ -201,21 +239,21 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
             pool.run((childSignal) => runChild(child, childSignal), signal, ctx.sessionId),
           ),
         );
-        const outcomes = settled.map((entry, index): ChildOutcome => {
+        const outcomes = await Promise.all(settled.map(async (entry, index): Promise<ChildOutcome> => {
           if (entry.status === "fulfilled") return entry.value;
           const child = children[index]!;
           const result = signal.aborted || isAbortError(entry.reason)
             ? cancelled(errorMessage(entry.reason))
             : failed(errorMessage(entry.reason));
-          emitResult(child, result);
+          await emitResult(child, result);
           return { child, result };
-        });
+        }));
         const results = outcomes.map((outcome) => outcome.result);
         return {
           status: groupStatus(results),
           content: outcomes
             .map(({ child, result }) =>
-              `## ${child.displayName} (agentId: ${child.agentId}; status: ${result.status})\n${childContent(result)}`)
+              `## ${child.displayName} (agentId: ${child.agentId}; status: ${result.status}${child.taskId ? `; task_id: ${child.taskId}` : ""})\n${childContent(result)}`)
             .join("\n\n"),
         };
       };

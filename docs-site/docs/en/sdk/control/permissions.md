@@ -26,7 +26,7 @@ const agent = createLiteAgent({
 });
 ```
 
-Name matching uses globs (`Task*` matches `TaskCreate`, `TaskUpdate`, …). A call that matches no rule falls through to `default` (`"allow"` unless you set it). Without a policy, everything is allowed.
+Name matching uses globs (`Task*` matches `TaskCreate`, `TaskUpdate`, …). A call that matches no rule falls through to `default` (`"allow"` unless you set it). The SDK defaults to asking before `bash`, `write_file`, `edit_file`, and `delete_file`; without an approval handler those calls are denied. Explicitly supplied custom tools are host-trusted. Supplying `permission` replaces this default. The low-level core remains opt-in.
 
 ## Content-level rules
 
@@ -77,9 +77,7 @@ const permission = composePolicies(
 );                                             // …but deny wins: bash stays denied
 ```
 
-:::warning
-Subagents run **without the parent's permission gate and `onApproval` handler** by default — an interactive approval handler cannot service parallel children. The sandbox still wraps every command. Pass `subagentPermission` (allow/deny rules, not `ask`) to gate subagent runs. See [Subagents](/sdk/tools/subagents).
-:::
+Children inherit the parent policy, sandbox, and tool restrictions. `subagentPermission` can only tighten access. All approvals share the root serial queue.
 
 ## Options
 
@@ -100,3 +98,9 @@ Related exports: `policy`, `strictPolicy`, `composePolicies`, `bashCommand`, `fi
 - [Observability](/sdk/control/observability) — reading `permission_decision` events out of the event stream.
 - [Subagents](/sdk/tools/subagents) — how `subagentPermission` gates child agents.
 - [Core strategies](/core/strategies) — the `PermissionPolicy` strategy interface.
+
+## Path and configuration boundaries
+
+Within the SDK, built-in file policies receive canonical workspace-relative paths, including absolute and symlink aliases. Write symlinks are rejected. Standalone core policies do not normalize paths for arbitrary custom tools. `cwd` alone does not sandbox Bash.
+
+`permissionFilePolicy` treats project rules as restrictions on host grants: a project cannot turn a default denial into permission. Grant access in managed/user files or inline rules. File tools cannot modify loaded policy paths or delete their parent directories. The local runtime additionally denies shell writes to configuration paths. Arbitrary custom tools remain trusted host code.

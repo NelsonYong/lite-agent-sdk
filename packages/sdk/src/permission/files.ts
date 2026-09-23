@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, statSync } from "node:fs";
-import { join, resolve } from "node:path";
+import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
-import { policy } from "@lite-agent/core";
+import { composePolicies, policy } from "@lite-agent/core";
 import type {
   Condition, Decision, PermissionPolicy, PermissionRule, PolicyContext, PolicyVerdict, ToolCall,
 } from "@lite-agent/core";
@@ -87,13 +87,15 @@ export function permissionFilePolicy(opts: PermissionFileOptions): FilePermissio
   });
   const reload = () => {
     const rules: PermissionRule[] = [...(opts.baseRules ?? [])];
+    const projectRules: PermissionRule[] = [];
     const files: string[] = [];
     try {
       for (const source of sources) {
         if (!existsSync(source.path)) continue;
         const doc = documentSchema.parse(JSON.parse(readFileSync(source.path, "utf8")));
         files.push(source.path);
-        rules.push(...doc.rules.map((rule, index): PermissionRule => ({
+        const target = source.layer === "project" ? projectRules : rules;
+        target.push(...doc.rules.map((rule, index): PermissionRule => ({
           ...rule,
           id: `${source.layer}:${rule.id ?? index}`,
           description: rule.description ?? `${source.layer} permission rule`,
@@ -103,7 +105,11 @@ export function permissionFilePolicy(opts: PermissionFileOptions): FilePermissio
         ...rule,
         id: `inline:${rule.id ?? index}`,
       })));
-      compiled = policy({ rules, default: opts.default ?? "deny" });
+      // A repository is not an authority: it may restrict host grants, never expand them.
+      compiled = composePolicies(
+        policy({ rules, default: opts.default ?? "deny" }),
+        policy({ rules: projectRules, default: "allow" }),
+      );
       stamps = currentStamps();
       loadedFiles = files;
       loadedAt = new Date().toISOString();
@@ -120,6 +126,16 @@ export function permissionFilePolicy(opts: PermissionFileOptions): FilePermissio
   reload();
   return {
     async check(call: ToolCall, ctx: PolicyContext): Promise<Decision | PolicyVerdict> {
+      if (["write_file", "edit_file", "delete_file"].includes(call.name)) {
+        const input = call.input as { path?: unknown } | null;
+        if (typeof input?.path === "string") {
+          const target = resolve(opts.workdir, input.path);
+          if (sources.some(({ path }) => {
+            const rel = relative(target, path);
+            return rel === "" || (call.name === "delete_file" && !isAbsolute(rel) && rel !== ".." && !rel.startsWith(`..${sep}`));
+          })) return { decision: "deny", reason: "permission configuration is read-only to tools" };
+        }
+      }
       if (changed()) reload();
       return compiled.check(call, ctx);
     },

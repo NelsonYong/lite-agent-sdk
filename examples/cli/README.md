@@ -3,8 +3,8 @@
 Interactive REPL example built on [`lite-agent`](../../packages/sdk). Demonstrates the full stack:
 
 - streaming agent loop via `createLiteAgent` + the Anthropic provider
-- **permission gate** — asks before `bash` / `write_file` / `edit_file`
-- **OS-level sandbox** (`@lite-agent/sandbox-anthropic`) — degrades to noop on unsupported environments
+- **permission gate** — asks before `bash` / `write_file` / `edit_file` / `delete_file`
+- **OS-level sandbox** (`@lite-agent/sandbox-anthropic`) — required; refuses shell execution if unavailable
 - **`ask_user`** — the model can ask you questions (free text or numbered options)
 - multi-line paste, `ESC` to interrupt a run
 
@@ -28,3 +28,5 @@ LITE_AGENT_BASE_URL=https://api.anthropic.com
 ```
 
 The agent operates on the directory you launch it from (`process.cwd()`); skills are loaded from this example's own `skills/`.
+
+Optional `LITE_AGENT_SIMPLE_MODEL_ID` / `LITE_AGENT_COMPLEX_MODEL_ID` select child profiles on the same endpoint. Each profile can set `LITE_AGENT_<TIER>_REASONING_EFFORT` to low/medium/high; `LITE_AGENT_REASONING_EFFORT` sets the base effort. See `.env.example`. The CLI displays child identity, actual model, requested effort, and task state. Unsupported reasoning models report errors rather than silently switching profiles.

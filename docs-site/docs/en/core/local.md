@@ -239,3 +239,5 @@ d.trace;      // { enabled, file?, integrity: "sha256" | "hmac-sha256" | "custom
 - [Tool-call codecs](/core/codecs) — the protocols behind `codec: "auto"`.
 - [Session persistence](/core/persistence) — the SQLite checkpointer this assembly wires in.
 - [Permissions](/sdk/control/permissions) — the SDK-level permission model this assembly hardens.
+
+Project permission files can only restrict managed/user/inline grants; they cannot grant new capabilities. File tools cannot modify policy files, and the sandbox denies shell writes to the SDK home, project configuration, and explicitly configured policy paths. Move old project allow rules to a trusted user/managed file or `permissionFiles.inlineRules`.
