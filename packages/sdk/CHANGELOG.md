@@ -1,5 +1,25 @@
 # lite-agent
 
+## 0.16.0
+
+### Minor Changes
+
+- Add MCP 2026-07-28 tools through official client 2.1.0 with stdio and Streamable
+  HTTP. Discover global/project `mcps.json`, accept constructor `mcpServers`,
+  and expose `agent.mcp.register()`, `list()` and `unregister()`.
+- Add `strictMcpConfig` and transport restrictions. Connections require the
+  separate `mcp_connect` permission; MCP calls default to approval. Validate
+  conflicts, schemas, catalogs, HTTPS targets and payload limits before use.
+- Share root-owned connections with subagents, reject mutations during related
+  work, invalidate changed catalogs, and cancel/close resources on shutdown.
+- Route MCP calls through existing permissions and hooks with live progress,
+  cancellation and bounded execution. Preserve structured/business-error
+  results, archive large or rich responses, and never automatically replay calls.
+
+### Patch Changes
+
+- Refresh tool catalogs and context-prefix fingerprints after idle MCP changes.
+
 ## 0.15.0
 
 ### Minor Changes

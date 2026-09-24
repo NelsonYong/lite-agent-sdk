@@ -245,3 +245,19 @@ test("close cancels detached work owned by the underlying LiteAgent", async () =
   await agent.close();
   expect(aborted).toBe(true);
 });
+
+test("strict local exposes MCP management and rejects HTTP even on loopback", async () => {
+  const agent = await createLocalAgent({
+    modelName: "local-test",
+    model: localFake([{ message: { role: "assistant", content: [textBlock("ok")] } }]),
+    workdir: mkdtempSync(join(tmpdir(), "local-mcp-")),
+    home: mkdtempSync(join(tmpdir(), "local-mcp-home-")),
+    strictMcpConfig: true, hookFiles: false, eventSink: false, agents: false,
+    permissionFiles: { user: false, project: false },
+  });
+  try {
+    expect(agent.mcp.list()).toEqual([]);
+    await expect(agent.mcp.register("remote", { type: "http", url: "http://127.0.0.1:1234/mcp" })).rejects.toThrow(/transport/);
+    expect(agent.mcp.list()).toEqual([]);
+  } finally { await agent.close(); }
+});

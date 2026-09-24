@@ -12,6 +12,7 @@ import { createSessionRunner } from "./sessionRunner";
 import { createSubagentPool } from "./subagentPool";
 import type { Spawn, SubagentResult } from "./tools/agent";
 import { composePolicies, policy, serialApproval } from "@lite-agent/core";
+import { McpRegistry } from "./mcp/registry";
 
 export type {
   CreateLiteAgentConfig,
@@ -31,11 +32,12 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
   const onApproval = cfg.onApproval ? serialApproval(cfg.onApproval) : undefined;
   const paths = resolveProjectPaths({ workdir: cfg.workdir, home: cfg.home });
   const hooks = new HookRegistry(cfg.hookFiles === false ? [] : loadHookFiles(paths.home, cfg.workdir));
-  return createLiteAgentInstance({
+  const source = {
     ...cfg,
-    permission: cfg.permission ?? policy({ ask: ["bash", "write_file", "edit_file", "delete_file", "hook"] }),
+    permission: cfg.permission ?? policy({ ask: ["bash", "write_file", "edit_file", "delete_file", "hook", "mcp_connect", "mcp__*"] }),
     onApproval,
-  }, resolver, resolver.defaultModel, hooks);
+  };
+  return createLiteAgentInstance(source, resolver, resolver.defaultModel, hooks, new McpRegistry(source, paths.home));
 }
 
 function createLiteAgentInstance(
@@ -43,6 +45,7 @@ function createLiteAgentInstance(
   resolver: ModelResolver,
   active: ResolvedModel,
   registry: HookRegistry,
+  mcp: McpRegistry,
   agentId?: string,
 ): LiteAgent {
   const cfg: RuntimeLiteAgentConfig = {
@@ -104,7 +107,7 @@ function createLiteAgentInstance(
       onAskUser: undefined,
       outputSchema: undefined,
       checkpointer: cfg.checkpointer,
-    }, resolver, childModel, registry, sessionId);
+    }, resolver, childModel, registry, mcp, sessionId);
     try {
       const gen = child.run(
         [{ role: "user", content: prompt }],
@@ -143,7 +146,11 @@ function createLiteAgentInstance(
     spawn,
     subagentPool,
     hooks,
+    mcp,
     backgroundTasks: (sessionId) => sessions.backgroundTasks(sessionId),
   });
-  return createLiteAgentFacade(runtime, cfg.workdir, sessions, hooks, agentId === undefined, () => subagentPool.close());
+  return createLiteAgentFacade(runtime, cfg.workdir, sessions, hooks, agentId === undefined, mcp, async () => {
+    try { await subagentPool.close(); }
+    finally { if (agentId === undefined) await mcp.close(); }
+  });
 }

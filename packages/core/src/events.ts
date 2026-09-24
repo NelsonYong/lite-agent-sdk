@@ -44,6 +44,7 @@ type AgentEventBody =
   | { type: "text_delta"; text: string }
   | { type: "message"; message: AssistantMessage }
   | { type: "tool_use"; call: ToolCall }
+  | { type: "tool_progress"; id: string; name: string; progress: number; total?: number; message?: string }
   | { type: "tool_call_start"; call: ToolCall; turn: number }
   | { type: "tool_call_end"; id: string; name: string; turn: number; durationMs: number; isError: boolean }
   | { type: "tool_recovered"; id: string; name: string; turn: number }

@@ -1,4 +1,4 @@
-import type { ZodType } from "zod";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type {
   AssistantMessage, Message, ModelChunk, ModelRequest, ToolCall, ToolResult, ToolSpec,
   Usage, UserAnswer, UserQuestion,
@@ -71,10 +71,15 @@ export interface ToolSecurity {
 export interface Tool<I = unknown> {
   name: string;
   description: string;
-  schema: ZodType<I>;
+  schema: StandardSchemaV1<unknown, I> & {
+    readonly "~standard": { readonly jsonSchema: { input(options: { target: "draft-2020-12" }): Record<string, unknown> } };
+  };
   security?: ToolSecurity;
-  execute(input: I, ctx: ToolContext): Promise<string> | string;
+  execute(input: I, ctx: ToolContext): Promise<ToolOutput> | ToolOutput;
 }
+
+/** Structured execution status; content is the model-facing, archivable projection. */
+export type ToolOutput = string | { content: string; isError?: boolean };
 
 export type TokenEstimator = (messages: Message[]) => number | Promise<number>;
 

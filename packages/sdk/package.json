@@ -1,6 +1,6 @@
 {
   "name": "@lite-agent/sdk",
-  "version": "0.15.0",
+  "version": "0.16.0",
   "description": "Batteries-included agent SDK over @lite-agent/core: tools, skills, system prompt, and query()/createLiteAgent().",
   "license": "MIT",
   "type": "module",
@@ -41,11 +41,13 @@
   },
   "dependencies": {
     "@lite-agent/core": "workspace:*",
+    "@modelcontextprotocol/client": "2.1.0",
     "gray-matter": "^4.0.3",
     "proper-lockfile": "^4.1.2",
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@modelcontextprotocol/server": "2.1.0",
     "@types/node": "^25.5.0",
     "@types/proper-lockfile": "^4.1.4",
     "tsup": "^8.3.0",

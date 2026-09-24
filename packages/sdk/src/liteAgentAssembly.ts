@@ -1,4 +1,5 @@
 import type { HookRuntime } from "./hooks/runtime";
+import type { McpRegistry } from "./mcp/registry";
 import { rmSync } from "node:fs";
 import { join } from "node:path";
 import {
@@ -47,6 +48,7 @@ interface AssembleLiteAgentOptions {
   readonly spawn: Spawn;
   readonly subagentPool: SubagentPool;
   readonly hooks: HookRuntime;
+  readonly mcp: McpRegistry;
   readonly backgroundTasks: (sessionId: string) => BackgroundTasks | undefined;
 }
 
@@ -56,6 +58,7 @@ export function assembleLiteAgent({
   spawn,
   subagentPool,
   hooks,
+  mcp,
   backgroundTasks,
 }: AssembleLiteAgentOptions): LiteAgentRuntime {
   const readRoots = (sessionId: string): readonly string[] => [
@@ -190,8 +193,16 @@ export function assembleLiteAgent({
   }
 
   const codec = cfg.codec ?? nativeCodec();
-  const toolSpecs = tools.map(toToolSpec);
+  const baseTools = [...tools];
+  const refreshTools = () => {
+    const remote = mcp.tools().filter((tool) =>
+      (!cfg.allowedTools || cfg.allowedTools.includes(tool.name)) && !cfg.disallowedTools?.includes(tool.name));
+    tools.splice(0, tools.length, ...baseTools, ...remote);
+  };
+  refreshTools();
   const contextStaticPrefix = () => {
+    refreshTools();
+    const toolSpecs = tools.map(toToolSpec);
     const encoded = codec.encode({
       model: cfg.modelName ?? cfg.model.id,
       system,
@@ -356,6 +367,7 @@ export function assembleLiteAgent({
   // persistent session-management API in this mode.
   const persistent = cfg.checkpointer !== undefined || cfg.store !== undefined || cfg.sessions !== false;
   return {
+    refreshTools,
     core, state: checkpointer, checkpointer: persistent ? checkpointer : undefined,
     compactor: legacyContext ? compactor : undefined, takeOutput, context,
     async dispose() {

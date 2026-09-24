@@ -1,5 +1,20 @@
 # @lite-agent/core
 
+## 0.16.0
+
+### Minor Changes
+
+- Accept Standard Schema validation and Standard JSON Schema input export for
+  tools, including asynchronous validators. Existing Zod 4 tools continue to
+  work; generic consumers should use the Standard Schema interface.
+- Allow tools to return `{ content, isError }` without losing business failure
+  status, and expose provider-neutral `tool_progress` events.
+
+### Patch Changes
+
+- Validate and transform tool arguments before middleware authorization so
+  permission checks inspect the effective arguments used by execution.
+
 ## 0.15.0
 
 ### Minor Changes

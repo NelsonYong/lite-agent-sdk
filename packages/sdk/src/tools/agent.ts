@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { z } from "zod";
 import { AbortError, defineTool } from "@lite-agent/core";
-import type { AgentEvent, BackgroundRunResult, Tool } from "@lite-agent/core";
+import type { AgentEvent, BackgroundRunResult } from "@lite-agent/core";
 import type { AgentLoader } from "../agents/loader";
 import type { AgentDefinition } from "../agents/types";
 import { createSubagentPool } from "../subagentPool";
@@ -104,7 +104,7 @@ function groupStatus(results: SubagentResult[]): BackgroundRunResult["status"] {
   return "partial";
 }
 
-export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: SubagentPool; taskStore?: TaskStoreSource; models?: string[]; modelDescription?: string }): Tool {
+export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: SubagentPool; taskStore?: TaskStoreSource; models?: string[]; modelDescription?: string }) {
   const { loader, spawn } = opts;
   // Task 4 supplies one root-owned pool. This fallback keeps a directly created tool
   // usable while retaining the same non-blocking session-owned background contract.

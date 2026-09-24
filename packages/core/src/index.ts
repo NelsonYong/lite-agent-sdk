@@ -46,7 +46,7 @@ export type {
 export { policy, strictPolicy, composePolicies, permission, serialApproval, defaultRedactor } from "./permission";
 export type { PolicyOptions, PermissionRule, MatchSpec, Condition, Redactor } from "./permission";
 export type {
-  ModelProvider, ToolCallCodec, Tool, ToolContext, ToolSecurity, TokenEstimator,
+  ModelProvider, ToolCallCodec, Tool, ToolOutput, ToolContext, ToolSecurity, TokenEstimator,
   ProviderContextCapabilities, ProviderContextEdit, ProviderPromptCache,
   Compactor, CompactResult, PermissionPolicy, PolicyContext, Decision, PolicyVerdict,
   ApprovalHandler, InputHandler, Store,

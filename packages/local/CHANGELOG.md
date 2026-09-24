@@ -1,5 +1,16 @@
 # @lite-agent/local
 
+## 0.4.0
+
+### Minor Changes
+
+- Expose the SDK MCP registry in strict local agents. Accept only owned stdio
+  servers under the mandatory sandbox and resource limits; reject HTTP servers,
+  including loopback endpoints, in both file and instance configuration.
+- Deny sandboxed process reads of SDK home and project `.lite-agent` storage,
+  in addition to existing write restrictions. Session archive access remains
+  mediated by SDK tools instead of being granted to external MCP processes.
+
 ## 0.3.0
 
 ### Minor Changes

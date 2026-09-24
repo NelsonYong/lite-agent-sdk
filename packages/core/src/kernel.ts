@@ -6,7 +6,7 @@ import type { AgentEvent, RunResult } from "./events";
 import { CodecError, ProviderError } from "./events";
 import { composeModelCall, composeToolCall, runLifecycle } from "./middleware";
 import type { AgentContext, Middleware, ToolCallContext } from "./middleware";
-import { channel, streamOperation } from "./channel";
+import { channel, streamOperation, abortable } from "./channel";
 import { toToolSpec } from "./tools/define";
 import type { Checkpointer, SessionEvent, StoredEvent } from "./checkpoint";
 import { foldEvents } from "./checkpoint";
@@ -408,15 +408,24 @@ export async function* runKernel(
             await append(event);
           }
         : undefined;
-      const tctx: ToolCallContext = { ...ctx, call, emit: callEmit };
       const tool = toolMap.get(call.name);
+      let validationError: unknown;
+      try {
+        if (tool) {
+          signal.throwIfAborted();
+          const parsed = await abortable(Promise.resolve(tool.schema["~standard"].validate(call.input)), signal);
+          if (parsed.issues) throw new Error(`Invalid tool input: ${parsed.issues.map((issue) => issue.message).join("; ")}`);
+          call = { ...call, input: parsed.value };
+        }
+      } catch (error) { validationError = error instanceof Error ? error : new Error("Tool input validation failed"); }
+      const tctx: ToolCallContext = { ...ctx, call, emit: callEmit };
       const baseExec = async (): Promise<ToolResult> => {
         if (!tool) return { id: call.id, name: call.name, content: `Error: unknown tool '${call.name}'`, isError: true };
         try {
           signal.throwIfAborted();
-          const parsed = tool.schema.parse(call.input);
-          const out = await tool.execute(parsed, { sessionId, signal, emit: callEmit, sandbox: cfg.sandbox, input: cfg.input, call, recordSnapshot, background: bg, archive });
-          return { id: call.id, name: call.name, content: String(out) };
+          if (validationError) throw validationError;
+          const out = await tool.execute(call.input, { sessionId, signal, emit: callEmit, sandbox: cfg.sandbox, input: cfg.input, call, recordSnapshot, background: bg, archive });
+          return { id: call.id, name: call.name, ...(typeof out === "string" ? { content: out } : { content: out.content, isError: out.isError }) };
         } catch (e) {
           return { id: call.id, name: call.name, content: `Error: ${(e as Error).message}`, isError: true };
         }

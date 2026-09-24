@@ -42,7 +42,7 @@ type StrictOmissions =
   | "model" | "models" | "defaultModel" | "codec" | "sandbox" | "checkpointer" | "store" | "sessions"
   | "permissionAudit" | "fileTools" | "bash" | "crashRecovery"
   | "maxSnapshotBytesPerSession" | "backgroundLimits" | "cleanup" | "contextBudget"
-  | "permission" | "subagentPermission" | "permissionMode" | "redact";
+  | "permission" | "subagentPermission" | "permissionMode" | "redact" | "mcpTransports";
 
 export interface LocalAgentConfig extends Omit<CreateLiteAgentConfig, StrictOmissions> {
   model: LocalModelProvider;
@@ -143,7 +143,7 @@ export async function createLocalAgent(cfg: LocalAgentConfig): Promise<LocalAgen
         .filter((path): path is string => typeof path === "string").map((path) => resolve(path)),
       ...(cfg.sandboxOptions?.denyWrite ?? []),
     ],
-    denyRead: ["~/.ssh", "~/.aws", "~/.config", ...(cfg.sandboxOptions?.denyRead ?? [])],
+    denyRead: ["~/.ssh", "~/.aws", "~/.config", paths.home, join(workdir, ".lite-agent"), ...(cfg.sandboxOptions?.denyRead ?? [])],
   });
   const resourceLimits = { ...DEFAULT_RESOURCE_LIMITS, ...cfg.resources };
   const sandbox = resourceLimitedSandbox(runtimeSandbox, resourceLimits);
@@ -222,6 +222,7 @@ export async function createLocalAgent(cfg: LocalAgentConfig): Promise<LocalAgen
       maxDecodeRetries: cfg.maxDecodeRetries ?? 2,
       checkpointer,
       sandbox,
+      mcpTransports: ["stdio"],
       permission: permissionFiles,
       subagentPermission: permissionFiles,
       permissionMode: "enforce",
@@ -311,6 +312,7 @@ export async function createLocalAgent(cfg: LocalAgentConfig): Promise<LocalAgen
     return wrapped;
   };
   const local: LocalAgent = {
+    mcp: base.mcp,
     hook: (name, handler, options) => base.hook(name, handler, options),
     run,
     subscribe: (listener) => base.subscribe(listener),

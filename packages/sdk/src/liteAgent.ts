@@ -1,6 +1,6 @@
 import type { HookRuntime } from "./hooks/runtime";
 import type { HookHandler, HookName, HookOptions } from "./hooks/types";
-import { AgentError, estimateTokens, foldEvents, abortable } from "@lite-agent/core";
+import { AgentError, estimateTokens, foldEvents, abortable, streamOperation } from "@lite-agent/core";
 import type {
   Agent,
   AgentEvent,
@@ -19,6 +19,7 @@ import type {
   ReasoningEffort,
   Sandbox,
   Store,
+  SessionEvent,
   Tool,
   ToolCallCodec,
   ToolChoice,
@@ -35,6 +36,8 @@ import { newSessionId } from "./store";
 import type { SessionInfo } from "./store";
 import type { LiteAgentEvent, SessionRunner } from "./sessionRunner";
 import type { ModelConfiguration } from "./modelCatalog";
+import type { McpApi, McpRegistry } from "./mcp/registry";
+import type { McpServerConfig } from "./mcp/config";
 
 export type { LiteAgentEvent } from "./sessionRunner";
 
@@ -45,6 +48,11 @@ export type ContextOptions = {
 
 export interface CreateLiteAgentConfig extends ModelConfiguration {
   workdir: string;
+  mcpServers?: Record<string, McpServerConfig>;
+  /** Ignore global/project mcps.json; explicit definitions still apply. */
+  strictMcpConfig?: boolean;
+  /** Restrict transports, for example ['stdio'] for a sandboxed local host. */
+  mcpTransports?: Array<"stdio" | "http">;
   skillsDir?: string;
   /** Load global and project hooks.json once at root creation. Default true. */
   hookFiles?: boolean;
@@ -139,6 +147,7 @@ export type RuntimeLiteAgentConfig = Omit<CreateLiteAgentConfig, "model" | "mode
 export type LiteAgentResult = RunResult & { output?: unknown };
 
 export interface LiteAgent extends Agent {
+  readonly mcp: McpApi;
   hook<N extends HookName>(name: N, handler: HookHandler<N>, opts?: HookOptions): () => void;
   run(input: string | Message[], opts?: RunOptions): AsyncGenerator<AgentEvent, LiteAgentResult>;
   send(input: string | Message[], opts?: RunOptions): Promise<LiteAgentResult>;
@@ -176,6 +185,7 @@ export interface LiteAgent extends Agent {
 
 /** Internal construction result. Not re-exported from createLiteAgent.ts or index.ts. */
 export interface LiteAgentRuntime {
+  refreshTools?(): void;
   readonly core: Agent;
   readonly checkpointer?: Checkpointer;
   readonly state: Checkpointer;
@@ -200,6 +210,7 @@ export function createLiteAgentFacade(
   sessions: SessionRunner<LiteAgentResult>,
   hooks: HookRuntime,
   ownsHooks: boolean,
+  mcp: McpRegistry,
   closeRuntime?: () => Promise<void>,
 ): LiteAgent {
   let currentSessionId = newSessionId();
@@ -209,10 +220,32 @@ export function createLiteAgentFacade(
       new AgentError("session management requires a checkpointer (it is disabled when sessions:false)"),
     );
 
-  sessions.bind((input, opts) => hooks.run(
-    runtime.core.run(input, opts), input, opts, runtime.takeOutput,
-    (event) => sessions.report(opts.sessionId, event),
-  ));
+  const recordSessionEvent = async (sessionId: string, event: SessionEvent) => {
+    await runtime.state.append(sessionId, [event], await runtime.state.head(sessionId));
+  };
+  sessions.bind((input, opts) => {
+    const prepared = (async function* () {
+      const release = mcp.enterRun();
+      try {
+        yield* streamOperation<AgentEvent, void>((emit, signal) => mcp.prepare({
+          sessionId: opts.sessionId, signal, emit,
+          recordSessionEvent: (event) => recordSessionEvent(opts.sessionId, event),
+        }), opts.signal);
+        runtime.refreshTools?.();
+        return yield* runtime.core.run(input, opts);
+      } finally { release(); }
+    })();
+    return hooks.run(prepared, input, opts, runtime.takeOutput, (event) => sessions.report(opts.sessionId, event));
+  });
+
+  const mutateMcp = async (operation: (scope: { sessionId: string; signal: AbortSignal; emit: (event: AgentEvent) => void; recordSessionEvent: (event: Parameters<typeof recordSessionEvent>[1]) => Promise<void> }) => Promise<void>) => {
+    hooks.registry.assertNotInHook();
+    if (!ownsHooks) throw new AgentError("Only the root agent can register MCP servers");
+    const sessionId = currentSessionId;
+    const stream = sessions.operation(sessionId, (emit, signal) => operation({ sessionId, signal, emit, recordSessionEvent: (event) => recordSessionEvent(sessionId, event) }));
+    for await (const _event of stream) { /* session runner publishes operation events */ }
+    runtime.refreshTools?.();
+  };
 
   const run = (
     input: string | Message[],
@@ -224,6 +257,11 @@ export function createLiteAgentFacade(
   };
 
   return {
+    mcp: {
+      list: () => mcp.list(),
+      register: (name, config) => mutateMcp((scope) => mcp.register(name, config, scope)),
+      unregister: (name) => mutateMcp(() => mcp.unregister(name)),
+    },
     run,
     hook: (name, handler, opts) => {
       if (closePromise) throw new AgentError("LiteAgent is closed");
