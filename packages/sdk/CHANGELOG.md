@@ -1,5 +1,85 @@
 # lite-agent
 
+## 0.15.0
+
+### Minor Changes
+
+- Add `agent.hook()` for `run:start/end`, `tool:start/end`, and
+  `compact:start/end`. Multiple handlers run in registration order, return
+  independent unsubscribe functions, receive immutable event data and bounded
+  cancellation signals, and distinguish root, child and background runs.
+  Handler failures emit `hook_failed` diagnostics without changing tool results;
+  reentrant operations on the same agent family are rejected to prevent deadlock.
+
+- Load command arrays from global `<home>/hooks.json` and project
+  `.lite-agent/hooks.json` once at root creation, before programmatic handlers.
+  Commands receive JSON through stdin, use the separate `hook` permission,
+  configured sandbox, filtered environment and execution limits. Set
+  `hookFiles: false` to disable file discovery.
+
+- Add `models` / `defaultModel` profiles for any non-empty subset of `simple`,
+  `medium`, and `complex`, including per-profile `reasoningEffort`. Subagent
+  task selection overrides its definition, then inherits the active profile.
+  Configured choices are exposed to the model, and selections outside a
+  configured catalog are rejected.
+
+- Unify `query()` configuration with `createLiteAgent()`: prefer `workdir` and
+  `system`; the existing `cwd` and `systemPrompt` aliases remain supported, with
+  conflicting values rejected.
+
+- Track delegated work automatically or associate it with an existing `task_id`.
+  Add `review`, `failed`, and `cancelled` states and execution records. Successful
+  children await review rather than completing the task automatically; enforce
+  dependency readiness and prevent concurrent claims or premature completion.
+
+- Archive complete large-file contents before truncation and expose bounded,
+  Unicode-safe `context({ ref, offset, limit })` reads with `nextOffset`.
+  Permit read-only access to the current session's SDK data outside `workdir`,
+  while checking archive membership, hashes and symlink boundaries.
+
+- Add live manual compaction and restore subscription events, cancellation for
+  `compact()` / `restore()`, checkpoint file/unavailable-snapshot metadata, and
+  `RestoreResult` with `restoredFiles` and `conversationRestored`. Recovery now
+  preflights targets and snapshots, rejects detected external edits and split
+  tool-call histories, and attempts file rollback after in-process failures.
+  Compaction and recovery require an idle agent and hold a maintenance lock.
+
+- **Migration:** shell/file mutations and configuration hook commands now ask
+  for approval by default; without an approval handler they are denied. Children
+  inherit parent permissions and tool restrictions, with `subagentPermission`
+  only tightening access and one shared approval queue. With
+  `permissionFilePolicy()`, project files can restrict host grants but cannot
+  grant new capabilities; move such grants to managed/user files or inline
+  rules. File tools governed by that policy cannot rewrite its configuration.
+
+- **Migration:** task lists are session-scoped by default, with children sharing
+  their parent's list. Set `taskListId: "default"` to reopen an older shared
+  list, or choose an explicit ID for intentional cross-session sharing.
+
+### Patch Changes
+
+- Retain in-memory conversation state with `sessions: false`, so background
+  completion turns preserve the original user goal. Persistent session-management
+  methods remain disabled in that mode.
+
+- Normalize project file-policy paths before evaluation, preventing absolute,
+  dot-segment and symlink aliases from bypassing path rules. Flush archive bodies
+  and indexes before returning references, and stop bounded searches once enough
+  matches have been found.
+
+- Cancel foreground streams, background work, maintenance and pending human
+  interaction during shutdown. Clean up owned archives and private task lists on
+  session deletion; preserve explicitly shared lists. Bash cancellation now
+  terminates its process group.
+
+- Invalidate file-checkpointer head caches when file identity or timestamps
+  change, atomically replace truncated/repaired logs, and reject stale expected
+  heads instead of removing newer history.
+
+- Harden pooled background waits and cancellation. `query()` waits for its own
+  Agent groups and completion turns, remains abortable, and does not wait for
+  unrelated Bash daemons. Correct the system prompt to describe detached dispatch.
+
 ## 0.14.0
 
 ### Minor Changes

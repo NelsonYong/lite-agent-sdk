@@ -1,5 +1,24 @@
 # @lite-agent/provider
 
+## 0.9.0
+
+### Minor Changes
+
+- Map `reasoningEffort` to OpenAI `reasoning_effort`, using
+  `max_completion_tokens` for the reasoning output budget, and to Anthropic
+  adaptive thinking with `output_config.effort`. Reject combinations with
+  `temperature`/`topP`, and reject forced tool choice with adaptive thinking,
+  rather than silently ignoring incompatible settings.
+
+### Patch Changes
+
+- Accumulate Anthropic thinking and signature deltas in native content blocks,
+  preserving the complete signed content for subsequent tool rounds and resume.
+
+- Fail closed with `ProviderError` on malformed OpenAI tool-argument JSON or
+  incomplete tool-call identities. Invalid arguments are no longer replaced
+  with an empty object that could execute a different tool action.
+
 ## 0.8.0
 
 ### Minor Changes

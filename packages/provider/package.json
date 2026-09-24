@@ -1,6 +1,6 @@
 {
   "name": "@lite-agent/provider",
-  "version": "0.8.0",
+  "version": "0.9.0",
   "description": "Model providers for lite-agent: Anthropic Messages API + OpenAI Chat Completions (also OpenAI-compatible / local endpoints).",
   "license": "MIT",
   "type": "module",

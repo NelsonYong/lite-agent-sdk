@@ -1,5 +1,14 @@
 # @lite-agent/checkpoint-sqlite
 
+## 0.8.1
+
+### Patch Changes
+
+- Honor the optional `expectedHead` argument of
+  `truncate(sessionId, toSeq, expectedHead)` inside the same immediate transaction
+  as the rewind. A stale head raises `CheckpointConflictError` before deleting
+  events, preventing recovery from discarding a concurrent writer's newer history.
+
 ## 0.8.0
 
 ### Minor Changes

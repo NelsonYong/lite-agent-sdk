@@ -1,5 +1,43 @@
 # @lite-agent/core
 
+## 0.15.0
+
+### Minor Changes
+
+- Add `reasoningEffort` (`low`, `medium`, or `high`) to model requests and agent
+  configuration, and include the requested effort in `model_call_start` events.
+
+- Add optional session archives to agent/kernel configuration and `ToolContext`.
+  Oversized tool results can be stored before the next model call; older context
+  segments are archived before projection instead of losing their full content.
+
+- Stream compaction lifecycle events with stages, item counts, errors and
+  cancellation. Add `ContextEngine` signal, model, progress callback and planner
+  timeout options, plus the `task_update` and `checkpoint_restore` event variants.
+  Compaction middleware now reports start/end even when no reduction is needed.
+
+- Add user-event `origin`/`checkpoint` metadata, post-mutation hashes in file
+  snapshots, and optional `expectedHead` checks for `Checkpointer.truncate()`.
+  Background tasks can set `awaitIdle: false` to exclude daemon completions from
+  session idle waits.
+
+- Add `abortable()`, `streamOperation()` and `serialApproval()`. Approval/input
+  handlers and compactors accept an optional `AbortSignal` for cancellation.
+
+### Patch Changes
+
+- Fail closed on invalid permission decisions and recheck cancellation before
+  executing tools. Cancelled approval requests release the serial queue, and
+  late approval answers cannot authorize aborted calls.
+
+- Increase the default context planner timeout from 100 ms to 30 seconds,
+  bound token-count requests, use the actual model and tool prefix for counting,
+  and fall back to estimates after a counter fails. Do not commit a partial
+  view after cancellation or create a view for an empty conversation.
+
+- Keep runtime/background messages out of user facts and checkpoint anchors,
+  and publish context preparation progress before waiting for model output.
+
 ## 0.14.0
 
 ### Minor Changes

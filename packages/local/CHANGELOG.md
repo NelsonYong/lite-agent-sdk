@@ -1,5 +1,26 @@
 # @lite-agent/local
 
+## 0.3.0
+
+### Minor Changes
+
+- Expose `LocalAgent.hook()` and support the SDK's global/project `hooks.json`
+  lifecycle commands. Commands retain strict local permissions and sandbox
+  enforcement; the new `hook` capability is denied unless explicitly authorized.
+
+- Allow the session-scoped `context` retrieval tool and forward cancellation
+  options through `LocalAgent.compact(instructions, options)`.
+
+- Protect the SDK home, project `.lite-agent` directory and explicitly configured
+  permission files from sandboxed shell writes. Existing scripts that write to
+  these paths must use a permitted output location instead.
+
+### Patch Changes
+
+- Enforce hook reentrancy checks before changing local shutdown state, start
+  closing the underlying agent before releasing persistence/sandbox resources,
+  and remove outer abort listeners when a run fails to initialize.
+
 ## 0.2.1
 
 ### Patch Changes
