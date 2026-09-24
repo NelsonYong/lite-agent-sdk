@@ -62,3 +62,22 @@ const gpt = openai({ baseURL: "http://localhost:11434/v1" });
 ## 本地模型预设
 
 `localOpenAI({ runtime, contextWindow? })` 返回标准 provider，交给 SDK 的 `createLiteAgent`。支持 `ollama`、`vllm`、`lm-studio`、`llama.cpp`；不再需要独立的 local agent。端点分类可用 `isLoopbackEndpoint`，但不能据此保证进程离线。
+
+## 主流厂商
+
+要求 Node.js >=22。通过 `aiSdk(model, options?)` 接入最新 AI SDK 7 / LanguageModelV4，厂商包按需安装：
+
+```ts
+import { createLiteAgent } from "@lite-agent/sdk";
+import { aiSdk } from "@lite-agent/provider";
+import { createGoogle } from "@ai-sdk/google";
+
+const agent = createLiteAgent({
+  workdir: process.cwd(),
+  model: aiSdk(createGoogle()(process.env.GEMINI_MODEL!)),
+});
+try { console.log((await agent.send("Hello")).text); }
+finally { await agent.close(); }
+```
+
+[Coverage and usage](../../docs-site/docs/zh/core/ai-sdk.md).

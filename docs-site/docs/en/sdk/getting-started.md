@@ -4,12 +4,14 @@ This page takes you from install to a permission-gated, multi-turn agent in four
 
 ## 1. Install
 
+Requires Node.js >=22 when using the current provider package.
+
 ```bash
 pnpm add @lite-agent/sdk @lite-agent/provider zod
 ```
 
 - `@lite-agent/sdk` — the batteries-included agent (`query` / `createLiteAgent` / `tool`); re-exports all of `@lite-agent/core`.
-- `@lite-agent/provider` — model providers (`anthropic()` / `openai()`).
+- `@lite-agent/provider` — model integration (`anthropic()` / `openai()` / `aiSdk()`); [supported protocols](/sdk/models/protocols) · [supported providers](/sdk/models/providers).
 - `zod` — tool input schemas.
 
 ## 2. Your first `query()`

@@ -4,12 +4,14 @@
 
 ## 1. 安装
 
+需要 Node.js >=22（当前 provider 包要求）。
+
 ```bash
 pnpm add @lite-agent/sdk @lite-agent/provider zod
 ```
 
 - `@lite-agent/sdk` —— 开箱即用的 agent（`query` / `createLiteAgent` / `tool`）；完整转出 `@lite-agent/core`。
-- `@lite-agent/provider` —— 模型 provider（`anthropic()` / `openai()`）。
+- `@lite-agent/provider` —— 模型接入（`anthropic()` / `openai()` / `aiSdk()`）；[支持的协议](/zh/sdk/models/protocols) · [支持的厂商](/zh/sdk/models/providers)。
 - `zod` —— 工具入参 schema。
 
 ## 2. 第一个 `query()`

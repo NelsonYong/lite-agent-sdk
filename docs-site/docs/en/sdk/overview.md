@@ -42,6 +42,7 @@ This section documents the SDK capability by capability:
 | Page | What it covers |
 | --- | --- |
 | [Getting started](/sdk/getting-started) | Install to a permission-gated, multi-turn agent in four steps. |
+| [Model integration](/sdk/models/protocols) | Supported protocols, vendors, integration paths and verification scope. |
 | [Agent loop](/sdk/core-concepts/agent-loop) | How the kernel turn loop works — encode, stream, decode, tools, feed back. |
 | [Sessions](/sdk/core-concepts/sessions) | Multi-turn sessions, persistence backends, and time travel. |
 | [Events](/sdk/core-concepts/events) | The full `AgentEvent` stream: rendering text, approvals, and user input. |

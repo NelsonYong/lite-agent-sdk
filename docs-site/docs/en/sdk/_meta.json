@@ -1,6 +1,7 @@
 [
   "overview",
   "getting-started",
+  { "type": "dir", "name": "models", "label": "Model integration", "collapsible": true, "collapsed": false },
   { "type": "dir", "name": "core-concepts", "label": "Core Concepts", "collapsible": true, "collapsed": false },
   { "type": "dir", "name": "tools", "label": "Extending with tools", "collapsible": true, "collapsed": false },
   { "type": "dir", "name": "behavior", "label": "Customizing behavior", "collapsible": true, "collapsed": false },

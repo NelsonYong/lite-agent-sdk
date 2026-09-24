@@ -1,7 +1,7 @@
 {
   "name": "@lite-agent/provider",
-  "version": "0.10.0",
-  "description": "Model providers for lite-agent: Anthropic Messages API + OpenAI Chat Completions (also OpenAI-compatible / local endpoints).",
+  "version": "0.11.0",
+  "description": "Model providers for lite-agent: direct Anthropic/OpenAI adapters and an AI SDK 7 bridge for mainstream vendors.",
   "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
@@ -17,7 +17,7 @@
     "dist"
   ],
   "engines": {
-    "node": ">=20"
+    "node": ">=22"
   },
   "keywords": [
     "agent",
@@ -43,11 +43,35 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@ai-sdk/provider": "4.0.18",
     "@anthropic-ai/sdk": "^0.80.0",
     "@lite-agent/core": "workspace:*",
     "openai": "^6.0.0"
   },
   "devDependencies": {
+    "@ai-sdk/alibaba": "2.0.54",
+    "@ai-sdk/amazon-bedrock": "5.0.93",
+    "@ai-sdk/anthropic": "4.0.62",
+    "@ai-sdk/azure": "4.0.78",
+    "@ai-sdk/cerebras": "3.0.55",
+    "@ai-sdk/cohere": "4.0.48",
+    "@ai-sdk/deepinfra": "3.0.55",
+    "@ai-sdk/deepseek": "3.0.52",
+    "@ai-sdk/fireworks": "3.0.58",
+    "@ai-sdk/google": "4.0.79",
+    "@ai-sdk/google-vertex": "5.0.92",
+    "@ai-sdk/groq": "4.0.48",
+    "@ai-sdk/minimax": "3.0.39",
+    "@ai-sdk/mistral": "4.0.50",
+    "@ai-sdk/moonshotai": "3.0.56",
+    "@ai-sdk/openai": "4.0.74",
+    "@ai-sdk/openai-compatible": "3.0.55",
+    "@ai-sdk/perplexity": "4.0.50",
+    "@ai-sdk/togetherai": "3.0.56",
+    "@ai-sdk/xai": "5.0.7",
+    "@ai-sdk/zai": "3.0.17",
+    "@openrouter/ai-sdk-provider": "3.1.0",
+    "@smithy/eventstream-codec": "4.3.3",
     "@types/node": "^25.5.0",
     "tsup": "^8.3.0",
     "typescript": "^6.0.2",

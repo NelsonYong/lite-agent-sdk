@@ -32,7 +32,7 @@ Run from the repo root (it is a **private workspace root** — orchestration onl
 - **Docs site:** `pnpm docs:dev` / `pnpm docs:build` / `pnpm docs:preview` → `pnpm --filter @lite-agent/docs <dev|build|preview>` (Rspress; build output `docs-site/doc_build`, base from `DOCS_BASE`). Docs are bilingual (`docs/en/` + `docs/zh/`), organized by capability into two nav sections — **SDK** (`sdk/`) and **Core** (`core/`) — plus `examples/`; nav lives in per-language root `_meta.json` and sidebar order/labels in per-directory `_meta.json` (do NOT set `nav`/`sidebar` in `rspress.config.ts` — that disables the auto-generation). Deployed via `.github/workflows/deploy-docs.yml` on pushes to `main` touching `docs-site/**`.
 - **One package:** `pnpm --filter @lite-agent/<name> <test|build|typecheck>` · single test: `pnpm --filter @lite-agent/core test -- <namefilter>`
 - **Versioning:** update changed package versions + English `CHANGELOG.md` files manually; `pnpm release:changed` previews registry publishing and `--yes` publishes.
-- **Package manager:** pnpm (pinned 10.12.4). Node >= 20.
+- **Package manager:** pnpm (pinned 10.12.4). Node >= 22 for the workspace/current provider package.
 
 > **Build-before-test choreography (non-obvious):** packages import each other via their **built `dist/`** (package.json `exports` → `./dist/index.js`; `dist` is git-ignored, no src alias). So changing a package's source and then testing/typechecking a _dependent_ package (or the example) reads **stale dist** unless you rebuild the changed package first. Safe full check: `pnpm -r build && pnpm -r test && pnpm -r typecheck`. `pnpm -r` builds in topological order.
 
@@ -76,7 +76,7 @@ Provider-agnostic `Message` / `ContentBlock` / `ToolCall` / `ToolResult` / `User
 
 ### Providers (`@lite-agent/provider`)
 
-One package ships two `ModelProvider`s. `anthropic(opts)` (`src/anthropic/`) maps normalized requests → Anthropic Messages API; `openai(opts)` (`src/openai/`) maps them → OpenAI Chat Completions (also works against OpenAI-compatible / local endpoints). Each subfolder pairs a `mapping.ts` (request → provider params) with a `stream.ts` (provider SSE → `ModelChunk`s), wraps SDK errors in `ProviderError` preserving `.status`, and exposes an injectable client seam for offline tests. The package root re-exports both `anthropic` and `openai`.
+The package includes direct Anthropic/OpenAI adapters, local endpoint presets, and `aiSdk(model, options?)` for AI SDK 7 LanguageModelV4 providers. Vendor adapters are host-installed, with real SDK offline wire fixtures in provider tests. The current provider package requires Node >=22. Direct providers: `anthropic(opts)` (`src/anthropic/`) maps normalized requests → Anthropic Messages API; `openai(opts)` (`src/openai/`) maps them → OpenAI Chat Completions (also works against OpenAI-compatible / local endpoints). Each subfolder pairs a `mapping.ts` (request → provider params) with a `stream.ts` (provider SSE → `ModelChunk`s), wraps SDK errors in `ProviderError` preserving `.status`, and exposes an injectable client seam for offline tests. The package root re-exports both `anthropic` and `openai`.
 
 ## Design discipline (enforced in the specs)
 

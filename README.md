@@ -3,7 +3,7 @@
 **English** | [简体中文](./README.zh-CN.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](./LICENSE)
-[![Node >= 20](https://img.shields.io/badge/node-%3E%3D20-brightgreen.svg)](https://nodejs.org)
+[![Node >= 22](https://img.shields.io/badge/node-%3E%3D22-brightgreen.svg)](https://nodejs.org)
 [![Docs](https://img.shields.io/badge/docs-nelsonyong.github.io%2Flite--agent--sdk-blueviolet.svg)](https://nelsonyong.github.io/lite-agent-sdk/)
 
 A pluggable, lightweight **agent-core SDK**, structured as a pnpm monorepo. The kernel is provider-agnostic and built from swappable **strategy** interfaces + an onion **middleware** pipeline + a typed **event** stream. Its public API is shaped after [`@anthropic-ai/claude-agent-sdk`](https://github.com/anthropics/claude-agent-sdk-typescript) (`query` / `tool` / `allowedTools`), but the kernel is self-built so it can also drive local small models via pluggable tool-call codecs.
@@ -14,7 +14,7 @@ A pluggable, lightweight **agent-core SDK**, structured as a pnpm monorepo. The 
 | --- | --- |
 | [`@lite-agent/sdk`](./packages/sdk) | Batteries-included agent: tools, skills, subagents, tasks, sessions, system prompt — `query()` / `createLiteAgent()` / `tool()`. |
 | [`@lite-agent/core`](./packages/core) | The kernel: strategy interfaces, middleware pipeline, normalized types, codecs, permission, sandbox, checkpointer primitives. |
-| [`@lite-agent/provider`](./packages/provider) | Model providers — Anthropic Messages API + OpenAI Chat Completions (also OpenAI-compatible / local endpoints). |
+| [`@lite-agent/provider`](./packages/provider) | Direct Anthropic/OpenAI adapters, local endpoints, and AI SDK 7 integration for mainstream vendors. |
 | [`@lite-agent/sandbox-anthropic`](./packages/sandbox-anthropic) | OS-level `Sandbox` adapter (macOS Seatbelt / Linux bubblewrap). |
 | [`@lite-agent/checkpoint-sqlite`](./packages/checkpoint-sqlite) | SQLite (WAL) `Checkpointer` — single-host, multi-process session persistence. |
 
@@ -51,7 +51,7 @@ See [`@lite-agent/sdk`](./packages/sdk) for `createLiteAgent`, tools, permission
 
 ## Development
 
-This repo is a pnpm workspace (pnpm ≥ 10.12.4, Node ≥ 20). From the root:
+This repo is a pnpm workspace (pnpm ≥ 10.12.4, Node ≥ 22). From the root:
 
 ```bash
 pnpm build       # pnpm -r build  — each package via tsup → dist/ (ESM + d.ts)

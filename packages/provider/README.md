@@ -62,3 +62,22 @@ const gpt = openai({ baseURL: "http://localhost:11434/v1" });
 ## Local model presets
 
 `localOpenAI({ runtime, contextWindow? })` returns a standard provider for SDK `createLiteAgent`. Presets cover `ollama`, `vllm`, `lm-studio`, and `llama.cpp`; no separate local agent is needed. `isLoopbackEndpoint` classifies endpoints but does not prove process isolation.
+
+## Mainstream providers
+
+Requires Node.js >=22. Use `aiSdk(model, options?)` with current AI SDK 7 / LanguageModelV4; install vendor packages as needed:
+
+```ts
+import { createLiteAgent } from "@lite-agent/sdk";
+import { aiSdk } from "@lite-agent/provider";
+import { createGoogle } from "@ai-sdk/google";
+
+const agent = createLiteAgent({
+  workdir: process.cwd(),
+  model: aiSdk(createGoogle()(process.env.GEMINI_MODEL!)),
+});
+try { console.log((await agent.send("Hello")).text); }
+finally { await agent.close(); }
+```
+
+[Coverage and usage](../../docs-site/docs/en/core/ai-sdk.md).

@@ -1,6 +1,6 @@
 # Model providers
 
-Model providers are the `ModelProvider` strategies that connect the kernel to a real model API. `@lite-agent/provider` ships two maintained adapters — `anthropic()` for the Anthropic Messages API and `openai()` for OpenAI Chat Completions — and because the whole Chat Completions family shares one wire format, the same adapter also drives OpenAI-compatible and local endpoints (Ollama, vLLM, LM Studio, llama.cpp). Both adapters translate the provider's SSE stream into normalized `ModelChunk`s and map every failure to `ProviderError`, so middleware like `retry()` works uniformly across vendors.
+Model providers connect the kernel to model APIs. `@lite-agent/provider` offers direct `anthropic()` and `openai()` adapters, local endpoint presets, and the [AI SDK 7 bridge](/core/ai-sdk) for mainstream vendors. Provider 0.11.0 requires Node.js >=22.
 
 ```bash
 pnpm add @lite-agent/provider
@@ -168,11 +168,12 @@ The same seam is how the repo's own conformance suite runs against both adapters
 
 ## Compatibility levels
 
-The repo distinguishes three levels of support — "OpenAI-compatible" is a protocol claim, not a certification:
+The repo distinguishes these levels of support — "OpenAI-compatible" is a protocol claim, not a certification:
 
 | Level | Meaning |
 | --- | --- |
 | **Maintained adapter** | Repository-owned mapping and stream translator; passes the offline conformance suite (`anthropic()`, `openai()`). |
+| **AI SDK bridge** | Maintained V4 normalization over vendor/community adapters, with offline wire tests. See the [coverage matrix](/core/ai-sdk). |
 | **Maintained preset** | Repository-owned endpoint preset built on a maintained adapter — the `localOpenAI` presets in the [deployment composition](/core/local). Runtime and model capabilities still vary. |
 | **Compatible endpoint** | Any user-supplied endpoint expected to speak the protocol. Best-effort until its exact runtime/model profile passes the probe below. |
 
@@ -208,5 +209,5 @@ The base profile checks text deltas, a single final `message_done`, delta/final-
 
 - [The nine strategies](/core/strategies) — the `ModelProvider` strategy interface these adapters implement.
 - [Tool-call codecs](/core/codecs) — pair `nativeCodec()` with these providers, or a prompt codec with local models.
-- [Strict local assembly](/core/local) — maintained presets for local runtimes (Ollama, vLLM, LM Studio, llama.cpp).
+- [Deployment composition](/core/local) — maintained presets for local runtimes (Ollama, vLLM, LM Studio, llama.cpp).
 - [Testing utilities](/core/testing) — `providerConformance` and `fakeProvider` for network-free tests.

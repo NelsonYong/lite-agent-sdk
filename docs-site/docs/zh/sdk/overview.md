@@ -42,6 +42,7 @@ const agent = createLiteAgent({
 | 页面 | 内容 |
 | --- | --- |
 | [快速上手](/zh/sdk/getting-started) | 四步从安装到一个带权限闸门的多轮 agent。 |
+| [模型接入](/zh/sdk/models/protocols) | 支持的模型协议、厂商列表、接入方式与验证范围。 |
 | [代理循环](/zh/sdk/core-concepts/agent-loop) | 内核轮次循环如何工作——编码、流式、解码、工具、回灌。 |
 | [会话](/zh/sdk/core-concepts/sessions) | 多轮会话、持久化后端与时间回溯。 |
 | [事件](/zh/sdk/core-concepts/events) | 完整的 `AgentEvent` 流：渲染文本、审批与用户输入。 |

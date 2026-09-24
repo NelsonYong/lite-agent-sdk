@@ -1,5 +1,21 @@
 # @lite-agent/provider
 
+## 0.11.0
+
+### Minor Changes
+
+- Add `aiSdk(model, options?)` for AI SDK 7 LanguageModelV4 providers. Reuse
+  vendor-maintained transports for Gemini, Azure, Bedrock, Vertex, DeepSeek,
+  Qwen, GLM, Kimi, MiniMax, xAI, Mistral and other mainstream platforms.
+  Vendor packages are host-selected dependencies; existing direct adapters remain.
+- Preserve function calls/results, reasoning signatures, assistant phase and
+  provider metadata across checkpoints. Forward standard reasoning effort,
+  cancellation and native options without a second agent loop or implicit retries.
+- Reject unsupported features, incomplete tool streams, foreign native state,
+  provider-executed tools and unsupported media instead of silently dropping them.
+- Raise this package's Node.js requirement to 22 for the current provider contract;
+  AI SDK V2/V3 models are intentionally unsupported.
+
 ## 0.10.0
 
 ### Minor Changes

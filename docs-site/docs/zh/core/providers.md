@@ -1,6 +1,6 @@
 # 模型提供方
 
-模型提供方（provider）是把内核接到真实模型 API 的 `ModelProvider` 策略。`@lite-agent/provider` 提供两个受维护适配器——面向 Anthropic Messages API 的 `anthropic()` 和面向 OpenAI Chat Completions 的 `openai()`——由于整个 Chat Completions 协议族共享同一套 wire 格式，同一适配器也能驱动 OpenAI 兼容端点和本地端点（Ollama、vLLM、LM Studio、llama.cpp）。两个适配器都把 provider 的 SSE 流翻译成规范化的 `ModelChunk`，并把所有失败映射为 `ProviderError`，因此 `retry()` 等中间件可以跨厂商统一工作。
+模型提供方将内核接到模型 API。`@lite-agent/provider` 提供 `anthropic()`、`openai()` 直接适配器、本地端点预设，以及覆盖主流厂商的 [AI SDK 7 统一桥接](/zh/core/ai-sdk)。provider 0.11.0 要求 Node.js >=22。
 
 ```bash
 pnpm add @lite-agent/provider
@@ -173,6 +173,7 @@ for await (const c of provider.stream({ model: "fake", messages: [] })) chunks.p
 | 等级 | 含义 |
 | --- | --- |
 | **受维护适配器** | 仓库自有的映射与流翻译器；通过离线一致性测试（`anthropic()`、`openai()`）。 |
+| **AI SDK 桥接** | 基于厂商/社区适配器的 V4 规范化与离线协议测试，见[覆盖表](/zh/core/ai-sdk)。 |
 | **受维护预设** | 基于受维护适配器的仓库自有端点预设——[部署组合](/zh/core/local)中的 `localOpenAI` 预设。运行时与模型能力仍可能不同。 |
 | **兼容端点** | 任何由用户提供、预期实现该协议的端点。在其确切的运行时/模型组合通过下面的探针之前，仅为尽力支持。 |
 
