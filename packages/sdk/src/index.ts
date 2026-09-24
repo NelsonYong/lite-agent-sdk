@@ -59,5 +59,6 @@ export type { CheckpointInfo, RestoreResult } from "./checkpoints";
 
 export type { HookName, HookStatus, HookEvent, HookEventMap, HookHandler, HookOptions } from "./hooks/types";
 export type { McpServerConfig, McpSource } from "./mcp/config";
+export type { McpOAuthConfig, McpOAuthProvider } from "./mcp/oauth";
 export type { McpApi, McpServerStatus } from "./mcp/registry";
 export { MCP_PROTOCOL_VERSION } from "./mcp/connection";

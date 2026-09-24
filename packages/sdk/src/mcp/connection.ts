@@ -5,6 +5,8 @@ import { abortable, toToolSpec } from "@lite-agent/core";
 import type { Tool, ToolContext, ToolOutput, Sandbox } from "@lite-agent/core";
 import { mcpFetch } from "./http";
 import type { McpDefinition } from "./config";
+import { McpOAuthSession } from "./oauth";
+import type { McpOAuthConfig } from "./oauth";
 
 export const MCP_PROTOCOL_VERSION = "2026-07-28";
 const MAX_BYTES = 4 * 1024 * 1024;
@@ -30,17 +32,21 @@ async function project(result: { content?: unknown; structuredContent?: unknown;
   return { content, isError: result.isError };
 }
 
-export async function connectMcp(definition: McpDefinition, workdir: string, sandbox: Sandbox | undefined, signal: AbortSignal): Promise<McpConnection> {
+export async function connectMcp(definition: McpDefinition, workdir: string, sandbox: Sandbox | undefined, signal: AbortSignal, oauthConfig?: McpOAuthConfig): Promise<McpConnection> {
   const { name, config } = definition;
-  const connection: McpConnection = { tools: [], stale: false, close: () => client.close() };
-  const client = new Client({ name: "lite-agent", version: "0.16.0" }, {
-    versionNegotiation: { mode: { pin: MCP_PROTOCOL_VERSION }, probe: { timeoutMs: config.timeoutMs, maxRetries: 0 } },
+  if (oauthConfig && (config.type !== "http" || Object.keys(config.headers ?? {}).length > 0))
+    throw new Error("MCP OAuth requires HTTP without static headers");
+  const oauth = oauthConfig && config.type === "http" ? new McpOAuthSession(oauthConfig, config.url, config.timeoutMs) : undefined;
+  const connection: McpConnection = { tools: [], stale: false, close: () => { oauth?.close(); return client.close(); } };
+  const connectTimeout = oauth?.timeoutMs ?? config.timeoutMs;
+  const client = new Client({ name: "lite-agent", version: "0.17.0" }, {
+    versionNegotiation: { mode: { pin: MCP_PROTOCOL_VERSION }, probe: { timeoutMs: connectTimeout, maxRetries: 0 } },
     capabilities: {}, inputRequired: { autoFulfill: false }, listMaxPages: 16,
     listChanged: { tools: { autoRefresh: false, onChanged: () => { connection.stale = true; } } },
   });
   client.onclose = () => { connection.stale = true; };
   client.onerror = () => { connection.stale = true; };
-  const bounded = AbortSignal.any([signal, AbortSignal.timeout(config.timeoutMs)]);
+  const bounded = AbortSignal.any([signal, AbortSignal.timeout(connectTimeout)]);
   try {
     bounded.throwIfAborted();
     let transport;
@@ -59,12 +65,16 @@ export async function connectMcp(definition: McpDefinition, workdir: string, san
     } else {
       transport = new StreamableHTTPClientTransport(new URL(config.url), {
         requestInit: { headers: config.headers },
-        fetch: mcpFetch,
+        fetch: oauth?.fetch ?? mcpFetch,
+        authProvider: oauth?.authProvider,
+        onInsufficientScope: "throw",
         reconnectionOptions: { maxRetries: 0, maxReconnectionDelay: 1000, initialReconnectionDelay: 1000, reconnectionDelayGrowFactor: 1 },
       });
     }
-    await abortable(client.connect(transport, { signal: bounded, timeout: config.timeoutMs }), bounded);
-    const catalog = await abortable(client.listTools(undefined, { signal: bounded, timeout: config.timeoutMs, maxTotalTimeout: config.timeoutMs }), bounded);
+    const connect = () => client.connect(transport, { signal: bounded, timeout: connectTimeout });
+    await abortable(oauth ? oauth.run(bounded, true, connect) : connect(), bounded);
+    const discover = () => client.listTools(undefined, { signal: bounded, timeout: config.timeoutMs, maxTotalTimeout: config.timeoutMs });
+    const catalog = await abortable(oauth ? oauth.run(bounded, false, discover) : discover(), bounded);
     if (catalog.tools.length > 128 || Buffer.byteLength(JSON.stringify(catalog)) > 512 * 1024) throw new Error("MCP tool catalog exceeds limits");
     const names = new Set<string>();
     connection.tools = catalog.tools.map((remote): Tool => {
@@ -79,11 +89,12 @@ export async function connectMcp(definition: McpDefinition, workdir: string, san
         async execute(input, ctx) {
           if (connection.stale) return { content: `MCP '${name}' catalog or connection changed; unregister and register again while idle.`, isError: true };
           try {
-            const result = await client.callTool({ name: remote.name, arguments: input as Record<string, unknown> }, {
+            const call = () => client.callTool({ name: remote.name, arguments: input as Record<string, unknown> }, {
               signal: ctx.signal, timeout: config.timeoutMs, maxTotalTimeout: config.timeoutMs,
               onprogress: (progress) => ctx.emit({ type: "tool_progress", id: ctx.call?.id ?? "", name: toolName,
                 progress: progress.progress, total: progress.total, message: progress.message?.slice(0, 1024) }),
             });
+            const result = await (oauth ? oauth.run(AbortSignal.any([ctx.signal, AbortSignal.timeout(config.timeoutMs)]), false, call) : call());
             return await project(result, ctx);
           } catch {
             // Remote errors may echo authorization headers, URLs, arguments or environment values.
@@ -97,7 +108,7 @@ export async function connectMcp(definition: McpDefinition, workdir: string, san
     if (connection.stale) throw new Error("MCP catalog changed during discovery");
     return connection;
   } catch {
-    await client.close().catch(() => {});
+    await connection.close().catch(() => {});
     throw new Error(`MCP '${name}' connection or discovery failed (check endpoint, protocol ${MCP_PROTOCOL_VERSION}, schema and timeout)`);
   }
 }

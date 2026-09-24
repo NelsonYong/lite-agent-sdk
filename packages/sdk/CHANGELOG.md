@@ -1,5 +1,15 @@
 # lite-agent
 
+## 0.17.0
+
+### Minor Changes
+
+- Add host-owned `mcpOAuth` configuration for HTTP servers using the official
+  OAuth flow: discovery, PKCE/code exchange, client credentials, and shared
+  token refresh. Bind credentials to exact server URLs and trusted origins;
+  validate callback state/redirects, bound login lifetime, and never open login
+  or widen scopes automatically during tool calls. Hosts retain token storage.
+
 ## 0.16.0
 
 ### Minor Changes

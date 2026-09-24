@@ -74,7 +74,7 @@ export class McpRegistry {
     try {
       const gate = permission(this.cfg.permission!, this.cfg.onApproval, { redact: safe, audit: this.cfg.permissionAudit });
       const result = await gate.wrapToolCall!(ctx, async () => {
-        connection = await connectMcp(entry, this.cfg.workdir, this.cfg.sandbox, signal);
+        connection = await connectMcp(entry, this.cfg.workdir, this.cfg.sandbox, signal, this.cfg.mcpOAuth?.[entry.name]);
         return { id: ctx.call.id, name: ctx.call.name, content: "MCP connected" };
       });
       if (result.isError || !connection) throw new Error(`MCP '${entry.name}' connection denied`);

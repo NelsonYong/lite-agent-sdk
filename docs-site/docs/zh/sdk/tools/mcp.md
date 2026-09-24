@@ -110,7 +110,79 @@ try {
 
 官方 2.1.0 的固定协议 stdio 会先运行一次临时探测进程，再启动实际进程；两次使用同一沙箱命令。服务器启动应避免业务副作用。官方传输负责直接子进程关闭；任意孙进程回收仍依赖操作系统隔离环境。
 
-远程 URL 必须 HTTPS，回环 `localhost` / `127.0.0.1` / `[::1]` 可用 HTTP；拒绝 URL 用户凭证、片段、保留协议请求头和重定向。本版支持显式 HTTP headers；暂不提供 OAuth 登录/令牌续期、外部 Client 注入、资源/提示词自动加载、sampling、roots、elicitation 或自动 `input_required` 处理。
+远程 URL 必须 HTTPS，回环 `localhost` / `127.0.0.1` / `[::1]` 可用 HTTP；拒绝 URL 用户凭证、片段、保留协议请求头和重定向。本版支持显式 HTTP headers；OAuth 见下节；暂不提供外部 Client 注入、资源/提示词自动加载、sampling、roots、elicitation 或自动 `input_required` 处理。
+
+## OAuth 登录和令牌刷新
+
+此功能从 `@lite-agent/sdk` 0.17.0 起提供。
+
+通过宿主侧 `mcpOAuth` 按服务器名绑定认证配置。相同名字可来自 `mcps.json`、`mcpServers` 或 `agent.mcp.register()`，不增加另一套注册 API。JSON 文件仍只声明服务器，不存放 provider、回调函数或令牌。
+
+```ts
+import type { McpOAuthProvider } from '@lite-agent/sdk';
+
+// hostOAuthProvider 由宿主实现以下存储契约；不使用普通 JSON 文件保存令牌。
+const hostOAuthProvider: McpOAuthProvider = yourApplicationOAuthProvider;
+const agent = createLiteAgent({
+  workdir: process.cwd(), model, onApproval,
+  mcpServers: {
+    docs: { type: 'http', url: 'https://docs.example.com/mcp' },
+  },
+  mcpOAuth: {
+    docs: {
+      serverUrl: 'https://docs.example.com/mcp',
+      allowedOrigins: ['https://login.example.com'],
+      provider: hostOAuthProvider,
+      // 宿主打开登录交互，等待回调，返回完整 URL（包括 code、state、iss）。
+      authorize: (url, { signal }) => openAuthorizationAndWaitForCallback(url, signal),
+      timeoutMs: 180_000,
+    },
+  },
+});
+try {
+  await agent.send('查询文档');
+} finally {
+  await agent.close();
+}
+```
+
+`yourApplicationOAuthProvider` 和 `openAuthorizationAndWaitForCallback` 是应用自己提供的实现。SDK 不创建页面、监听回调端口或自动打开浏览器。`authorize` 必须处理 `signal` 以关闭取消后的窗口/监听器；SDK 即使遇到不响应取消的回调，也不会继续兑换迟到的授权码。
+
+provider 复用官方 `OAuthClientProvider` 的存储接口，`McpOAuthProvider` 去掉了由 lite-agent 管理的 `state`、`redirectToAuthorization` 和暂未支持的 DPoP。已有官方 provider 类可直接传入，类方法的 `this` 和私有字段会保留。
+
+| provider 成员 | 宿主职责 |
+| --- | --- |
+| `redirectUrl` / `clientMetadata` | 注册的回调地址、客户端元数据、所需 scope |
+| `clientInformation` / 可选 `saveClientInformation` | 按 `ctx.issuer` 读取/保存预注册或动态注册客户端信息 |
+| `tokens` / `saveTokens` | 通过系统钥匙串或安全存储读取/保存完整令牌，保留官方添加的 issuer；没有 ctx 时返回当前服务器最近的令牌 |
+| `saveCodeVerifier` / `codeVerifier` | 保存/读取本次登录的 PKCE verifier |
+| `saveDiscoveryState` / `discoveryState` | 交互登录必需；保存发现结果，保证回调兑换时仍绑定同一 issuer |
+| 可选 `invalidateCredentials` | 删除官方 SDK 指定范围的失效凭证，便于过期恢复 |
+
+每个用户和服务器使用独立 provider/存储命名空间；一个 provider 对象不能同时绑定多个活动连接。`close()` / `unregister()` 释放连接，不删除宿主令牌，也不执行远程注销。再次注册可以使用已保存的有效令牌。当前流程要求回调在同一次活动注册/连接操作内完成；不支持重启后恢复尚未完成的登录。
+
+授权发现、动态客户端注册、PKCE、issuer 校验、兑换与刷新使用官方 `auth()`，不自建 OAuth 协议。lite-agent 生成一次性随机 `state`，校验完整回调地址和重复参数；拒绝错误 issuer、取消授权和不可信认证目标。`serverUrl` 必须与实际 MCP URL 完全一致，项目配置改为另一地址时不会携带旧凭证连接。`allowedOrigins` 明确允许 OAuth 元数据、注册、授权和 token 来源，MCP 自身 origin 自动包含；所有目标遵守 HTTPS/回环 HTTP 规则并拒绝重定向。
+
+OAuth 与静态 `headers` 不能混用，防止自定义密钥头被继承到认证请求。当前只支持 Bearer OAuth，不支持 DPoP。凭证、验证码和授权 URL 不进入 `list()`、会话或审批事件；远端认证错误描述在进入官方日志前脱敏。
+
+首次连接/登录默认总期限 180 秒，可配置 1–600000 毫秒；认证 HTTP 请求仍受服务器 `timeoutMs` 限制。运行中的 401 可以刷新并合并并发刷新，但不会弹出登录；403 扩大 scope 直接失败。需要重新登录时，宿主在空闲后注销并重新注册。认证成功后，仅由官方传输重试被 401 拒绝的请求，不重放结果未知的工具调用。
+
+### 机器凭证认证
+
+无用户登录的服务可直接使用官方 provider（宿主直接导入时安装 `@modelcontextprotocol/client@2.1.0`）：
+
+```ts
+import { ClientCredentialsProvider } from '@modelcontextprotocol/client';
+
+const provider = new ClientCredentialsProvider({
+  clientId: process.env.MCP_CLIENT_ID!,
+  clientSecret: process.env.MCP_CLIENT_SECRET!,
+  expectedIssuer: 'https://login.example.com',
+});
+// 在上面的 mcpOAuth.docs 中使用该 provider，省略 authorize。
+```
+
+`expectedIssuer` 绑定客户端凭证的签发方。机器凭证的密钥从宿主安全配置读取；不要复用模型 API Key。
 
 ## Core 工具接口变化
 

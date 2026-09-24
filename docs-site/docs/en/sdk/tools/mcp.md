@@ -106,7 +106,75 @@ Normal SDK stdio processes use the configured `sandbox`, if present. Without one
 
 Official 2.1.0 pinned stdio negotiation launches a temporary probe followed by the actual process. Both use the same sandboxed launch command. Server startup should avoid business side effects. The official transport reaps direct children; arbitrary descendants still require host OS isolation.
 
-Remote endpoints require HTTPS, except loopback HTTP on `localhost`, `127.0.0.1` or `[::1]`. URL credentials/fragments, reserved protocol headers and redirects are rejected. Explicit HTTP headers are supported. OAuth login/refresh, externally supplied clients, automatic resources/prompts, sampling, roots, elicitation and automatic `input_required` fulfillment are not exposed in this release.
+Remote endpoints require HTTPS, except loopback HTTP on `localhost`, `127.0.0.1` or `[::1]`. URL credentials/fragments, reserved protocol headers and redirects are rejected. Explicit HTTP headers are supported. OAuth is described below. Externally supplied clients, automatic resources/prompts, sampling, roots, elicitation and automatic `input_required` fulfillment are not exposed in this release.
+
+## OAuth authentication
+
+Available since `@lite-agent/sdk` 0.17.0.
+
+Use host-only `mcpOAuth` entries keyed by server name. They apply to servers declared in files, constructor options or `agent.mcp.register()`; there is no separate registration API. JSON files contain server declarations, not providers, callbacks or tokens.
+
+```ts
+import type { McpOAuthProvider } from '@lite-agent/sdk';
+
+const hostOAuthProvider: McpOAuthProvider = yourApplicationOAuthProvider;
+const agent = createLiteAgent({
+  workdir: process.cwd(), model, onApproval,
+  mcpServers: { docs: { type: 'http', url: 'https://docs.example.com/mcp' } },
+  mcpOAuth: {
+    docs: {
+      serverUrl: 'https://docs.example.com/mcp',
+      allowedOrigins: ['https://login.example.com'],
+      provider: hostOAuthProvider,
+      authorize: (url, { signal }) => openAuthorizationAndWaitForCallback(url, signal),
+      timeoutMs: 180_000,
+    },
+  },
+});
+try {
+  await agent.send('Find the documentation');
+} finally {
+  await agent.close();
+}
+```
+
+`yourApplicationOAuthProvider` and `openAuthorizationAndWaitForCallback` are host implementations. Return the complete callback URL, including `code`, `state` and `iss`. The SDK does not create pages, listen on callback ports or launch browsers. The callback must observe `signal` to close host windows/listeners. A late callback cannot continue code exchange after cancellation.
+
+`McpOAuthProvider` uses the official `OAuthClientProvider` storage interface, excluding SDK-managed `state` / `redirectToAuthorization` and unsupported DPoP. Existing provider classes retain their method receivers and private fields.
+
+| Provider members | Host responsibility |
+| --- | --- |
+| `redirectUrl`, `clientMetadata` | Registered callback, client metadata and scope |
+| `clientInformation`, optional `saveClientInformation` | Load/save static or dynamically registered client information by `ctx.issuer` |
+| `tokens`, `saveTokens` | Secure token storage, preserving issuer stamps; calls without ctx must return this server's current tokens |
+| `saveCodeVerifier`, `codeVerifier` | Persist the pending PKCE verifier |
+| `saveDiscoveryState`, `discoveryState` | Required for interactive login; retain discovery state for callback issuer binding |
+| Optional `invalidateCredentials` | Remove the credential scope invalidated by official SDK recovery |
+
+Use a distinct provider and storage namespace per user and server. A provider object cannot own two active connections. Closing/unregistering releases resources without deleting host tokens or logging out remotely. Re-registering can reuse valid saved tokens. A pending login must complete during the same live connection/registration operation; pending-login recovery across process restarts is not supported.
+
+Official `auth()` owns discovery, optional dynamic client registration, PKCE, issuer checks, token exchange and refresh. lite-agent supplies single-use random state, validates the callback destination and duplicate parameters, and refuses untrusted targets. `serverUrl` must exactly match the actual MCP URL, preventing project configuration from redirecting existing credentials. `allowedOrigins` explicitly trusts OAuth metadata, registration, authorization and token origins; the MCP origin is included automatically. All targets require HTTPS or loopback HTTP, and redirects are refused.
+
+OAuth cannot be combined with static `headers`, preventing custom credential headers from flowing into authentication requests. Bearer OAuth is supported; DPoP is not. Credentials, codes and authorization URLs are excluded from status/session/approval events. Remote authentication error descriptions are sanitized before official SDK diagnostics.
+
+Initial connection/login has a 180-second total deadline, configurable from 1 to 600000 ms. Authentication HTTP requests also observe the server's `timeoutMs`. During tool calls, 401 responses may trigger shared token refresh but never interactive login. 403 scope escalation fails explicitly. To sign in again, unregister/register while idle. The official transport retries requests rejected with 401 after authentication; the adapter does not replay tool calls with unknown outcomes.
+
+### Machine authentication
+
+Use the official provider without an `authorize` callback. Install `@modelcontextprotocol/client@2.1.0` as a direct host dependency when importing it:
+
+```ts
+import { ClientCredentialsProvider } from '@modelcontextprotocol/client';
+
+const provider = new ClientCredentialsProvider({
+  clientId: process.env.MCP_CLIENT_ID!,
+  clientSecret: process.env.MCP_CLIENT_SECRET!,
+  expectedIssuer: 'https://login.example.com',
+});
+// Use provider in mcpOAuth.docs above, omitting authorize.
+```
+
+Set `expectedIssuer` to bind static client credentials to their authorization server. Keep secrets in host secure configuration; do not reuse model API keys.
 
 ## Core interface changes
 

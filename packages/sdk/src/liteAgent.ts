@@ -38,6 +38,7 @@ import type { LiteAgentEvent, SessionRunner } from "./sessionRunner";
 import type { ModelConfiguration } from "./modelCatalog";
 import type { McpApi, McpRegistry } from "./mcp/registry";
 import type { McpServerConfig } from "./mcp/config";
+import type { McpOAuthConfig } from "./mcp/oauth";
 
 export type { LiteAgentEvent } from "./sessionRunner";
 
@@ -49,6 +50,8 @@ export type ContextOptions = {
 export interface CreateLiteAgentConfig extends ModelConfiguration {
   workdir: string;
   mcpServers?: Record<string, McpServerConfig>;
+  /** Host-owned OAuth providers, bound by server name and exact URL. Never loaded from JSON. */
+  mcpOAuth?: Record<string, McpOAuthConfig>;
   /** Ignore global/project mcps.json; explicit definitions still apply. */
   strictMcpConfig?: boolean;
   /** Restrict transports, for example ['stdio'] for a sandboxed local host. */

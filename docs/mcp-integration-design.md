@@ -1,6 +1,6 @@
 # MCP 接入实现与调研记录
 
-日期：2026-09-24。本次在工作区实现 Core / SDK 0.16.0、Local 0.4.0；尚未发布。API 使用方法及完整边界见 [中文接入文档](../docs-site/docs/zh/sdk/tools/mcp.md) 和 [英文接入文档](../docs-site/docs/en/sdk/tools/mcp.md)。真机脚本、临时服务及报告保存在代理独立工作目录，不进入仓库。
+日期：2026-09-24。MCP 基础接入使用 Core / SDK 0.16.0、Local 0.4.0。OAuth 扩展位于 SDK 0.17.0；本次未执行发布。API 使用方法及完整边界见 [中文接入文档](../docs-site/docs/zh/sdk/tools/mcp.md) 和 [英文接入文档](../docs-site/docs/en/sdk/tools/mcp.md)。真机脚本、临时服务及报告保存在代理独立工作目录，不进入仓库。
 
 ## 依赖与协议选择
 
@@ -17,6 +17,7 @@
 | `mcp/config.ts` | 全局/项目文件发现、格式与大小验证、重名冲突、来源 |
 | `mcp/registry.ts` | 根实例所有权、连接授权、事务式注册、活动运行租约、失效状态与关闭 |
 | `mcp/connection.ts` | 官方 Client/Transport、最新协议、工具适配、进度/取消、归档投影 |
+| `mcp/oauth.ts` | 官方 OAuth 编排、宿主存储/交互适配、目标绑定、回调校验、并发刷新与取消 |
 | `mcp/http.ts` | HTTP 重定向拒绝和解析前响应字节限制 |
 | `liteAgentAssembly.ts` | 按下一次运行刷新工具及上下文前缀，应用父/子白名单 |
 | `liteAgent.ts` | `agent.mcp`、与会话维护锁及 Hook 重入保护对接 |
@@ -42,7 +43,7 @@
 → 保留 isError 和 JSON 数据 → 大内容/媒体会话归档 → tool:end / tool_result
 ```
 
-默认连接和调用都询问；缺少审批处理器时拒绝。连接权限不受工具 dry-run 放宽。服务器注解不作为安全证明，服务器 instructions 不注入提示词。不开放 sampling/roots/elicitation 或自动 input_required，不自动读取 resources/prompts。当前认证是宿主显式提供 HTTP headers，不实现 OAuth 引导/续期，也不接收外部 Client。
+默认连接和调用都询问；缺少审批处理器时拒绝。连接权限不受工具 dry-run 放宽。服务器注解不作为安全证明，服务器 instructions 不注入提示词。不开放 sampling/roots/elicitation 或自动 input_required，不自动读取 resources/prompts。认证支持静态 HTTP headers 或宿主 `mcpOAuth`，两者不混用。OAuth 复用官方 `auth()`，宿主负责安全存储与登录交互；SDK 负责一次性 state、回调地址、认证目标来源、期限、并发刷新和关闭。运行时不交互登录、不自动扩大权限。暂不支持 DPoP、跨进程恢复未完成登录，也不接收外部 Client。
 
 HTTP 除回环开发地址外必须 HTTPS，拒绝重定向、URL 用户凭证/片段和保留协议头。限制单响应字节后交由官方传输解析。stdio 使用官方安全环境默认值加显式 env、现有沙箱包装和官方直接子进程关闭策略；stderr 消费但不记录。普通 SDK 没有配置 sandbox 时仍是宿主权限进程，需明确审批；Local 强制隔离，并拒绝包括 loopback 在内的 HTTP。
 
