@@ -268,7 +268,9 @@ export async function createLocalAgent(cfg: LocalAgentConfig): Promise<LocalAgen
     const onOuterAbort = () => controller.abort(opts?.signal?.reason);
     if (opts?.signal?.aborted) onOuterAbort();
     else opts?.signal?.addEventListener("abort", onOuterAbort, { once: true });
-    const stream = base.run(input, { ...opts, signal: controller.signal });
+    let stream: AsyncGenerator<AgentEvent, LiteAgentResult>;
+    try { stream = base.run(input, { ...opts, signal: controller.signal }); }
+    catch (error) { opts?.signal?.removeEventListener("abort", onOuterAbort); throw error; }
     let resolveDone!: () => void;
     const active = {} as ActiveRun;
     active.base = stream;
@@ -309,6 +311,7 @@ export async function createLocalAgent(cfg: LocalAgentConfig): Promise<LocalAgen
     return wrapped;
   };
   const local: LocalAgent = {
+    hook: (name, handler, options) => base.hook(name, handler, options),
     run,
     subscribe: (listener) => base.subscribe(listener),
     awaitIdle: (sessionId) => base.awaitIdle(sessionId),
@@ -325,8 +328,8 @@ export async function createLocalAgent(cfg: LocalAgentConfig): Promise<LocalAgen
     listSessions: () => base.listSessions(),
     listCheckpoints: (id) => base.listCheckpoints(id),
     restore: (id, seq, opts) => base.restore(id, seq, opts),
-    compact(instructions) {
-      const stream = base.compact(instructions);
+    compact(instructions, options) {
+      const stream = base.compact(instructions, options);
       return (async function* () {
         let next = await stream.next();
         while (!next.done) {
@@ -372,7 +375,10 @@ export async function createLocalAgent(cfg: LocalAgentConfig): Promise<LocalAgen
       for (const entry of await local.queryAudit(opts)) yield `${JSON.stringify(entry)}\n`;
     },
     async close() {
-      if (closed) return;
+      // Enforce the shared hook reentrancy guard before mutating local lifecycle state.
+      const baseClosing = base.close();
+      void baseClosing.catch(() => {});
+      if (closed) { await baseClosing; return; }
       closed = true;
       const errors: unknown[] = [];
       const runs = [...activeRuns];
@@ -397,7 +403,7 @@ export async function createLocalAgent(cfg: LocalAgentConfig): Promise<LocalAgen
       }));
       for (const result of stopped) if (result.status === "rejected") errors.push(result.reason);
       activeRuns.clear();
-      try { await base.close(); } catch (error) { errors.push(error); }
+      try { await baseClosing; } catch (error) { errors.push(error); }
       try { await sink?.close(); } catch (error) { errors.push(error); }
       try { checkpointer.close(); } catch (error) { errors.push(error); }
       try { await sandbox.dispose?.(); } catch (error) { errors.push(error); }

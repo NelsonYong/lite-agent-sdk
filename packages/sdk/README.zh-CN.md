@@ -139,3 +139,7 @@ completion 轮次严格串行，进程重启后不会恢复未完成工作。`qu
 - 推理参数需要模型支持：OpenAI 发送 `reasoning_effort`，Anthropic 使用 adaptive thinking 和 effort。不支持时显式失败；网关接受参数不代表其推理语义一定生效。
 
 普通接入先掌握 `createLiteAgent`、`send`、`subscribe`、`close` 和 `tool`。现有底层导出继续兼容，高级组装按需使用 `@lite-agent/core`。
+
+## 阶段 Hook
+
+`agent.hook("run:end", async (event, { signal }) => { /* 保存结果 */ })` 注册回调并返回独立注销函数，同名事件可注册多个处理器。阶段包括 `run:start/end`、`tool:start/end`、`compact:start/end`。全局 `~/.lite-agent/hooks.json` 和项目 `.lite-agent/hooks.json` 按顺序追加命令数组；命令从 stdin 读取 JSON，并需要独立的 `hook` 权限。配置格式、取消、错误处理和安全边界见 [Hooks](../../docs-site/docs/zh/sdk/behavior/hooks.md)。

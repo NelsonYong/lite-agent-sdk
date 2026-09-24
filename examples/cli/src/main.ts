@@ -95,7 +95,7 @@ const agent = createLiteAgent({
   ...modelConfiguration({ provider, modelName, protocol }),
   workdir,
   skillsDir: join(exampleRoot, "skills"),
-  permission: policy({ ask: ["bash", "write_file", "edit_file", "delete_file"] }),
+  permission: policy({ ask: ["bash", "write_file", "edit_file", "delete_file", "hook"] }),
   onApproval,
   onAskUser,
   // OS-level boundary (defense-in-depth with the permission gate). macOS=Seatbelt, Linux=bubblewrap.
@@ -118,6 +118,9 @@ process.stdout.write(`\x1b[90m[session] ${agent.sessionId}\x1b[0m\n`);
 
 function render(ev: AgentEvent): void {
   switch (ev.type) {
+    case "diagnostic":
+      if (ev.code === "hook_failed") process.stdout.write(`\n[hook error] ${ev.message}\n`);
+      break;
     case "compaction": {
       const count = ev.completed !== undefined && ev.total !== undefined ? ` ${ev.completed}/${ev.total}` : "";
       const tokens = ev.phase === "done" ? ` ${ev.before} → ${ev.after} tokens` : "";

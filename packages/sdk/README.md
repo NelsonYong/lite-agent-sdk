@@ -159,3 +159,7 @@ tier. When a catalog is configured, selections outside it are rejected in both t
 - Provider reasoning parameters require compatible models. OpenAI sends `reasoning_effort`; Anthropic uses adaptive thinking and effort. Unsupported models fail explicitly; parameters being accepted does not prove a compatible gateway honors their semantics.
 
 For ordinary integration start with `createLiteAgent`, `send`, `subscribe`, `close`, and `tool`. The existing low-level exports remain compatible; advanced assembly belongs in `@lite-agent/core`.
+
+## Awaited hooks
+
+`agent.hook("run:end", async (event, { signal }) => { /* save result */ })` registers a callback and returns its unsubscribe function. Multiple handlers per event are supported. Stages: `run:start/end`, `tool:start/end`, `compact:start/end`. Global `~/.lite-agent/hooks.json` and project `.lite-agent/hooks.json` append command arrays in order; commands receive JSON on stdin and require the separate `hook` permission. See [Hooks](../../docs-site/docs/en/sdk/behavior/hooks.md) for schema, cancellation, error handling and security boundaries.

@@ -15,11 +15,15 @@ export class HookRuntime {
   state?: Checkpointer;
   constructor(readonly registry: HookRegistry, private readonly cfg: RuntimeLiteAgentConfig, private readonly agentId?: string) {}
 
-  private dispatch(event: HookEvent, scope: HookScope): Promise<void> {
-    return this.registry.dispatch(event, scope, (command, payload, signal) => runCommandHook(
-      command, payload, signal, this.cfg, scope.emit,
-      scope.record ?? (this.state ? hookAudit(this.state, scope.sessionId) : undefined),
-    ));
+  private async dispatch(event: HookEvent, scope: HookScope): Promise<void> {
+    try {
+      await this.registry.dispatch(event, scope, (command, payload, signal) => runCommandHook(
+        command, payload, signal, this.cfg, scope.emit,
+        scope.record ?? (this.state ? hookAudit(this.state, scope.sessionId) : undefined),
+      ));
+    } catch (error) {
+      scope.emit({ type: "diagnostic", level: "error", code: "hook_failed", message: `${event.event}: ${errorInfo(error).message}` });
+    }
   }
 
   middleware(): Middleware {
@@ -69,7 +73,7 @@ export class HookRuntime {
       let next = await this.registry.withScope(scope, () => generator.next());
       while (!next.done) {
         // The terminal event follows awaited run:end handlers, including structured output.
-        if (next.value.type !== "done") yield next.value;
+        if (next.value.type !== "done" || next.value.agentId) yield next.value;
         yield* diagnostics.splice(0);
         next = await this.registry.withScope(scope, () => generator.next());
       }

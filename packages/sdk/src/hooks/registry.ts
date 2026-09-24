@@ -2,7 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { abortable, policy } from "@lite-agent/core";
 import type { AgentEvent, ToolCallContext } from "@lite-agent/core";
 import { HOOK_NAMES } from "./types";
-import type { CommandHook, HookEvent, HookEventMap, HookHandler, HookName, HookOptions } from "./types";
+import type { CommandHook, HookEvent, HookHandler, HookName, HookOptions } from "./types";
 
 export interface HookScope {
   runId: string;

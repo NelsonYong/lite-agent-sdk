@@ -1,1 +1,1 @@
-["system-prompt", "structured-output", "tasks"]
+["system-prompt", "hooks", "structured-output", "tasks"]
