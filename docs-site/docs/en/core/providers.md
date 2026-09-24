@@ -91,7 +91,7 @@ const llamaCpp = openai({ baseURL: "http://localhost:8080/v1", apiKey: "local" }
 ```
 
 :::tip Maintained local presets
-For loopback runtimes, prefer the [strict local assembly](/core/local): `localOpenAI` ships presets for `ollama`, `vllm`, `lm-studio`, and `llama.cpp`, enforces loopback-only endpoints, and runs a startup health probe.
+For local runtimes, import `localOpenAI` from `@lite-agent/provider` and pass it to the same `createLiteAgent` entry point. Presets cover Ollama, vLLM, LM Studio and llama.cpp. Construction does not perform a health probe; [deployment composition](/core/local) explains context and resource ownership.
 :::
 
 :::warning Capability varies by runtime and model
@@ -173,7 +173,7 @@ The repo distinguishes three levels of support — "OpenAI-compatible" is a prot
 | Level | Meaning |
 | --- | --- |
 | **Maintained adapter** | Repository-owned mapping and stream translator; passes the offline conformance suite (`anthropic()`, `openai()`). |
-| **Maintained preset** | Repository-owned endpoint preset built on a maintained adapter — the `localOpenAI` presets in the [strict local assembly](/core/local). Runtime and model capabilities still vary. |
+| **Maintained preset** | Repository-owned endpoint preset built on a maintained adapter — the `localOpenAI` presets in the [deployment composition](/core/local). Runtime and model capabilities still vary. |
 | **Compatible endpoint** | Any user-supplied endpoint expected to speak the protocol. Best-effort until its exact runtime/model profile passes the probe below. |
 
 ### Probing an endpoint

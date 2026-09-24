@@ -66,7 +66,7 @@ The handler's second argument carries per-call services provided by the kernel:
 | `filesystem` | `"none"` \| `"workspace"` \| `"unrestricted"` | Filesystem scope the tool touches. |
 | `sideEffects` | `"none"` \| `"workspace"` \| `"external"` | Where the tool's side effects land. |
 
-Strict assemblers consume this metadata: `@lite-agent/local` refuses custom tools that lack `security` or declare `network` beyond `"loopback"`. Declare it honestly — it is what lets hardened presets decide whether your tool may run.
+Hosts can inspect this metadata when selecting tools and composing a permission policy. It is a declaration, not an isolation boundary: in-process JavaScript tools are trusted host code. See [deployment composition](/core/local).
 
 ## See also
 

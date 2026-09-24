@@ -1,5 +1,16 @@
 # @lite-agent/sandbox-anthropic
 
+## 0.9.0
+
+### Minor Changes
+
+- Move reusable `resourceLimitedSandbox()`, `probeResourceLimits()`,
+  `DEFAULT_RESOURCE_LIMITS` and `ResourceLimits` here from the retired local
+  package. Compose them with the SDK's single `createLiteAgent()` entry point.
+- Initialize the resource wrapper before execution, validate and snapshot limit
+  values, and stop the shell chain when setting any limit fails. Linux virtual
+  memory caps and macOS limitations remain explicitly documented.
+
 ## 0.8.0
 
 ### Minor Changes

@@ -84,4 +84,4 @@ permission: policy({
 
 权限输入包含 `command/event/source/configFile`。自定义策略会替换 SDK 默认值，启用文件 Hook 时应检查原有默认允许策略。Hook 命令始终执行权限校验，不随模型工具的 dry-run 放行。命令复用已配置的沙箱和资源限制；未配置沙箱时，批准后的命令在宿主机执行。默认仅继承 PATH/HOME/TMPDIR/LANG/LC_ALL/TERM，显式 `bash.env` 由宿主负责。开启权限审计后也会记录 Hook 命令的决策。
 
-程序回调属于可信宿主代码，不是沙箱命令。`createLocalAgent()` 同样提供 `hook()`，命令遵守 local 权限和沙箱。`query()` 支持文件 Hook，程序注册使用 `createLiteAgent()`。
+程序回调属于可信宿主代码，不是沙箱命令。命令权限和沙箱统一在 `createLiteAgent()` 配置。`query()` 支持文件 Hook，程序注册使用 `createLiteAgent()`。

@@ -15,7 +15,6 @@ packages/                     # published SDK packages (versioned per changed pa
   sdk/                        # @lite-agent/sdk — batteries: tools, skills, system prompt, createLiteAgent / query
   sandbox-anthropic/          # @lite-agent/sandbox-anthropic — OS-level Sandbox adapter (sandbox-runtime)
   checkpoint-sqlite/          # @lite-agent/checkpoint-sqlite — SQLite WAL event checkpointer
-  local/                      # @lite-agent/local — strict single-host local-model/runtime assembly
 examples/
   cli/                        # @lite-agent/example-cli (private) — interactive REPL demo; owns its .env + skills/
 docs-site/                    # @lite-agent/docs (private) — Rspress bilingual docs site → GitHub Pages
@@ -71,9 +70,9 @@ Provider-agnostic `Message` / `ContentBlock` / `ToolCall` / `ToolResult` / `User
 
 `createLiteAgent(cfg)` assembles `defaultTools` (bash/file) + task tools + skills + a built system prompt + a configurable codec (default `nativeCodec`), prepending the `permission()` middleware when `permission` is set, registering `ask_user` only when `onAskUser` is set, and threading sandbox, checkpoint, recovery, context-budget, and resource options. `query(opts)` is the agent-sdk-style facade over it. `tool(name, desc, schema, handler, opts?)` defines a tool and optional security metadata. Skills load from `SKILL.md` files; subagents are parallel-capable, isolated sessions. `createLiteAgent` owns a current session with `resume`/`clear`/`deleteSession`/`listSessions`; the default backend is the event-sourced file checkpointer.
 
-### Strict local assembly (`@lite-agent/local`)
+### Deployment composition
 
-`createLocalAgent()` is the async, fail-closed single-host entry point. It requires a declared loopback/Unix-socket provider and assembles SQLite WAL, mandatory sandbox initialization, resource limits, deny-by-default reloadable permission files, durable permission audit, safe interrupted-tool recovery, context-budget compaction, and a rotating redacted hash-chained event sink. `localOpenAI()` provides Ollama/vLLM/LM Studio/llama.cpp presets; unknown custom tools must declare `Tool.security`.
+`createLiteAgent()` is the single SDK agent constructor for local and remote models. `query()` delegates to it; Core's `createAgent()` remains the low-level kernel factory. There is no separate local agent or local package. Local endpoint presets (`localOpenAI`) live in `@lite-agent/provider`; command resource limits (`resourceLimitedSandbox`) live in `@lite-agent/sandbox-anthropic`. SQLite, sandbox, permissions and event sinks are injected through existing interfaces. Hosts initialize and close externally supplied resources after the agent has stopped; supplying loopback metadata does not prove process-wide offline isolation.
 
 ### Providers (`@lite-agent/provider`)
 

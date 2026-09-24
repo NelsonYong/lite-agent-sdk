@@ -17,19 +17,23 @@ export const DEFAULT_RESOURCE_LIMITS: ResourceLimits = {
 const BASH = "/bin/bash";
 const quote = (value: string) => `'${value.replace(/'/g, `'"'"'`)}'`;
 
-export function probeResourceLimits(limits: ResourceLimits): void {
-  if (process.platform !== "darwin" && process.platform !== "linux")
-    throw new Error(`hard resource limits are unsupported on ${process.platform}`);
-  if (!existsSync(BASH)) throw new Error("hard resource limits require /bin/bash");
+function validateLimits(limits: ResourceLimits): void {
   for (const [name, value] of Object.entries(limits)) {
     if (!Number.isSafeInteger(value) || value <= 0)
       throw new Error(`${name} must be a positive safe integer`);
   }
+}
+
+export function probeResourceLimits(limits: ResourceLimits): void {
+  if (process.platform !== "darwin" && process.platform !== "linux")
+    throw new Error(`hard resource limits are unsupported on ${process.platform}`);
+  if (!existsSync(BASH)) throw new Error("hard resource limits require /bin/bash");
+  validateLimits(limits);
   try {
     const memory = process.platform === "linux"
-      ? `; ulimit -v ${Math.max(1, Math.floor(limits.memoryBytes / 1024))}`
+      ? ` && ulimit -v ${Math.max(1, Math.floor(limits.memoryBytes / 1024))}`
       : "";
-    execFileSync(BASH, ["-c", `ulimit -t ${limits.cpuSeconds}; ulimit -u ${limits.maxProcesses}${memory}`], {
+    execFileSync(BASH, ["-c", `ulimit -t ${limits.cpuSeconds} && ulimit -u ${limits.maxProcesses}${memory}`], {
       stdio: "ignore", timeout: 2000,
     });
     const rss = Number(execFileSync("ps", ["-o", "rss=", "-p", String(process.pid)], {
@@ -41,18 +45,23 @@ export function probeResourceLimits(limits: ResourceLimits): void {
   }
 }
 
-export function resourceLimitedSandbox(base: Sandbox, limits: ResourceLimits): Sandbox {
+export function resourceLimitedSandbox(base: Sandbox, limits: ResourceLimits = DEFAULT_RESOURCE_LIMITS): Sandbox {
+  limits = { ...limits };
+  validateLimits(limits);
   const memory = process.platform === "linux"
-    ? `; ulimit -v ${Math.max(1, Math.floor(limits.memoryBytes / 1024))}`
+    ? ` && ulimit -v ${Math.max(1, Math.floor(limits.memoryBytes / 1024))}`
     : "";
+  let ready: Promise<void> | undefined;
+  const initialize = () => ready ??= (async () => {
+    await base.initialize?.();
+    probeResourceLimits(limits);
+  })();
   return {
     id: `resource-limited:${base.id}`,
-    async initialize() {
-      await base.initialize?.();
-      probeResourceLimits(limits);
-    },
+    initialize,
     async wrap(command, opts) {
-      const limited = `ulimit -t ${limits.cpuSeconds}; ulimit -u ${limits.maxProcesses}${memory}; exec /bin/sh -c ${quote(command)}`;
+      await initialize();
+      const limited = `ulimit -t ${limits.cpuSeconds} && ulimit -u ${limits.maxProcesses}${memory} && exec /bin/sh -c ${quote(command)}`;
       return base.wrap(limited, opts);
     },
     dispose: () => base.dispose?.(),

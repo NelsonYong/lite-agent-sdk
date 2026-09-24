@@ -84,4 +84,4 @@ permission: policy({
 
 The permission input includes `command`, `event`, `source` and `configFile`. A custom policy replaces SDK defaults, so review any allow-by-default policy when enabling file hooks. Hook commands always enforce their policy, even if model tools use permission dry-run. They reuse the configured sandbox and resource limits. Without a sandbox, an approved command runs on the host. Only PATH/HOME/TMPDIR/LANG/LC_ALL/TERM are inherited by default; an explicit `bash.env` is host-controlled. Permission auditing also records hook command decisions.
 
-Programmatic callbacks are trusted host code, not sandboxed commands. `createLocalAgent()` exposes the same `hook()` method and enforces local command policy/sandbox. `query()` loads file hooks; use `createLiteAgent()` when you need to register callbacks in code.
+Programmatic callbacks are trusted host code, not sandboxed commands. Configure command permissions and sandboxing on `createLiteAgent()`. `query()` loads file hooks; use `createLiteAgent()` when you need to register callbacks in code.

@@ -57,5 +57,8 @@ const gpt = openai({ baseURL: "http://localhost:11434/v1" });
 
 - [`@lite-agent/core`](../core) — provider-agnostic agent kernel (strategies, middleware, event stream).
 - [`@lite-agent/sdk`](../sdk) — high-level `query` / `createLiteAgent` API.
-- [`@lite-agent/local`](../local) — maintained presets for local runtimes (Ollama, vLLM, LM Studio, llama.cpp).
 - [Monorepo root](../..) — architecture overview.
+
+## Local model presets
+
+`localOpenAI({ runtime, contextWindow? })` returns a standard provider for SDK `createLiteAgent`. Presets cover `ollama`, `vllm`, `lm-studio`, and `llama.cpp`; no separate local agent is needed. `isLoopbackEndpoint` classifies endpoints but does not prove process isolation.

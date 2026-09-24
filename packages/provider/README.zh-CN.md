@@ -57,5 +57,8 @@ const gpt = openai({ baseURL: "http://localhost:11434/v1" });
 
 - [`@lite-agent/core`](../core) —— provider 无关的 agent 内核（策略、中间件、事件流）。
 - [`@lite-agent/sdk`](../sdk) —— 高层 `query` / `createLiteAgent` API。
-- [`@lite-agent/local`](../local) —— 本地运行时（Ollama、vLLM、LM Studio、llama.cpp）的维护预设。
 - [monorepo 根目录](../..) —— 架构总览。
+
+## 本地模型预设
+
+`localOpenAI({ runtime, contextWindow? })` 返回标准 provider，交给 SDK 的 `createLiteAgent`。支持 `ollama`、`vllm`、`lm-studio`、`llama.cpp`；不再需要独立的 local agent。端点分类可用 `isLoopbackEndpoint`，但不能据此保证进程离线。

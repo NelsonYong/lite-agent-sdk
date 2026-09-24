@@ -32,3 +32,16 @@ test("default resource limits are supported on macOS/Linux or fail explicitly el
     expect((error as Error).message).toMatch(/requested hard resource limits are unavailable/);
   }
 });
+
+test("resource wrapper rejects invalid limits before constructing a command", () => {
+  const base: Sandbox = { id: "base", wrap: (command) => command };
+  expect(() => resourceLimitedSandbox(base, { ...DEFAULT_RESOURCE_LIMITS, cpuSeconds: NaN })).toThrow(/positive safe integer/);
+  expect(() => resourceLimitedSandbox(base, { ...DEFAULT_RESOURCE_LIMITS, maxProcesses: 0 })).toThrow(/positive safe integer/);
+});
+
+test("failed sandbox initialization prevents command wrapping", async () => {
+  let wrapped = false;
+  const limited = resourceLimitedSandbox({ id: "failing", initialize: () => { throw new Error("unavailable"); }, wrap: (command) => { wrapped = true; return command; } });
+  await expect(limited.wrap("echo denied", { cwd: "/tmp" })).rejects.toThrow("unavailable");
+  expect(wrapped).toBe(false);
+});

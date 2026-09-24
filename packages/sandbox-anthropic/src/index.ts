@@ -69,3 +69,6 @@ export function sandboxRuntime(opts: SandboxRuntimeOptions = {}): Sandbox {
     },
   };
 }
+
+export { DEFAULT_RESOURCE_LIMITS, probeResourceLimits, resourceLimitedSandbox } from "./resources";
+export type { ResourceLimits } from "./resources";

@@ -75,3 +75,7 @@ The returned `Sandbox` (interface defined in `@lite-agent/core`) exposes `initia
 - [`@lite-agent/sdk`](../sdk) — `createLiteAgent` / `query`, which accept a `sandbox` option.
 - [`@lite-agent/provider`](../provider) — model providers to pair with.
 - [lite-agent monorepo](../..) — architecture and full package list.
+
+## Command resource limits
+
+Wrap a `Sandbox` with `resourceLimitedSandbox(sandbox, limits?)`. `DEFAULT_RESOURCE_LIMITS` supplies defaults; `probeResourceLimits` checks support. Initialization or limit-setting failure prevents command execution. Linux limits virtual address space; macOS has no equivalent hard memory limit here. Hosts call sandbox `dispose()` after stopping the agent. These limits do not manage model or GPU resources.

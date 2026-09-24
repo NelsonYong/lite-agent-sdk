@@ -66,7 +66,7 @@ handler 的第二个参数携带内核提供的逐次调用服务：
 | `filesystem` | `"none"` \| `"workspace"` \| `"unrestricted"` | 工具触及的文件系统范围。 |
 | `sideEffects` | `"none"` \| `"workspace"` \| `"external"` | 工具副作用落地的范围。 |
 
-严格装配器会消费这份元数据：`@lite-agent/local` 会拒绝缺少 `security` 或 `network` 超出 `"loopback"` 的自定义工具。请如实声明——加固预设正是据此决定你的工具能否运行。
+宿主可以检查这份元数据，选择工具并组合权限策略。它是能力声明，不是隔离边界；进程内 JavaScript 工具属于可信宿主代码。见[部署组合](/zh/core/local)。
 
 ## 另请参阅
 

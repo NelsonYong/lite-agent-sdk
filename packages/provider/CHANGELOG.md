@@ -1,5 +1,17 @@
 # @lite-agent/provider
 
+## 0.10.0
+
+### Minor Changes
+
+- Move local model endpoint presets into this package: `localOpenAI()` returns a
+  standard `ModelProvider` for Ollama, vLLM, LM Studio and llama.cpp, with optional
+  `contextWindow` consumed by the SDK ContextEngine. Import it alongside
+  `isLoopbackEndpoint`, `LocalOpenAIOptions` and `LocalRuntime` from this package.
+- Retire the separate local-agent assembly and local capability tags. Presets
+  perform no eager health probes and no longer label tokenization of serialized
+  messages as exact full-request accounting. Use `createLiteAgent()` from the SDK.
+
 ## 0.9.0
 
 ### Minor Changes

@@ -22,7 +22,7 @@
 | `liteAgentAssembly.ts` | 按下一次运行刷新工具及上下文前缀，应用父/子白名单 |
 | `liteAgent.ts` | `agent.mcp`、与会话维护锁及 Hook 重入保护对接 |
 | Core | Standard Schema 校验/导出、有效参数授权、结构化执行状态和通用进度事件 |
-| Local | 仅受管 stdio、强制沙箱/资源限制、保护 SDK 自有存储 |
+| 部署组合 | `createLiteAgent` 显式配置 stdio 限制、沙箱/资源限制和 SDK 存储保护；旧 local 包已移除 |
 
 ## 单一注册表
 
@@ -45,9 +45,9 @@
 
 默认连接和调用都询问；缺少审批处理器时拒绝。连接权限不受工具 dry-run 放宽。服务器注解不作为安全证明，服务器 instructions 不注入提示词。不开放 sampling/roots/elicitation 或自动 input_required，不自动读取 resources/prompts。认证支持静态 HTTP headers 或宿主 `mcpOAuth`，两者不混用。OAuth 复用官方 `auth()`，宿主负责安全存储与登录交互；SDK 负责一次性 state、回调地址、认证目标来源、期限、并发刷新和关闭。运行时不交互登录、不自动扩大权限。暂不支持 DPoP、跨进程恢复未完成登录，也不接收外部 Client。
 
-HTTP 除回环开发地址外必须 HTTPS，拒绝重定向、URL 用户凭证/片段和保留协议头。限制单响应字节后交由官方传输解析。stdio 使用官方安全环境默认值加显式 env、现有沙箱包装和官方直接子进程关闭策略；stderr 消费但不记录。普通 SDK 没有配置 sandbox 时仍是宿主权限进程，需明确审批；Local 强制隔离，并拒绝包括 loopback 在内的 HTTP。
+HTTP 除回环开发地址外必须 HTTPS，拒绝重定向、URL 用户凭证/片段和保留协议头。限制单响应字节后交由官方传输解析。stdio 使用官方安全环境默认值加显式 env、现有沙箱包装和官方直接子进程关闭策略；stderr 消费但不记录。普通 SDK 没有配置 sandbox 时仍是宿主权限进程，需明确审批；需要隔离时由宿主显式配置强制沙箱及 `mcpTransports: ["stdio"]`，见部署迁移文档。
 
-远程 `file://` 仅是数据，不授予宿主读取权限。MCP 不因 SDK 自己可读 session 而获得整个 `.lite-agent` 存储权限。Local 的进程读写边界明确禁止 SDK home 和项目 `.lite-agent`，SDK 的会话引用读取不受此影响。
+远程 `file://` 仅是数据，不授予宿主读取权限。MCP 不因 SDK 自己可读 session 而获得整个 `.lite-agent` 存储权限。受限部署应禁止沙箱进程读写 SDK home 和项目 `.lite-agent`；SDK 的会话引用读取不受此影响。
 
 断线、取消、超时的副作用结果可能未知。没有自动调用重放或 exactly-once 承诺。官方固定协议 stdio 会启动临时探测和正式服务两个进程，两者使用同一受限命令；不能承诺任意孙进程都由 transport 回收。
 

@@ -102,40 +102,6 @@ importers:
         specifier: ^2.1.0
         version: 2.1.9(@types/node@25.5.0)(sass-embedded@1.100.0)(sass@1.100.0)(terser@5.49.0)
 
-  packages/local:
-    dependencies:
-      '@lite-agent/checkpoint-sqlite':
-        specifier: workspace:*
-        version: link:../checkpoint-sqlite
-      '@lite-agent/core':
-        specifier: workspace:*
-        version: link:../core
-      '@lite-agent/provider':
-        specifier: workspace:*
-        version: link:../provider
-      '@lite-agent/sandbox-anthropic':
-        specifier: workspace:*
-        version: link:../sandbox-anthropic
-      '@lite-agent/sdk':
-        specifier: workspace:*
-        version: link:../sdk
-    devDependencies:
-      '@types/node':
-        specifier: ^25.5.0
-        version: 25.5.0
-      tsup:
-        specifier: ^8.3.0
-        version: 8.5.1(jiti@2.7.0)(postcss@8.5.15)(tsx@4.21.0)(typescript@6.0.2)
-      typescript:
-        specifier: ^6.0.2
-        version: 6.0.2
-      vitest:
-        specifier: ^2.1.0
-        version: 2.1.9(@types/node@25.5.0)(sass-embedded@1.100.0)(sass@1.100.0)(terser@5.49.0)
-      zod:
-        specifier: ^4.3.6
-        version: 4.3.6
-
   packages/provider:
     dependencies:
       '@anthropic-ai/sdk':

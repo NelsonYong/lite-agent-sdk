@@ -91,7 +91,7 @@ const llamaCpp = openai({ baseURL: "http://localhost:8080/v1", apiKey: "local" }
 ```
 
 :::tip 受维护的本地预设
-对于回环（loopback）运行时，建议优先使用[严格单机装配](/zh/core/local)：`localOpenAI` 内置 `ollama`、`vllm`、`lm-studio`、`llama.cpp` 预设，强制仅回环端点，并在启动时做健康探测。
+本地模型从 `@lite-agent/provider` 导入 `localOpenAI`，同样交给 `createLiteAgent`。支持 Ollama、vLLM、LM Studio 和 llama.cpp 端点预设；构造时不发起健康探测。上下文与资源归属见[部署组合](/zh/core/local)。
 :::
 
 :::warning 能力随运行时和模型而异
@@ -173,7 +173,7 @@ for await (const c of provider.stream({ model: "fake", messages: [] })) chunks.p
 | 等级 | 含义 |
 | --- | --- |
 | **受维护适配器** | 仓库自有的映射与流翻译器；通过离线一致性测试（`anthropic()`、`openai()`）。 |
-| **受维护预设** | 基于受维护适配器的仓库自有端点预设——[严格单机装配](/zh/core/local)中的 `localOpenAI` 预设。运行时与模型能力仍可能不同。 |
+| **受维护预设** | 基于受维护适配器的仓库自有端点预设——[部署组合](/zh/core/local)中的 `localOpenAI` 预设。运行时与模型能力仍可能不同。 |
 | **兼容端点** | 任何由用户提供、预期实现该协议的端点。在其确切的运行时/模型组合通过下面的探针之前，仅为尽力支持。 |
 
 ### 探测端点
@@ -208,5 +208,5 @@ pnpm --filter @lite-agent/provider test:compat
 
 - [九种策略](/zh/core/strategies)——这些适配器实现的 `ModelProvider` 策略接口。
 - [工具调用 codec](/zh/core/codecs)——与这些 provider 搭配 `nativeCodec()`，或与本地模型搭配 prompt codec。
-- [严格单机装配](/zh/core/local)——本地运行时（Ollama、vLLM、LM Studio、llama.cpp）的受维护预设。
+- [部署组合](/zh/core/local)——本地运行时（Ollama、vLLM、LM Studio、llama.cpp）的受维护预设。
 - [测试工具](/zh/core/testing)——用于零网络测试的 `providerConformance` 和 `fakeProvider`。

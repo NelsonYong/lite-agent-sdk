@@ -106,7 +106,7 @@ completion 轮次严格串行，进程重启后不会恢复未完成工作。`qu
 - **人工输入** —— 设置 `onAskUser` 后注册 `ask_user` 工具，允许模型在运行中向你提问。
 - **结构化输出** —— 设置 `outputSchema`（Zod object）强制返回经校验的最终答案，通过 `result.output` 暴露。
 - **后台任务** —— 默认启用（`background: false` 关闭）；Agent group 可跨轮次继续运行并报告 `completed` / `partial` / `failed` / `cancelled`，`bash_output` / `kill_background` 用于观察和控制后台 Bash。
-- **本地加固** —— 可配置 prompt codec/修复、上下文预算、快照限制、崩溃恢复和带 hash chain 的事件日志；严格默认值见 [`@lite-agent/local`](../local)。
+- **本地加固** —— 可配置 prompt codec/修复、上下文预算、快照限制、崩溃恢复和带 hash chain 的事件日志；通过 `createLiteAgent` 组合 SQLite 和沙箱适配器（[部署指南](../../docs-site/docs/zh/core/local.md)）。
 
 ## API
 
@@ -127,7 +127,7 @@ completion 轮次严格串行，进程重启后不会恢复未完成工作。`qu
 
 - [`@lite-agent/core`](../core) —— 本包所组装的、与 provider 无关的内核。
 - [`@lite-agent/provider`](../provider) —— 模型 provider（Anthropic 等）。
-- [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) · [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic) · [`@lite-agent/local`](../local) —— 可插拔后端与加固。
+- [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) · [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic) —— 可插拔后端与加固。
 - [Monorepo 根目录](../..) —— 架构总览；[`examples/cli`](../../examples/cli) —— 完整的交互式 REPL（串联 provider + 沙箱 + 权限 + `ask_user`）。
 
 ## 安全默认值与迁移

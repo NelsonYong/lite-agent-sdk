@@ -84,5 +84,4 @@ notification omits `status` for `completed`, maps `partial` to
 - [`@lite-agent/provider`](../provider) — `ModelProvider` implementations (`anthropic()`, `openai()`).
 - [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) — durable `Checkpointer` backend.
 - [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic) — OS-level sandbox boundary.
-- [`@lite-agent/local`](../local) — local-model support.
 - [Monorepo root](../..) — full architecture write-up.

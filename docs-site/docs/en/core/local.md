@@ -1,243 +1,115 @@
-# Strict local assembly
+# Deployment composition and local migration
 
-`@lite-agent/local` runs agents against local models (Ollama, vLLM, LM Studio, llama.cpp) with SQLite persistence, mandatory OS sandboxing, deny-by-default permissions, and a tamper-evident audit log — all wired together with safe defaults. Use it when the model and the data must never leave the machine, and you want the safety posture enforced rather than configured.
+Use `createLiteAgent()` for computers, NAS deployments, local models and remote models. The `@lite-agent/local` package and its `createLocalAgent` / `LocalAgent` interfaces have been removed without compatibility aliases. `query()` delegates to the same constructor; Core's `createAgent()` remains a low-level kernel factory.
 
-The guiding principle is **fail-closed**: every layer refuses to run unless its safety invariant holds. A non-loopback endpoint, a sandbox that cannot initialize, a malformed permission file, or a custom tool without security metadata all abort startup instead of degrading silently.
+## Local models
 
-```bash
-pnpm add @lite-agent/local
-```
-
-Requires macOS or Linux, Node ≥ 20, and a running local model server. `better-sqlite3` and `@anthropic-ai/sandbox-runtime` are pulled in as transitive native/runtime dependencies.
-
-## Quick start
+Endpoint presets now live in `@lite-agent/provider` 0.10.0:
 
 ```ts
-import { createLocalAgent, localOpenAI } from "@lite-agent/local";
+import { createLiteAgent, jsonCodec } from '@lite-agent/sdk';
+import { localOpenAI } from '@lite-agent/provider';
 
-const agent = await createLocalAgent({
-  model: localOpenAI({
-    runtime: "ollama",
-    contextWindow: 32_768,
-    nativeTools: true, // set only when the selected model supports tool calling
-  }),
-  modelName: "qwen3:8b",
+const agent = createLiteAgent({
   workdir: process.cwd(),
+  model: localOpenAI({ runtime: 'ollama', contextWindow: 32768 }),
+  modelName: 'qwen3:8b',
+  codec: jsonCodec(), // Use for models without native tool calls
 });
-
-const result = await agent.send("Summarize this project.");
-console.log(result.text);
-console.log(agent.diagnostics());
-await agent.close();
-```
-
-## What `createLocalAgent()` enforces
-
-`createLocalAgent(config)` builds on the SDK's `createLiteAgent()` but locks every safety-critical knob. Knobs that would weaken the posture are omitted from `LocalAgentConfig` entirely — you cannot pass them.
-
-| Layer | Guarantee |
-| --- | --- |
-| Provider | `model.local` must be declared and pass `isLoopbackEndpoint()` (loopback IP/`localhost` or `unix:` socket); a startup health probe runs before anything else. |
-| Persistence | SQLite in WAL mode with `synchronous=FULL`, 5 s busy timeout, and an integrity check on every open. |
-| Sandbox | `requireSandbox: true` — initialization failure aborts startup. No network (`allowedDomains: []`), writes confined to `workdir`, reads denied for `~/.ssh`, `~/.aws`, `~/.config`. |
-| Resource limits | Every command runs under `ulimit` caps (defaults below). |
-| Permissions | Deny-by-default file policy with hot reload (next section). |
-| Custom tools | Each must declare `security` metadata with `network: "none" \| "loopback"`. |
-| Crash recovery | `crashRecovery: "safe"` — interrupted tool calls are recovered safely on resume. |
-| Audit | Redacted events to a rotating SHA-256 hash chain (optional HMAC). |
-
-Additional fixed defaults: bash commands time out at 120 s (30 min for background tasks, at most 4 of them, 5 MiB max output); file mutations reject symlinks escaping the workspace, write atomically, and snapshot up to 1 MiB per change (64 MiB per session) for binary-safe restore; sessions older than 30 days or beyond 1 GiB total are cleaned up.
-
-Runtime data lives under the SDK project directory: `sessions.sqlite3` and `logs/events.jsonl`.
-
-### Codec selection
-
-With `codec: "auto"` (the default), the native codec is used only when the provider declares `nativeTools: true`; otherwise the JSON codec is used. The ReAct codec must be selected explicitly:
-
-```ts
-codec: "auto" | "native" | "json" | "react" | ToolCallCodec
-```
-
-See [Tool-call codecs](/core/codecs) for what each protocol looks like.
-
-### Token accounting
-
-Context budgeting needs token counts, and local servers differ wildly here:
-
-- `vllm` and `llama.cpp` presets use the server's local `/tokenize` endpoint (exact).
-- Any provider may supply `tokenEstimator` (exact, as far as the SDK is concerned).
-- Otherwise a conservative bytes/3 estimate is used and flagged as `"approximate"` in `diagnostics().tokenizer`.
-
-The input budget is derived from the declared `contextWindow`: `contextWindow − maxTokens − 10%` reserve. If that leaves nothing, startup fails — declare the real context window.
-
-## `localOpenAI()` presets
-
-`localOpenAI(options)` returns an OpenAI-compatible provider pre-tagged with local capabilities. Each preset knows its default endpoint; all can be overridden with `baseURL`.
-
-| `runtime` | Default endpoint | Notes |
-| --- | --- | --- |
-| `ollama` | `http://127.0.0.1:11434/v1` | |
-| `vllm` | `http://127.0.0.1:8000/v1` | exact token counts via `/tokenize` |
-| `lm-studio` | `http://127.0.0.1:1234/v1` | |
-| `llama.cpp` | `http://127.0.0.1:8080/v1` | exact token counts via `/tokenize` |
-
-Options (`LocalOpenAIOptions`): `runtime` and `contextWindow` (required), `baseURL`, `apiKey` (defaults to `"local"`), `maxRetries`, `nativeTools` (default `false`), `tokenEstimator`, `probeTimeoutMs` (default 3000).
-
-At startup the provider probes `GET {baseURL}/models` and fails fast if the server is unreachable. To use a provider you built yourself, tag it with `markLocalProvider(provider, capabilities)` — the same loopback, `contextWindow`, and probe checks then apply.
-
-## Permissions
-
-Permissions are deny-by-default: only the read-only built-ins (`read_file`, `read_spilled`, `load_skill`, `TaskGet`, `TaskList`, `BashOutput`) and the interactive `ask_user`/`final_answer` tools are allowed out of the box. Every mutating tool needs an explicit `ask` or `allow` rule.
-
-### Discovery order
-
-Rules load from four layers, in order:
-
-1. **Managed** — the file in `LITE_AGENT_MANAGED_PERMISSIONS` (or `permissionFiles.managed`)
-2. **User** — `~/.lite-agent/permissions.json` (or `permissionFiles.user`)
-3. **Project** — `<workdir>/.lite-agent/permissions.json` (or `permissionFiles.project`)
-4. **Inline** — `permissionFiles.inlineRules` in code
-
-Each layer can be disabled by setting it to `false`. **Deny always wins** regardless of layer order (deny > ask > allow > default `deny`), so a managed `deny` cannot be overridden by a project or inline `allow`.
-
-Files are hot-reloaded when their mtime/size changes; a malformed update fails closed — the reload throws, the last error is surfaced via `diagnostics().permissions.error`, and a `permission_reload_failed` diagnostic event is emitted.
-
-### File format
-
-```json
-{
-  "version": 1,
-  "rules": [
-    {
-      "id": "allow-tests",
-      "description": "Running the test suite is fine",
-      "tool": "bash",
-      "when": { "command": { "startsWith": "pnpm test" } },
-      "effect": "allow"
-    },
-    {
-      "id": "ask-writes",
-      "tool": ["write_file", "edit_file"],
-      "effect": "ask"
-    },
-    {
-      "id": "deny-secrets",
-      "tool": "*",
-      "when": { "path": { "glob": "**/.env*" } },
-      "effect": "deny"
-    }
-  ]
+try {
+  console.log((await agent.send('Summarize this project')).text);
+} finally {
+  await agent.close();
 }
 ```
 
-- `tool` — a name or glob (string or array), matched against the tool name; omit to match all tools.
-- `when` — conditions on dot-paths into the tool call's `input` (`"command"`, `"args.path"`, …); all keys must match (AND). Operators: `regex`, `glob`, `equals`, `in`, `startsWith`, `contains`, `not`. A missing field matches nothing — conditions fail closed too.
-- `effect` — `"allow" | "deny" | "ask"` (required). `ask` surfaces a prompt through the permission channel.
+Omit `codec` for models supporting native tool calls. `localOpenAI` provides loopback HTTP(S) presets for Ollama, vLLM, LM Studio and llama.cpp and returns a standard `ModelProvider`. Construction neither creates an agent nor probes the endpoint. A loopback URL does not prove offline isolation. Use `openai()` / `anthropic()` for remote services.
 
-## Resource limits
+`contextWindow` feeds the standard provider context capability and shared SDK ContextEngine. The old `nativeTools`, `tokenEstimator`, `probeTimeoutMs`, `.local` metadata and `markLocalProvider` are removed. Implement `ModelProvider` directly for custom providers. Tokenizing JSON-serialized messages is no longer described as an exact count of the full model request.
 
-Every command the agent runs is wrapped in `ulimit` caps:
+## Compose persistence, sandbox and permissions
 
-| Limit | Default | `ResourceLimits` field |
-| --- | --- | --- |
-| CPU time | 120 s | `cpuSeconds` |
-| Memory | 2 GiB | `memoryBytes` |
-| Processes | 128 | `maxProcesses` |
-
-```ts
-const agent = await createLocalAgent({
-  // ...
-  resources: { cpuSeconds: 300 }, // merged over DEFAULT_RESOURCE_LIMITS
-});
+```bash
+pnpm add @lite-agent/sdk @lite-agent/provider @lite-agent/checkpoint-sqlite @lite-agent/sandbox-anthropic
 ```
 
-At sandbox initialization the limits are verified with `probeResourceLimits()` (requires macOS or Linux and `/bin/bash`); if the host cannot enforce them, startup fails. To apply the same caps to your own sandbox, wrap it with `resourceLimitedSandbox(sandbox, limits)`.
-
-:::warning Memory enforcement is OS-dependent
-The memory cap uses `ulimit -v`, which is applied on Linux only. On macOS the CPU and process caps still apply, but there is no hard memory ceiling.
-:::
-
-## Custom tools
-
-Tools passed via `tools` must declare `Tool.security` metadata, and only offline-safe values are accepted — anything else aborts startup:
+Hosts own externally supplied databases and sandboxes. Initialize them explicitly and close them after the agent stops, including failed-construction paths:
 
 ```ts
-import { tool } from "@lite-agent/sdk";
-import { z } from "zod";
+import { mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { createLiteAgent, permissionFilePolicy, resolveProjectPaths } from '@lite-agent/sdk';
+import type { LiteAgent } from '@lite-agent/sdk';
+import { localOpenAI } from '@lite-agent/provider';
+import { sqliteCheckpointer } from '@lite-agent/checkpoint-sqlite';
+import { sandboxRuntime, resourceLimitedSandbox } from '@lite-agent/sandbox-anthropic';
 
-const wordCount = tool(
-  "word_count",
-  "Count words in a file inside the workspace",
-  z.object({ path: z.string() }),
-  async ({ path }) => { /* ... */ },
-  { security: { network: "none", filesystem: "workspace", sideEffects: "none" } },
-);
-
-const agent = await createLocalAgent({ /* ... */, tools: [wordCount] });
+const workdir = process.cwd();
+const paths = resolveProjectPaths({ workdir });
+mkdirSync(dirname(paths.sessionsDir), { recursive: true });
+const sandbox = resourceLimitedSandbox(sandboxRuntime({
+  requireSandbox: true,
+  allowedDomains: [],
+  allowWrite: [workdir],
+  denyWrite: [paths.home, join(workdir, '.lite-agent')],
+  denyRead: ['~/.ssh', '~/.aws', '~/.config', paths.home, join(workdir, '.lite-agent')],
+}));
+let database: ReturnType<typeof sqliteCheckpointer> | undefined;
+let agent: LiteAgent | undefined;
+try {
+  await sandbox.initialize?.();
+  database = sqliteCheckpointer({
+    file: join(dirname(paths.sessionsDir), 'sessions.sqlite3'),
+    synchronous: 'full', integrityCheckOnOpen: true,
+  });
+  agent = createLiteAgent({
+    workdir,
+    model: localOpenAI({ runtime: 'ollama', contextWindow: 32768 }),
+    modelName: 'qwen3:8b',
+    checkpointer: database,
+    sandbox,
+    permission: permissionFilePolicy({
+      workdir, home: paths.home, default: 'deny',
+      baseRules: [{ tool: ['read_file', 'context', 'TaskGet', 'TaskList'], effect: 'allow' }],
+    }),
+    permissionAudit: true,
+    mcpTransports: ['stdio'],
+    crashRecovery: 'safe',
+    fileTools: { symlinks: 'inside', atomicWrites: true, maxSnapshotBytes: 1024 * 1024 },
+    maxSnapshotBytesPerSession: 64 * 1024 * 1024,
+  });
+  console.log((await agent.send('Summarize this project')).text);
+} finally {
+  const results = await Promise.allSettled([Promise.resolve().then(() => agent?.close())]);
+  results.push(...await Promise.allSettled([
+    Promise.resolve().then(() => database?.close()),
+    Promise.resolve().then(() => sandbox.dispose?.()),
+  ]));
+  const errors = results.filter(result => result.status === 'rejected').map(result => result.reason);
+  if (errors.length) throw new AggregateError(errors, 'Resource cleanup failed');
+}
 ```
 
-- `security.network` must be `"none"` or `"loopback"` — `"private"`/`"unrestricted"` are rejected.
-- Omitting `security` entirely is also an error: silence is treated as unknown risk, not as safe.
+This is explicit composition, not an implicit replacement for the former strict preset. Configure permissions, sandbox requirements, MCP transports, snapshots, background limits and audit deliberately. Sandboxes without `requireSandbox: true` may still degrade; `createLiteAgent()` does not require an OS sandbox by default.
 
-## Audit and diagnostics
+`resourceLimitedSandbox`, `probeResourceLimits`, `DEFAULT_RESOURCE_LIMITS` and `ResourceLimits` moved to `@lite-agent/sandbox-anthropic` 0.9.0. The wrapper initializes before execution and stops if a limit cannot be set. CPU limits are process CPU time; `ulimit -u` has OS/user-specific semantics, not per-agent job quotas. Linux uses `ulimit -v` for virtual address space; macOS has no equivalent hard memory limit here. Configure SDK `bash.memoryBytes` separately for Bash RSS monitoring. These controls are not model/GPU or whole-runtime budgets.
 
-### Event sink
+## Migration map
 
-By default every event is written — after redaction — to `logs/events.jsonl`: a 10 MiB rotating file (5 generations) whose entries form a SHA-256 hash chain, so truncation or tampering is detectable. Set the `LITE_AGENT_AUDIT_KEY` env var (or pass `auditKey`) to upgrade the chain to HMAC-SHA256. Pass `eventSink: false` to disable the sink, or your own `eventSink`/`eventRedactor` to customize it.
-
-### Querying permission decisions
-
-Every permission verdict is persisted as a `permission_decision` event. Query or export them:
-
-```ts
-// All denials in the current session
-const denials = await agent.queryAudit({ decision: "deny" });
-
-// Everything about a specific tool since sequence 40, in another session
-const entries = await agent.queryAudit({ sessionId: "s_123", sinceSeq: 40, tool: "bash" });
-
-// Stream the whole audit trail as NDJSON (e.g. into a file or HTTP response)
-for await (const line of agent.exportAudit()) process.stdout.write(line);
-```
-
-### Diagnostics
-
-`diagnostics()` snapshots the assembly's posture:
-
-```ts
-const d = agent.diagnostics();
-d.provider;   // { endpoint, runtime, nativeTools, contextWindow }
-d.codec;      // "native" | "json" | "react" | "custom"
-d.tokenizer;  // "exact" | "approximate"
-d.sandbox;    // { id, required: true, hardResourceLimits: true }
-d.persistence; // { file, integrity: { ok, detail } }
-d.permissions; // { files, loadedAt, reloads, error? }
-d.trace;      // { enabled, file?, integrity: "sha256" | "hmac-sha256" | "custom" }
-```
-
-### Shutdown
-
-`close()` aborts any in-flight runs, then closes the event sink, checkpointer, and sandbox. If any of these fail, it throws an `AggregateError` — cleanup failures are never swallowed.
-
-## API summary
-
-| Symbol | Description |
+| Previous interface/behavior | Replacement |
 | --- | --- |
-| `createLocalAgent(config)` | Assemble a strict local agent; returns a `LocalAgent`. |
-| `localOpenAI(options)` | OpenAI-compatible provider with loopback presets (`ollama`, `vllm`, `lm-studio`, `llama.cpp`). |
-| `markLocalProvider(provider, capabilities)` | Tag any provider with local capabilities (`endpoint`, `contextWindow`, …) so it passes the strict checks. |
-| `isLoopbackEndpoint(url)` | Check whether an endpoint is loopback or a Unix socket. |
-| `DEFAULT_RESOURCE_LIMITS` | Default `{ cpuSeconds, memoryBytes, maxProcesses }` limits. |
-| `probeResourceLimits(limits)` | Verify the host can enforce the given limits (macOS/Linux). |
-| `resourceLimitedSandbox(sandbox, limits)` | Wrap a sandbox so commands run under `ulimit` resource caps. |
-| `LocalAgent` | `LiteAgent` plus `diagnostics()`, `queryAudit()`, `exportAudit()`, `close()`. |
-| Types | `LocalAgentConfig`, `LocalDiagnostics`, `PermissionAuditEntry`, `LocalOpenAIOptions`, `LocalProviderCapabilities`, `LocalModelProvider`, `LocalRuntime`, `ResourceLimits`. |
+| `createLocalAgent` / `LocalAgent` | `createLiteAgent` / `LiteAgent` |
+| `localOpenAI`, `LocalOpenAIOptions`, `LocalRuntime` | Import from `@lite-agent/provider` |
+| `markLocalProvider`, `LocalModelProvider`, `LocalProviderCapabilities` | Standard `ModelProvider` with optional `context`; no local-safety tag |
+| `codec: 'auto' / 'json' / 'react'` | Native default or `jsonCodec()` / `reactCodec()` |
+| Legacy `contextBudget` assembly | Default ContextEngine, provider `contextWindow` or `context.windowTokens` |
+| `diagnostics()` | Adapter-specific `checkIntegrity()`, permission `status()`, etc. |
+| `queryAudit()` / `exportAudit()` | Filter `permission_decision` entries from the owned checkpointer's `read()` |
+| Automatic event logging | Compose `jsonlEventSink` / `recordEventStream`; use `subscribe` for background/child events and handle write failures/flush in the host |
+| Automatic resource closure | Await `agent.close()` before closing externally owned databases, logs and sandbox |
 
-## See also
+## Offline and extension boundaries
 
-- [Model providers](/core/providers) — the `openai()` adapter `localOpenAI` is built on, and how to probe compatible endpoints.
-- [Tool-call codecs](/core/codecs) — the protocols behind `codec: "auto"`.
-- [Session persistence](/core/persistence) — the SQLite checkpointer this assembly wires in.
-- [Permissions](/sdk/control/permissions) — the SDK-level permission model this assembly hardens.
+Loopback classification and `Tool.security` are declarations, not isolation guarantees. Arbitrary custom providers, JavaScript tools and programmatic hooks are trusted host code. Command sandboxes cannot constrain those functions. Fully offline deployments must also constrain the model service and host process network.
 
-Project permission files can only restrict managed/user/inline grants; they cannot grant new capabilities. File tools cannot modify policy files, and the sandbox denies shell writes to the SDK home, project configuration, and explicitly configured policy paths. Move old project allow rules to a trusted user/managed file or `permissionFiles.inlineRules`.
+Community implementations can already target provider, checkpointer, sandbox, permission and middleware interfaces. This migration does not add a plugin loader, privacy redaction or outbound model filtering. Local execution and log redaction must not be described as remote-model data protection.

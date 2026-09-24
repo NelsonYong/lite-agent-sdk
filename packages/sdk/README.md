@@ -126,7 +126,7 @@ tier. When a catalog is configured, selections outside it are rejected in both t
 - **Human input** — an `ask_user` tool is registered when `onAskUser` is set, letting the model ask questions mid-run.
 - **Structured output** — set `outputSchema` (a Zod object) to force a validated final answer, surfaced as `result.output`.
 - **Background tasks** — enabled by default (`background: false` disables them); Agent groups continue across turns and report `completed` / `partial` / `failed` / `cancelled`, while `bash_output` / `kill_background` observe and control background Bash.
-- **Local hardening** — configurable prompt codec/repair, context budget, snapshot limits, crash recovery, and hash-chained event sinks; strict defaults via [`@lite-agent/local`](../local).
+- **Local hardening** — configurable prompt codec/repair, context budget, snapshot limits, crash recovery, and hash-chained event sinks; compose SQLite and sandbox adapters with `createLiteAgent` ([deployment guide](../../docs-site/docs/en/core/local.md)).
 
 ## API
 
@@ -147,7 +147,7 @@ tier. When a catalog is configured, selections outside it are rejected in both t
 
 - [`@lite-agent/core`](../core) — the provider-agnostic kernel this package assembles.
 - [`@lite-agent/provider`](../provider) — model providers (Anthropic, …).
-- [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) · [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic) · [`@lite-agent/local`](../local) — pluggable backends and hardening.
+- [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) · [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic) — pluggable backends and hardening.
 - [Monorepo root](../..) — architecture overview; [`examples/cli`](../../examples/cli) — a full interactive REPL wiring provider + sandbox + permission + `ask_user`.
 
 ## Safe defaults and migration

@@ -75,3 +75,7 @@ const agent = createLiteAgent({
 - [`@lite-agent/sdk`](../sdk) —— 接受 `sandbox` 选项的 `createLiteAgent` / `query`。
 - [`@lite-agent/provider`](../provider) —— 可搭配使用的模型 provider。
 - [lite-agent monorepo](../..) —— 架构说明与完整包列表。
+
+## 命令资源限制
+
+使用 `resourceLimitedSandbox(sandbox, limits?)` 包装任意 `Sandbox`。默认上限由 `DEFAULT_RESOURCE_LIMITS` 提供，可通过 `probeResourceLimits` 检查。初始化或上限设置失败时不执行命令。Linux 使用虚拟地址空间上限；macOS 不提供这一硬内存限制。宿主在 agent 停止后调用沙箱的 `dispose()`。这些限制不管理模型或 GPU 资源。

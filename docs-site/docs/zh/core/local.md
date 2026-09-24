@@ -1,243 +1,116 @@
-# 严格单机装配
+# 部署组合与 local 迁移
 
-`@lite-agent/local` 面向本地模型（Ollama、vLLM、LM Studio、llama.cpp）运行 agent，内置 SQLite 持久化、强制 OS 沙箱、deny-by-default 权限和防篡改审计日志——全部以安全默认值装配到位。当模型和数据都不能离开这台机器、并且你希望安全姿态是被强制而非靠自觉配置时，选它。
+电脑、NAS、本地模型和远端模型统一使用 `createLiteAgent()`。`@lite-agent/local` 包及其 `createLocalAgent` / `LocalAgent` 已移除，不提供兼容别名。`query()` 继续复用同一构造入口；Core 的 `createAgent()` 是底层内核接口。
 
-核心理念是 **fail-closed（失败即关闭）**：每一层在安全不变量不满足时都会拒绝运行。非 loopback 端点、无法初始化的沙箱、格式错误的权限文件、缺少安全元数据的自定义工具——这些都会在启动时直接中止，而不是静默降级。
+## 本地模型
 
-```bash
-pnpm add @lite-agent/local
-```
-
-要求 macOS 或 Linux、Node ≥ 20，以及一个正在运行的本地模型服务。`better-sqlite3` 和 `@anthropic-ai/sandbox-runtime` 会作为传递性原生/运行时依赖被引入。
-
-## 快速开始
+本地端点预设迁移到 `@lite-agent/provider` 0.10.0：
 
 ```ts
-import { createLocalAgent, localOpenAI } from "@lite-agent/local";
+import { createLiteAgent, jsonCodec } from '@lite-agent/sdk';
+import { localOpenAI } from '@lite-agent/provider';
 
-const agent = await createLocalAgent({
-  model: localOpenAI({
-    runtime: "ollama",
-    contextWindow: 32_768,
-    nativeTools: true, // set only when the selected model supports tool calling
-  }),
-  modelName: "qwen3:8b",
+const agent = createLiteAgent({
   workdir: process.cwd(),
+  model: localOpenAI({ runtime: 'ollama', contextWindow: 32768 }),
+  modelName: 'qwen3:8b',
+  codec: jsonCodec(), // 不支持原生工具调用的模型使用 JSON codec
 });
-
-const result = await agent.send("Summarize this project.");
-console.log(result.text);
-console.log(agent.diagnostics());
-await agent.close();
-```
-
-## `createLocalAgent()` 强制了什么
-
-`createLocalAgent(config)` 构建于 SDK 的 `createLiteAgent()` 之上，但锁死了所有安全关键开关。任何会削弱安全姿态的参数都从 `LocalAgentConfig` 中整体移除——你根本无法传入。
-
-| 层 | 保证 |
-| --- | --- |
-| Provider | `model.local` 必须显式声明并通过 `isLoopbackEndpoint()`（loopback IP/`localhost` 或 `unix:` socket）；启动健康探针先于一切执行。 |
-| 持久化 | SQLite WAL 模式，`synchronous=FULL`，5 秒 busy timeout，每次打开时执行完整性检查。 |
-| 沙箱 | `requireSandbox: true`——初始化失败即中止启动。无网络（`allowedDomains: []`），写入限定在 `workdir`，拒绝读取 `~/.ssh`、`~/.aws`、`~/.config`。 |
-| 资源限制 | 每条命令都在 `ulimit` 上限下运行（默认值见下文）。 |
-| 权限 | deny-by-default 的文件策略，支持热重载（下一节）。 |
-| 自定义工具 | 必须声明 `security` 元数据，且 `network` 为 `"none" \| "loopback"`。 |
-| 崩溃恢复 | `crashRecovery: "safe"`——被中断的工具调用在恢复会话时安全处理。 |
-| 审计 | 脱敏后的事件写入轮转 SHA-256 哈希链（可选 HMAC）。 |
-
-其他固定默认值：bash 命令 120 秒超时（后台任务 30 分钟、最多 4 个、输出上限 5 MiB）；文件修改拒绝逃逸工作区的符号链接、原子写入、每次变更前保留至多 1 MiB 快照（每会话 64 MiB），支持二进制安全恢复；超过 30 天或总量超过 1 GiB 的会话会被清理。
-
-运行时数据存放在 SDK 项目目录下：`sessions.sqlite3` 和 `logs/events.jsonl`。
-
-### 编解码器选择
-
-使用 `codec: "auto"`（默认）时，仅当 provider 声明 `nativeTools: true` 才使用 native 编解码器，否则使用 JSON 编解码器。ReAct 编解码器必须显式选择：
-
-```ts
-codec: "auto" | "native" | "json" | "react" | ToolCallCodec
-```
-
-各协议的样貌见[工具调用 codec](/zh/core/codecs)。
-
-### Token 计量
-
-上下文预算需要 token 计数，而各本地服务差异很大：
-
-- `vllm` 和 `llama.cpp` 预设使用服务端本地 `/tokenize` 端点（精确）。
-- 任何 provider 都可以提供 `tokenEstimator`（对 SDK 而言视为精确）。
-- 否则使用保守的 bytes/3 估算，并在 `diagnostics().tokenizer` 中标记为 `"approximate"`。
-
-输入预算由声明的 `contextWindow` 推导：`contextWindow − maxTokens − 10%` 预留。如果算下来不剩空间，启动直接失败——请声明真实的上下文窗口。
-
-## `localOpenAI()` 预设
-
-`localOpenAI(options)` 返回一个预先打好本地能力标签的 OpenAI 兼容 provider。每个预设都知道自己的默认端点，全部可用 `baseURL` 覆盖。
-
-| `runtime` | 默认端点 | 说明 |
-| --- | --- | --- |
-| `ollama` | `http://127.0.0.1:11434/v1` | |
-| `vllm` | `http://127.0.0.1:8000/v1` | 通过 `/tokenize` 获得精确 token 计数 |
-| `lm-studio` | `http://127.0.0.1:1234/v1` | |
-| `llama.cpp` | `http://127.0.0.1:8080/v1` | 通过 `/tokenize` 获得精确 token 计数 |
-
-选项（`LocalOpenAIOptions`）：`runtime` 和 `contextWindow`（必填），`baseURL`、`apiKey`（默认 `"local"`）、`maxRetries`、`nativeTools`（默认 `false`）、`tokenEstimator`、`probeTimeoutMs`（默认 3000）。
-
-启动时 provider 会探测 `GET {baseURL}/models`，服务不可达即快速失败。若要使用自己构建的 provider，用 `markLocalProvider(provider, capabilities)` 打标签——同样的 loopback、`contextWindow` 和探针检查会照样生效。
-
-## 权限
-
-权限是 deny-by-default：开箱即用的只有只读内建工具（`read_file`、`read_spilled`、`load_skill`、`TaskGet`、`TaskList`、`BashOutput`）和交互式的 `ask_user`/`final_answer`。所有会修改状态的工具都需要显式的 `ask` 或 `allow` 规则。
-
-### 发现顺序
-
-规则按以下顺序从四层加载：
-
-1. **托管层** —— `LITE_AGENT_MANAGED_PERMISSIONS` 环境变量指向的文件（或 `permissionFiles.managed`）
-2. **用户层** —— `~/.lite-agent/permissions.json`（或 `permissionFiles.user`）
-3. **项目层** —— `<workdir>/.lite-agent/permissions.json`（或 `permissionFiles.project`）
-4. **内联层** —— 代码中的 `permissionFiles.inlineRules`
-
-每一层都可以通过设为 `false` 禁用。**deny 永远优先**，与层的顺序无关（deny > ask > allow > 默认 `deny`），因此托管层的 `deny` 无法被项目层或内联层的 `allow` 覆盖。
-
-文件在 mtime/size 变化时热重载；格式错误的更新会 fail-closed——重载抛错，最后的错误通过 `diagnostics().permissions.error` 暴露，并发出 `permission_reload_failed` 诊断事件。
-
-### 文件格式
-
-```json
-{
-  "version": 1,
-  "rules": [
-    {
-      "id": "allow-tests",
-      "description": "Running the test suite is fine",
-      "tool": "bash",
-      "when": { "command": { "startsWith": "pnpm test" } },
-      "effect": "allow"
-    },
-    {
-      "id": "ask-writes",
-      "tool": ["write_file", "edit_file"],
-      "effect": "ask"
-    },
-    {
-      "id": "deny-secrets",
-      "tool": "*",
-      "when": { "path": { "glob": "**/.env*" } },
-      "effect": "deny"
-    }
-  ]
+try {
+  console.log((await agent.send('总结项目')).text);
+} finally {
+  await agent.close();
 }
 ```
 
-- `tool` —— 名称或 glob（字符串或数组），与工具名匹配；省略则匹配所有工具。
-- `when` —— 针对工具调用 `input` 内点路径（`"command"`、`"args.path"` 等）的条件；所有键都必须匹配（AND）。操作符：`regex`、`glob`、`equals`、`in`、`startsWith`、`contains`、`not`。缺失的字段不匹配任何条件——条件本身也是 fail-closed 的。
-- `effect` —— `"allow" | "deny" | "ask"`（必填）。`ask` 会通过权限通道弹出询问。
+支持原生工具调用的模型可省略 `codec`，使用 SDK 默认 native codec。`localOpenAI` 只提供 Ollama、vLLM、LM Studio、llama.cpp 的回环 HTTP(S) 端点预设，返回标准 `ModelProvider`，不会创建 agent、发起启动探测或证明进程离线。远端服务直接使用 `openai()` / `anthropic()`。
 
-## 资源限制
+`contextWindow` 写入标准 provider context 能力，由 SDK 的共享 ContextEngine 使用。旧的 `nativeTools`、`tokenEstimator`、`probeTimeoutMs`、`.local` 标签和 `markLocalProvider` 已移除。需要自定义 provider 时直接实现 `ModelProvider`。不再把聊天消息 JSON 的 tokenize 结果标为完整模型请求的精确 token 数。
 
-agent 运行的每条命令都被包裹在 `ulimit` 上限中：
+## SQLite、沙箱和权限按需组合
 
-| 限制 | 默认值 | `ResourceLimits` 字段 |
-| --- | --- | --- |
-| CPU 时间 | 120 秒 | `cpuSeconds` |
-| 内存 | 2 GiB | `memoryBytes` |
-| 进程数 | 128 | `maxProcesses` |
-
-```ts
-const agent = await createLocalAgent({
-  // ...
-  resources: { cpuSeconds: 300 }, // merged over DEFAULT_RESOURCE_LIMITS
-});
+```bash
+pnpm add @lite-agent/sdk @lite-agent/provider @lite-agent/checkpoint-sqlite @lite-agent/sandbox-anthropic
 ```
 
-沙箱初始化时会用 `probeResourceLimits()` 验证这些限制（要求 macOS 或 Linux 及 `/bin/bash`）；宿主机无法强制执行时启动失败。要把同样的上限应用到自己的沙箱，用 `resourceLimitedSandbox(sandbox, limits)` 包装。
-
-:::warning 内存限制与操作系统相关
-内存上限使用 `ulimit -v`，仅在 Linux 上生效。在 macOS 上 CPU 和进程数上限仍然生效，但没有硬性的内存天花板。
-:::
-
-## 自定义工具
-
-通过 `tools` 传入的工具必须声明 `Tool.security` 元数据，且只接受离线安全的取值——其他情况都会中止启动：
+下例显式保留严格命令执行和持久化配置。外部传入的数据库、沙箱由宿主拥有，因此必须在 agent 停止后关闭；构造失败也要清理。
 
 ```ts
-import { tool } from "@lite-agent/sdk";
-import { z } from "zod";
+import { mkdirSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { createLiteAgent, permissionFilePolicy, resolveProjectPaths } from '@lite-agent/sdk';
+import type { LiteAgent } from '@lite-agent/sdk';
+import { localOpenAI } from '@lite-agent/provider';
+import { sqliteCheckpointer } from '@lite-agent/checkpoint-sqlite';
+import { sandboxRuntime, resourceLimitedSandbox } from '@lite-agent/sandbox-anthropic';
 
-const wordCount = tool(
-  "word_count",
-  "Count words in a file inside the workspace",
-  z.object({ path: z.string() }),
-  async ({ path }) => { /* ... */ },
-  { security: { network: "none", filesystem: "workspace", sideEffects: "none" } },
-);
-
-const agent = await createLocalAgent({ /* ... */, tools: [wordCount] });
+const workdir = process.cwd();
+const paths = resolveProjectPaths({ workdir });
+mkdirSync(dirname(paths.sessionsDir), { recursive: true });
+const sandbox = resourceLimitedSandbox(sandboxRuntime({
+  requireSandbox: true,
+  allowedDomains: [],
+  allowWrite: [workdir],
+  denyWrite: [paths.home, join(workdir, '.lite-agent')],
+  denyRead: ['~/.ssh', '~/.aws', '~/.config', paths.home, join(workdir, '.lite-agent')],
+}));
+let database: ReturnType<typeof sqliteCheckpointer> | undefined;
+let agent: LiteAgent | undefined;
+try {
+  await sandbox.initialize?.();
+  database = sqliteCheckpointer({
+    file: join(dirname(paths.sessionsDir), 'sessions.sqlite3'),
+    synchronous: 'full', integrityCheckOnOpen: true,
+  });
+  agent = createLiteAgent({
+    workdir,
+    model: localOpenAI({ runtime: 'ollama', contextWindow: 32768 }),
+    modelName: 'qwen3:8b',
+    checkpointer: database,
+    sandbox,
+    permission: permissionFilePolicy({
+      workdir, home: paths.home, default: 'deny',
+      baseRules: [{ tool: ['read_file', 'context', 'TaskGet', 'TaskList'], effect: 'allow' }],
+    }),
+    permissionAudit: true,
+    mcpTransports: ['stdio'],
+    crashRecovery: 'safe',
+    fileTools: { symlinks: 'inside', atomicWrites: true, maxSnapshotBytes: 1024 * 1024 },
+    maxSnapshotBytesPerSession: 64 * 1024 * 1024,
+  });
+  console.log((await agent.send('总结项目')).text);
+} finally {
+  // 即使 agent.close 失败，也继续清理外部资源，最后报告所有失败。
+  const results = await Promise.allSettled([Promise.resolve().then(() => agent?.close())]);
+  results.push(...await Promise.allSettled([
+    Promise.resolve().then(() => database?.close()),
+    Promise.resolve().then(() => sandbox.dispose?.()),
+  ]));
+  const errors = results.filter(result => result.status === 'rejected').map(result => result.reason);
+  if (errors.length) throw new AggregateError(errors, 'Resource cleanup failed');
+}
 ```
 
-- `security.network` 必须是 `"none"` 或 `"loopback"`——`"private"`/`"unrestricted"` 会被拒绝。
-- 完全不写 `security` 也是错误：沉默被视为未知风险，而不是安全。
+这不是旧 LocalAgent 的隐式安全预设。迁移时需按应用需要明确配置权限、沙箱、MCP 传输、文件快照、后台任务限制和审计。没有设置 `requireSandbox: true` 的沙箱仍可能降级；普通 `createLiteAgent()` 本身不会强制 OS 沙箱。
 
-## 审计与诊断
+`resourceLimitedSandbox`、`probeResourceLimits`、`DEFAULT_RESOURCE_LIMITS` 和 `ResourceLimits` 迁移到 `@lite-agent/sandbox-anthropic` 0.9.0。包装器在执行前初始化，设置任意上限失败时不会继续执行命令。CPU 上限是进程 CPU 时间，`ulimit -u` 受操作系统/用户权限语义影响，不能作为整机作业的进程配额。Linux 使用 `ulimit -v` 限制虚拟地址空间；macOS 没有这一硬内存限制。需要 Bash RSS 监控时另外设置 SDK 的 `bash.memoryBytes`；不要将这些限制描述为模型/GPU/整个运行时的资源预算。
 
-### 事件汇
+## 旧接口迁移
 
-默认情况下，每个事件在脱敏后写入 `logs/events.jsonl`：10 MiB 轮转文件（保留 5 代），条目之间构成 SHA-256 哈希链，因此截断或篡改可以被检测。设置 `LITE_AGENT_AUDIT_KEY` 环境变量（或传入 `auditKey`）可将哈希链升级为 HMAC-SHA256。传入 `eventSink: false` 可禁用事件汇，或传入自定义的 `eventSink`/`eventRedactor`。
-
-### 查询权限决策
-
-每个权限判定都会作为 `permission_decision` 事件持久化。可以查询或导出：
-
-```ts
-// All denials in the current session
-const denials = await agent.queryAudit({ decision: "deny" });
-
-// Everything about a specific tool since sequence 40, in another session
-const entries = await agent.queryAudit({ sessionId: "s_123", sinceSeq: 40, tool: "bash" });
-
-// Stream the whole audit trail as NDJSON (e.g. into a file or HTTP response)
-for await (const line of agent.exportAudit()) process.stdout.write(line);
-```
-
-### 诊断
-
-`diagnostics()` 给出装配体安全姿态的快照：
-
-```ts
-const d = agent.diagnostics();
-d.provider;   // { endpoint, runtime, nativeTools, contextWindow }
-d.codec;      // "native" | "json" | "react" | "custom"
-d.tokenizer;  // "exact" | "approximate"
-d.sandbox;    // { id, required: true, hardResourceLimits: true }
-d.persistence; // { file, integrity: { ok, detail } }
-d.permissions; // { files, loadedAt, reloads, error? }
-d.trace;      // { enabled, file?, integrity: "sha256" | "hmac-sha256" | "custom" }
-```
-
-### 关闭
-
-`close()` 会中止所有进行中的运行，然后依次关闭事件汇、checkpointer 和沙箱。其中任何一步失败都会抛出 `AggregateError`——清理失败永远不会被吞掉。
-
-## API 一览
-
-| 符号 | 说明 |
+| 旧接口/行为 | 替代方式 |
 | --- | --- |
-| `createLocalAgent(config)` | 装配一个严格的本地 agent；返回 `LocalAgent`。 |
-| `localOpenAI(options)` | 带 loopback 预设（`ollama`、`vllm`、`lm-studio`、`llama.cpp`）的 OpenAI 兼容 provider。 |
-| `markLocalProvider(provider, capabilities)` | 给任意 provider 打上本地能力标签（`endpoint`、`contextWindow` 等），使其通过严格检查。 |
-| `isLoopbackEndpoint(url)` | 检查端点是否为 loopback 或 Unix socket。 |
-| `DEFAULT_RESOURCE_LIMITS` | 默认 `{ cpuSeconds, memoryBytes, maxProcesses }` 限制。 |
-| `probeResourceLimits(limits)` | 验证宿主机能否强制执行给定限制（macOS/Linux）。 |
-| `resourceLimitedSandbox(sandbox, limits)` | 包装沙箱，使命令在 `ulimit` 资源上限下运行。 |
-| `LocalAgent` | `LiteAgent` 加上 `diagnostics()`、`queryAudit()`、`exportAudit()`、`close()`。 |
-| 类型 | `LocalAgentConfig`、`LocalDiagnostics`、`PermissionAuditEntry`、`LocalOpenAIOptions`、`LocalProviderCapabilities`、`LocalModelProvider`、`LocalRuntime`、`ResourceLimits`。 |
+| `createLocalAgent` / `LocalAgent` | `createLiteAgent` / `LiteAgent` |
+| `localOpenAI`、`LocalOpenAIOptions`、`LocalRuntime` | 从 `@lite-agent/provider` 导入 |
+| `markLocalProvider`、`LocalModelProvider`、`LocalProviderCapabilities` | 标准 `ModelProvider` 和可选 `context`；没有本地安全标签 |
+| `codec: 'auto' / 'json' / 'react'` | 选择 native 默认值，或传入 `jsonCodec()` / `reactCodec()` |
+| 旧 `contextBudget` 装配 | 使用默认 ContextEngine、provider `contextWindow` 或 `context.windowTokens` |
+| `diagnostics()` | 查询具体适配器：数据库 `checkIntegrity()`、文件权限 `status()` 等 |
+| `queryAudit()` / `exportAudit()` | 从持有的 checkpointer `read()` 中筛选 `permission_decision`，按需导出 |
+| 自动事件日志 | 组合 `jsonlEventSink` / `recordEventStream`；完整后台/子 agent 事件通过 `subscribe` 接收，宿主负责写入错误及 flush |
+| 自动资源关闭 | 先 `await agent.close()`，再关闭宿主持有的数据库、日志和沙箱 |
 
-## 另请参阅
+## 离线与扩展边界
 
-- [模型提供方](/zh/core/providers)——`localOpenAI` 所基于的 `openai()` 适配器，以及如何探测兼容端点。
-- [工具调用 codec](/zh/core/codecs)——`codec: "auto"` 背后的协议。
-- [会话持久化](/zh/core/persistence)——本装配接入的 SQLite checkpointer。
-- [权限](/zh/sdk/control/permissions)——本装配所加固的 SDK 层权限模型。
+回环地址检查只是端点分类，工具 `security` 只是声明。任意自定义 provider、JS 工具及程序 Hook 都属于可信宿主代码，命令沙箱不能替它们保证离线。完整离线部署还需要约束模型服务本身和宿主进程的出站网络。
 
-项目权限文件只能收紧托管／用户／内联授权，不能新增授权。文件工具禁止修改策略文件，沙箱禁止 Shell 写入 SDK home、项目配置目录及显式配置的策略路径。旧的项目 allow 规则应迁移到可信用户／托管文件或 `permissionFiles.inlineRules`。
+现有 provider、checkpointer、sandbox、permission 和 middleware 接口可供社区实现；本次没有加入插件加载器、隐私脱敏或远端请求过滤。隐私能力将另行设计，不能把本地执行或日志脱敏等同于远端模型数据脱敏。

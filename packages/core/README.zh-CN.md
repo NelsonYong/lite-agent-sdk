@@ -83,5 +83,4 @@ console.log(result.text);
 - [`@lite-agent/provider`](../provider) —— `ModelProvider` 实现（`anthropic()` / `openai()`）。
 - [`@lite-agent/checkpoint-sqlite`](../checkpoint-sqlite) —— 持久化的 `Checkpointer` 后端。
 - [`@lite-agent/sandbox-anthropic`](../sandbox-anthropic) —— 操作系统级沙箱边界。
-- [`@lite-agent/local`](../local) —— 本地小模型支持。
 - [Monorepo 根目录](../..) —— 完整架构说明。

@@ -102,7 +102,7 @@ HTTP bytes are bounded before protocol parsing. Oversized data fails explicitly.
 
 Normal SDK stdio processes use the configured `sandbox`, if present. Without one, approved processes have host privileges. Environment inheritance uses the official transport's safe defaults plus explicit `env`, not the complete host environment. stderr is drained without logging. Keep credentials out of command arguments.
 
-`createLocalAgent()` allows only owned stdio processes under its mandatory OS sandbox and resource limits. It rejects HTTP, including loopback endpoints. SDK home and project `.lite-agent` are denied to sandboxed process reads/writes; SDK session archive tools remain available.
+For restricted deployment, configure `createLiteAgent()` with `mcpTransports: ["stdio"]`, a required sandbox, and explicit storage read/write restrictions. These restrictions are now host configuration; see [deployment composition](/core/local).
 
 Official 2.1.0 pinned stdio negotiation launches a temporary probe followed by the actual process. Both use the same sandboxed launch command. Server startup should avoid business side effects. The official transport reaps direct children; arbitrary descendants still require host OS isolation.
 
