@@ -107,9 +107,8 @@ export function memoryCheckpointer(): Checkpointer {
  * messages as synthetic `user`/`assistant` events. `head` is the message count.
  * `list` and `delete` delegate to the wrapped store when it provides those methods,
  * otherwise return []/no-op (a bare Store has no enumeration capability).
- * Caveat: appends write the wrapped store's legacy (no-`seq`) format; if that store
- * points under the swept `sessions/` tree, the cleanup sweeper will discard those
- * files as legacy.
+ * Appends retain the wrapped store's own format. The host owns serialization
+ * and retention for external backends.
  */
 export function legacyStoreAdapter(store: Store): Checkpointer {
   const eventsOf = (messages: Message[]): SessionEvent[] =>

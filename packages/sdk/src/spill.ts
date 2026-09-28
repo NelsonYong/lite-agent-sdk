@@ -1,29 +1,35 @@
-import { mkdirSync, writeFileSync, readFileSync, existsSync } from "node:fs";
+import { storageDirectory } from "./storageFiles";
+import { storageEncoding } from "./storage";
+import type { StorageEncoding } from "./storage";
+import { atomicWriteFile } from "./tools/file";
+import { readFileSync, existsSync } from "node:fs";
 import { createHash } from "node:crypto";
-import { join } from "node:path";
 import { z } from "zod";
 import { defineTool } from "@lite-agent/core";
 import type { SpillStore, Tool } from "@lite-agent/core";
 
-export interface FileSpillStoreOptions {
+export interface FileSpillStoreOptions extends StorageEncoding {
   /** Directory holding one `<ref>.txt` blob per spilled tool result. */
   dir: string;
 }
 
 // Filesystem SpillStore: content-addressed (sha1) so identical bodies dedup and
-// refs are stable. Sync fs so it composes inside the CompactPass pipeline.
+// refs are stable. Encoding finishes before the blob is committed.
 export function fileSpillStore(opts: FileSpillStoreOptions): SpillStore {
-  const fileFor = (ref: string) => join(opts.dir, `${ref.replace(/[^a-f0-9]/gi, "")}.txt`);
+  const encoding = storageEncoding(opts);
+  const safe = storageDirectory(opts.dir);
+  const fileFor = (ref: string) => safe(`${ref}.txt`);
   return {
-    put(content) {
-      mkdirSync(opts.dir, { recursive: true });
+    async put(content) {
       const ref = createHash("sha1").update(content).digest("hex").slice(0, 16);
-      writeFileSync(fileFor(ref), content);
+      const encoded = await encoding.encode(content, encoding.context("spill", "project", ref));
+      atomicWriteFile(fileFor(ref), encoded, 0o600);
       return ref;
     },
-    get(ref) {
+    async get(ref) {
+      if (!/^[a-f0-9]{16}$/.test(ref)) return null;
       const file = fileFor(ref);
-      return existsSync(file) ? readFileSync(file, "utf8") : null;
+      return existsSync(file) ? encoding.decode(readFileSync(file, "utf8"), encoding.context("spill", "project", ref)) : null;
     },
   };
 }
@@ -37,6 +43,6 @@ export function readSpilledTool(store: SpillStore): Tool {
       "Retrieve the full content of a tool result that was moved off-context to save space. Pass the ref shown in its [spilled:<ref>] marker.",
     schema: z.object({ ref: z.string() }),
     security: { network: "none", filesystem: "unrestricted", sideEffects: "none" },
-    execute: ({ ref }) => store.get(ref) ?? `No spilled content for ref '${ref}'`,
+    execute: async ({ ref }) => (await store.get(ref)) ?? `No spilled content for ref '${ref}'`,
   });
 }

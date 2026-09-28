@@ -1,3 +1,4 @@
+import { resolveProjectPaths } from "../paths";
 import { existsSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { z } from "zod";
@@ -15,12 +16,12 @@ const document = z.object({
 }).strict();
 
 /** Snapshot both files once at root construction; repository edits cannot hot-load code. */
-export function loadHookFiles(home: string, workdir: string): CommandHook[] {
+export function loadHookFiles(home: string, workdir: string, projectConfigDir = resolveProjectPaths({ workdir, home }).projectConfigDir): CommandHook[] {
   const hooks: CommandHook[] = [];
   const visited = new Set<string>();
   for (const [source, file] of [
     ["global", join(resolve(home), "hooks.json")],
-    ["project", join(resolve(workdir), ".lite-agent", "hooks.json")],
+    ["project", join(projectConfigDir, "hooks.json")],
   ] as const) {
     if (!existsSync(file)) continue;
     const real = realpathSync(file);

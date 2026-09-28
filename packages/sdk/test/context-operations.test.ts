@@ -59,19 +59,19 @@ test("large file contents are archived intact before truncation and only referen
   const archiveDir = sessionContextDir(sessionsDir, agent.sessionId);
   expect(readFileSync(join(archiveDir, "notes", `${ref}.md`), "utf8")).toBe(content);
   const archive = fileContextArchive({ dir: archiveDir });
-  expect(archive.read(ref, 1, { offset: content.length - 10 })).toContain("END_MARKER");
-  expect(fileContextArchive({ dir: join(home, "another-session") }).read(ref, 1)).toContain("No archived content");
+  expect((await archive.read(ref, 1, { offset: content.length - 10 }))).toContain("END_MARKER");
+  expect((await fileContextArchive({ dir: join(home, "another-session") }).read(ref, 1))).toContain("No archived content");
   await agent.close();
 });
 
-test("archive pages preserve Unicode, reject path refs and refuse symlink substitution", () => {
+test("archive pages preserve Unicode, reject path refs and refuse symlink substitution", async () => {
   const dir = directory();
   const archive = fileContextArchive({ dir, maxReadBytes: 512 });
   const content = "界😀<&>".repeat(200);
-  const { ref } = archive.put(content);
+  const { ref } = (await archive.put(content));
   let offset = 0, pages = 0;
   while (offset < content.length) {
-    const page = archive.read(ref, ++pages, { offset });
+    const page = (await archive.read(ref, ++pages, { offset }));
     expect(Buffer.byteLength(page)).toBeLessThanOrEqual(512);
     expect(page).not.toContain("�");
     const next = page.match(/nextOffset=(\d+|end)/)![1]!;
@@ -80,13 +80,13 @@ test("archive pages preserve Unicode, reject path refs and refuse symlink substi
     offset = Number(next);
   }
   expect(pages).toBeGreaterThan(1);
-  expect(archive.read("../../secret", pages + 1)).toContain("No archived content");
+  expect((await archive.read("../../secret", pages + 1))).toContain("No archived content");
   const outside = join(directory(), "secret");
   writeFileSync(outside, "PRIVATE_MARKER");
   const badRef = "a".repeat(64);
   symlinkSync(outside, join(dir, "notes", `${badRef}.md`));
   writeFileSync(join(dir, "index.jsonl"), `${JSON.stringify({ ref: badRef, preview: "alias" })}\n`);
-  expect(() => archive.read(badRef, pages + 2)).toThrow(/Symlink/);
+  await expect(archive.read(badRef, pages + 2)).rejects.toThrow(/Symlink/);
 });
 
 test("SDK-owned session data is readable outside the project but other sessions and arbitrary paths are not", async () => {
@@ -102,9 +102,9 @@ test("SDK-owned session data is readable outside the project but other sessions 
   const agent = createLiteAgent({ model, workdir, home, checkpointer: cp, tasks: false, agents: false });
   const { sessionsDir } = resolveProjectPaths({ workdir, home });
   const ownDir = sessionContextDir(sessionsDir, agent.sessionId);
-  const ownRef = fileContextArchive({ dir: ownDir }).put("OWN_MARKER").ref;
+  const ownRef = (await fileContextArchive({ dir: ownDir }).put("OWN_MARKER")).ref;
   const otherDir = sessionContextDir(sessionsDir, "other");
-  const otherRef = fileContextArchive({ dir: otherDir }).put("OTHER_MARKER").ref;
+  const otherRef = (await fileContextArchive({ dir: otherDir }).put("OTHER_MARKER")).ref;
   targets.push(join(ownDir, "notes", `${ownRef}.md`), join(otherDir, "notes", `${otherRef}.md`));
   const outputs: string[] = [];
   for await (const event of agent.run("Inspect SDK data")) if (event.type === "tool_result") outputs.push(event.result.content);

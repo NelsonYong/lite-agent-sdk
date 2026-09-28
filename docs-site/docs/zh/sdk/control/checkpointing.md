@@ -55,11 +55,11 @@ await agent.restore(agent.sessionId, checkpoints[2].seq); // undo everything aft
 
 ## 切换 SQLite 后端
 
-默认的 `fileCheckpointer` 是单进程的。`@lite-agent/checkpoint-sqlite` 包提供 `sqliteCheckpointer`——一个 SQLite（WAL）后端，面向**单机多进程**场景：server 或 worker 池中多个进程恢复并追加同一批会话，用乐观并发取代静默覆盖。
+默认 `fileCheckpointer` 通过文件锁串行化会话修改，锁覆盖异步编码。SQLite 提供数据库事务和高效并发读取。`@lite-agent/checkpoint-sqlite` 包提供 `sqliteCheckpointer`——一个 SQLite（WAL）后端，面向**单机多进程**场景：server 或 worker 池中多个进程恢复并追加同一批会话，用乐观并发取代静默覆盖。
 
 | 后端 | 包 | 并发 | 适用场景 |
 | --- | --- | --- | --- |
-| `fileCheckpointer`（默认） | `@lite-agent/sdk` | 单进程 | 本地开发、CLI 工具、每项目一个 agent 进程 |
+| `fileCheckpointer`（默认） | `@lite-agent/sdk` | 每会话文件锁 | 本地开发、CLI 工具、每项目一个 agent 进程 |
 | `sqliteCheckpointer` | `@lite-agent/checkpoint-sqlite` | 单机多进程 | 同一台机器上共享会话的 server 或 worker 池 |
 
 ```bash
@@ -165,3 +165,5 @@ try {
 压缩和恢复要求 Agent 空闲，包含后台任务，并通过维护锁阻止并发运行写入。文件后端以原子替换截断日志；内存、文件及 SQLite 后端在截断前检查可选 expected head。跨进程协调仍应使用 SQLite。
 
 CLI 支持 `/compact [instructions]`、`/checkpoints`、`/restore <seq> [--conversation-only]`；Ctrl-C 可取消手动压缩。
+
+内置 checkpoint 事件（包括文件快照）支持 [`storage.codec`](/zh/sdk/core-concepts/storage)。编码器失败不会触发尾部修复或明文回退。SQLite 和其他注入后端自行管理编码。

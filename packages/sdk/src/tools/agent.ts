@@ -154,7 +154,7 @@ export function agentTool(opts: { loader: AgentLoader; spawn: Spawn; pool?: Suba
             resultEmitted: false,
           };
           if (store) {
-            const tracked = task.task_id ? store.get(task.task_id) : await store.create({
+            const tracked = task.task_id ? await store.get(task.task_id) : await store.create({
               subject: displayName, description: task.prompt,
             });
             if (!tracked) throw new Error(`no task '${task.task_id}'`);

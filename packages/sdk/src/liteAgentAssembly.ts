@@ -61,9 +61,11 @@ export function assembleLiteAgent({
   mcp,
   backgroundTasks,
 }: AssembleLiteAgentOptions): LiteAgentRuntime {
+  const storage = { codec: cfg.storage?.codec, namespace: paths.namespace, projectId: paths.hash };
   const readRoots = (sessionId: string): readonly string[] => [
-    sessionContextDir(paths.sessionsDir, sessionId),
-    ...(/^[a-zA-Z0-9_-]+$/.test(sessionId) ? [join(paths.sessionsDir, `${sessionId}.jsonl`)] : []),
+    ...(!storage.codec ? [sessionContextDir(paths.sessionsDir, sessionId),
+      ...(/^[a-zA-Z0-9_-]+$/.test(sessionId) ? [join(paths.sessionsDir, `${sessionId}.jsonl`)] : []),
+    ] : []),
     ...(cfg.fileTools?.readRoots?.(sessionId) ?? []),
   ];
   let tools: Tool[] = [
@@ -86,13 +88,13 @@ export function assembleLiteAgent({
   const contextConfig = typeof cfg.context === "object" ? cfg.context : undefined;
   let checkpointer: Checkpointer | undefined;
   const spillStore = legacyContext && spillEnabled
-    ? fileSpillStore({ dir: paths.spillDir })
+    ? fileSpillStore({ dir: paths.spillDir, ...storage })
     : undefined;
   const archives = new Map<string, FileContextArchive>();
   const archiveFor = (sessionId: string): FileContextArchive => {
     const existing = archives.get(sessionId);
     if (existing) return existing;
-    const archive = fileContextArchive({ dir: sessionContextDir(paths.sessionsDir, sessionId) });
+    const archive = fileContextArchive({ dir: sessionContextDir(paths.sessionsDir, sessionId), sessionId, ...storage });
     archives.set(sessionId, archive);
     return archive;
   };
@@ -113,10 +115,10 @@ export function assembleLiteAgent({
   const tasksEnabled = cfg.tasks !== false;
   const taskStores = new Map<string, TaskStore>();
   const taskStore = tasksEnabled ? (sessionId: string): TaskStore => {
-    const listId = cfg.taskListId ?? process.env.LITE_AGENT_TASK_LIST_ID ?? sessionId;
+    const listId = cfg.taskListId ?? sessionId;
     let store = taskStores.get(listId);
     if (!store) {
-      store = fileTaskStore({ dir: paths.tasksDir, listId });
+      store = fileTaskStore({ dir: paths.tasksDir, listId, ...storage });
       taskStores.set(listId, store);
     }
     return store;
@@ -179,6 +181,7 @@ export function assembleLiteAgent({
     buildSystemPrompt({
       workdir: cfg.workdir,
       modelName: cfg.modelName,
+      namespace: paths.namespace,
       skills,
       subagents: tools.some((tool) => tool.name === "Agent") ? subagents : undefined,
       models: modelDescription,
@@ -256,7 +259,7 @@ export function assembleLiteAgent({
       ? legacyStoreAdapter(cfg.store)
       : cfg.sessions === false
         ? memoryCheckpointer()
-        : fileCheckpointer({ dir: paths.sessionsDir }));
+        : fileCheckpointer({ dir: paths.sessionsDir, ...storage }));
 
   // `checkpointer` is declared above the tool closure at runtime; the tool is
   // invoked later, after assembly has completed, so this binding is safe.
@@ -379,7 +382,7 @@ export function assembleLiteAgent({
     removeSession(sessionId) {
       archives.delete(sessionId);
       rmSync(sessionContextDir(paths.sessionsDir, sessionId), { recursive: true, force: true });
-      if (!cfg.taskListId && !process.env.LITE_AGENT_TASK_LIST_ID) {
+      if (!cfg.taskListId) {
         taskStores.delete(sessionId);
         rmSync(join(paths.tasksDir, sessionId.replace(/[^a-zA-Z0-9_-]/g, "_")), { recursive: true, force: true });
       }

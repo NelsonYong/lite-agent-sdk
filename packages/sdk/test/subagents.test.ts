@@ -230,7 +230,7 @@ test("a subagent shares the project task list with its parent", async () => {
   await collectUntilIdle(agent, "start");
   const paths = resolveProjectPaths({ workdir: wd });
   const store = fileTaskStore({ dir: paths.tasksDir, listId: agent.sessionId });
-  expect(store.list().some((t) => t.subject === "from child")).toBe(true);
+  expect((await store.list()).some((t) => t.subject === "from child")).toBe(true);
   await agent.close();
 });
 

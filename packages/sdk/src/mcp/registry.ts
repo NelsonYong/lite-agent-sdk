@@ -32,10 +32,10 @@ export class McpRegistry {
   private lifetime = new AbortController();
   private closePromise?: Promise<void>;
 
-  constructor(private cfg: CreateLiteAgentConfig, home: string) {
+  constructor(private cfg: CreateLiteAgentConfig, home: string, projectConfigDir?: string) {
     if (cfg.tools?.some((tool) => tool.name.startsWith("mcp__") || tool.name === "mcp_connect"))
       throw new Error("Custom tools cannot use the reserved MCP namespace");
-    for (const definition of loadMcpDefinitions(home, cfg.workdir, cfg.strictMcpConfig === true, cfg.mcpServers)) {
+    for (const definition of loadMcpDefinitions(home, cfg.workdir, cfg.strictMcpConfig === true, cfg.mcpServers, projectConfigDir)) {
       this.validateTransport(definition.config);
       this.entries.set(definition.name, { ...definition, state: "configured" });
     }

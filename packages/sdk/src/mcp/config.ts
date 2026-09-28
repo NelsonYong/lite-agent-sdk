@@ -1,3 +1,4 @@
+import { resolveProjectPaths } from "../paths";
 import { readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { isDeepStrictEqual } from "node:util";
@@ -42,7 +43,7 @@ export function parseMcpConfig(name: string, input: McpServerConfig): ResolvedMc
   return parsed.data;
 }
 
-export function loadMcpDefinitions(home: string, workdir: string, strict: boolean, configured: Record<string, McpServerConfig> = {}): McpDefinition[] {
+export function loadMcpDefinitions(home: string, workdir: string, strict: boolean, configured: Record<string, McpServerConfig> = {}, projectConfigDir = resolveProjectPaths({ workdir, home }).projectConfigDir): McpDefinition[] {
   const definitions = new Map<string, McpDefinition>();
   const merge = (entries: Record<string, McpServerConfig>, source: McpSource) => {
     for (const [name, input] of Object.entries(entries)) {
@@ -54,7 +55,7 @@ export function loadMcpDefinitions(home: string, workdir: string, strict: boolea
     if (definitions.size > 32) throw new Error("MCP configuration exceeds 32 servers");
   };
   if (!strict) for (const [source, file] of [
-    ["global", join(home, "mcps.json")], ["project", join(workdir, ".lite-agent", "mcps.json")],
+    ["global", join(home, "mcps.json")], ["project", join(projectConfigDir, "mcps.json")],
   ] as const) {
     try {
       if (statSync(file).size > 256 * 1024) throw new Error("too large");

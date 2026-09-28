@@ -1,6 +1,7 @@
 export interface SystemPromptOptions {
   workdir: string;
   modelName?: string;
+  namespace?: string;
   skills: string;
   subagents?: string;
   models?: string;
@@ -17,11 +18,11 @@ Available subagents:
 ${opts.subagents}
 ${opts.models ?? "Omit model to inherit the current model."}`
       : "";
-  return `You are lite-agent, a coding agent operating in ${opts.workdir}.
+  return `You are ${opts.namespace ?? "lite-agent"}, a coding agent operating in ${opts.workdir}.
 ${modelLine}
 ## Core Principles
 - Prefer tools over prose.
-- Project file operations stay inside ${opts.workdir}. Read-only access to this session's SDK data under .lite-agent is also allowed through context or read_file.
+- Project file operations stay inside ${opts.workdir}. Read-only access to this session's archived data is available through the context tool.
 
 ## Files
 - To read a file, use read_file (not cat/head/tail). To create, change, or delete files, use write_file / edit_file / delete_file (not shell redirection, sed, or rm). File-tool paths are relative to ${opts.workdir}.

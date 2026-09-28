@@ -7,24 +7,24 @@ import { fileSpillStore, readSpilledTool } from "../src/spill";
 
 const dir = () => mkdtempSync(join(tmpdir(), "spill-"));
 
-test("fileSpillStore round-trips content through disk across instances", () => {
+test("fileSpillStore round-trips content through disk across instances", async () => {
   const d = dir();
-  const ref = fileSpillStore({ dir: d }).put("big content");
-  expect(fileSpillStore({ dir: d }).get(ref)).toBe("big content");
+  const ref = (await fileSpillStore({ dir: d }).put("big content"));
+  expect((await fileSpillStore({ dir: d }).get(ref))).toBe("big content");
 });
 
-test("fileSpillStore returns null for an unknown ref", () => {
-  expect(fileSpillStore({ dir: dir() }).get("deadbeef")).toBeNull();
+test("fileSpillStore returns null for an unknown ref", async () => {
+  expect((await fileSpillStore({ dir: dir() }).get("deadbeef"))).toBeNull();
 });
 
-test("fileSpillStore dedups identical content to the same ref", () => {
+test("fileSpillStore dedups identical content to the same ref", async () => {
   const s = fileSpillStore({ dir: dir() });
-  expect(s.put("same")).toBe(s.put("same"));
+  expect((await s.put("same"))).toBe((await s.put("same")));
 });
 
 test("readSpilledTool returns the spilled content by ref", async () => {
   const store = memorySpillStore();
-  const ref = store.put("recovered text");
+  const ref = (await store.put("recovered text"));
   const out = await readSpilledTool(store).execute({ ref }, {} as any);
   expect(out).toBe("recovered text");
 });

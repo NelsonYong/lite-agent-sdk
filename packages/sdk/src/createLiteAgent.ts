@@ -1,3 +1,6 @@
+import { resolve } from "node:path";
+import { validateStorageCodec } from "./storage";
+import type { ProjectPaths } from "./paths";
 import { HookRegistry } from "./hooks/registry";
 import { HookRuntime } from "./hooks/runtime";
 import { loadHookFiles } from "./hooks/files";
@@ -30,14 +33,21 @@ export function createLiteAgent(cfg: CreateLiteAgentConfig): LiteAgent {
   // One approval queue belongs to the root, including every child. CLI prompts
   // must never overlap when tools or agents execute concurrently.
   const onApproval = cfg.onApproval ? serialApproval(cfg.onApproval) : undefined;
-  const paths = resolveProjectPaths({ workdir: cfg.workdir, home: cfg.home });
-  const hooks = new HookRegistry(cfg.hookFiles === false ? [] : loadHookFiles(paths.home, cfg.workdir));
+  const paths = resolveProjectPaths({ workdir: cfg.workdir, home: cfg.home, storage: cfg.storage });
+  const hooks = new HookRegistry(cfg.hookFiles === false ? [] : loadHookFiles(paths.home, cfg.workdir, paths.projectConfigDir));
+  const codec = cfg.storage?.codec;
+  if (codec) validateStorageCodec(codec);
   const source = {
     ...cfg,
+    workdir: resolve(cfg.workdir),
+    taskListId: cfg.taskListId ?? (paths.namespace === "lite-agent" ? process.env.LITE_AGENT_TASK_LIST_ID : undefined),
+    storage: Object.freeze({ namespace: paths.namespace, home: paths.home, ...(codec ? { codec: Object.freeze({
+      id: codec.id, encode: codec.encode.bind(codec), decode: codec.decode.bind(codec),
+    }) } : {}) }),
     permission: cfg.permission ?? policy({ ask: ["bash", "write_file", "edit_file", "delete_file", "hook", "mcp_connect", "mcp__*"] }),
     onApproval,
   };
-  return createLiteAgentInstance(source, resolver, resolver.defaultModel, hooks, new McpRegistry(source, paths.home));
+  return createLiteAgentInstance(source, resolver, resolver.defaultModel, hooks, new McpRegistry(source, paths.home, paths.projectConfigDir), paths);
 }
 
 function createLiteAgentInstance(
@@ -46,6 +56,7 @@ function createLiteAgentInstance(
   active: ResolvedModel,
   registry: HookRegistry,
   mcp: McpRegistry,
+  paths: ProjectPaths,
   agentId?: string,
 ): LiteAgent {
   const cfg: RuntimeLiteAgentConfig = {
@@ -55,10 +66,6 @@ function createLiteAgentInstance(
     reasoningEffort: active.reasoningEffort ?? (active.tier ? undefined : source.reasoningEffort),
   };
   const hooks = new HookRuntime(registry, cfg, agentId);
-  const paths = resolveProjectPaths({
-    workdir: cfg.workdir,
-    home: cfg.home,
-  });
 
   if (cfg.cleanup !== false) {
     sweepStale({
@@ -100,14 +107,14 @@ function createLiteAgentInstance(
       // leak into the isolated child and reintroduce recursive subagents.
       tools: cfg.tools?.filter((tool) => tool.name !== "Agent"),
       cleanup: false,
-      taskListId: cfg.taskListId ?? process.env.LITE_AGENT_TASK_LIST_ID ?? parentSessionId,
+      taskListId: cfg.taskListId ?? parentSessionId,
       permission: cfg.permission && cfg.subagentPermission
         ? composePolicies(cfg.permission, cfg.subagentPermission)
         : cfg.permission ?? cfg.subagentPermission,
       onAskUser: undefined,
       outputSchema: undefined,
       checkpointer: cfg.checkpointer,
-    }, resolver, childModel, registry, mcp, sessionId);
+    }, resolver, childModel, registry, mcp, paths, sessionId);
     try {
       const gen = child.run(
         [{ role: "user", content: prompt }],

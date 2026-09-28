@@ -45,7 +45,7 @@ export interface UpdateTaskInput {
 export interface TaskStore {
   create(input: CreateTaskInput): Promise<Task>;
   update(input: UpdateTaskInput): Promise<Task>;
-  get(taskId: string): Task | null;
-  list(): Task[];
-  render(opts?: { activeOnly?: boolean }): string;
+  get(taskId: string): Promise<Task | null>;
+  list(): Promise<Task[]>;
+  render(opts?: { activeOnly?: boolean }): Promise<string>;
 }

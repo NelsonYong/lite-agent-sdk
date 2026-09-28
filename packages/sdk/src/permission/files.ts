@@ -1,3 +1,5 @@
+import { resolveProjectPaths } from "../paths";
+import type { AgentStorage } from "../storage";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { isAbsolute, join, relative, resolve, sep } from "node:path";
 import { z } from "zod";
@@ -28,7 +30,8 @@ const documentSchema = z.object({ version: z.literal(1), rules: z.array(ruleSche
 
 export interface PermissionFileOptions {
   workdir: string;
-  home: string;
+  home?: string;
+  storage?: Pick<AgentStorage, "namespace" | "home">;
   managedFile?: string | false;
   userFile?: string | false;
   projectFile?: string | false;
@@ -53,15 +56,16 @@ export interface FilePermissionPolicy extends PermissionPolicy {
 type Source = { layer: string; path: string };
 
 export function permissionFilePolicy(opts: PermissionFileOptions): FilePermissionPolicy {
+  const paths = resolveProjectPaths(opts);
   const sources: Source[] = [];
   const managed = opts.managedFile === false
     ? undefined
-    : opts.managedFile ?? process.env.LITE_AGENT_MANAGED_PERMISSIONS;
+    : opts.managedFile ?? (paths.namespace === "lite-agent" ? process.env.LITE_AGENT_MANAGED_PERMISSIONS : undefined);
   if (managed) sources.push({ layer: "managed", path: resolve(managed) });
   if (opts.userFile !== false)
-    sources.push({ layer: "user", path: resolve(opts.userFile ?? join(opts.home, "permissions.json")) });
+    sources.push({ layer: "user", path: resolve(opts.userFile ?? join(paths.home, "permissions.json")) });
   if (opts.projectFile !== false)
-    sources.push({ layer: "project", path: resolve(opts.projectFile ?? join(opts.workdir, ".lite-agent", "permissions.json")) });
+    sources.push({ layer: "project", path: resolve(opts.projectFile ?? join(paths.projectConfigDir, "permissions.json")) });
 
   let stamps = new Map<string, string>();
   let compiled: PermissionPolicy;

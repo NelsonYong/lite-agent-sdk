@@ -51,8 +51,8 @@ const sandbox = resourceLimitedSandbox(sandboxRuntime({
   requireSandbox: true,
   allowedDomains: [],
   allowWrite: [workdir],
-  denyWrite: [paths.home, join(workdir, '.lite-agent')],
-  denyRead: ['~/.ssh', '~/.aws', '~/.config', paths.home, join(workdir, '.lite-agent')],
+  denyWrite: [paths.home, paths.projectConfigDir],
+  denyRead: ['~/.ssh', '~/.aws', '~/.config', paths.home, paths.projectConfigDir],
 }));
 let database: ReturnType<typeof sqliteCheckpointer> | undefined;
 let agent: LiteAgent | undefined;

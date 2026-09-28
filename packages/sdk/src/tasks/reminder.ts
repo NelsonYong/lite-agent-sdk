@@ -19,7 +19,7 @@ export function taskReminder(store: TaskStoreSource): Middleware {
   return {
     name: "task-reminder",
     async *wrapModelCall(ctx, next) {
-      const block = taskStoreFor(store, ctx.sessionId).render({ activeOnly: true });
+      const block = await taskStoreFor(store, ctx.sessionId).render({ activeOnly: true });
       if (!block) {
         yield* next();
         return;

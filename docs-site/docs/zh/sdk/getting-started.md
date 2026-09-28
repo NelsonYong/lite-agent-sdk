@@ -110,3 +110,5 @@ console.log(second.text);
 - [核心策略](/zh/core/strategies) —— 用内核原语构建自己的 agent。
 
 `query()` 与 `createLiteAgent()` 统一使用 `workdir`、`system`；旧的 `cwd`、`systemPrompt` 仍兼容，但冲突配置会报错。Shell 和文件修改默认需要审批；OS 隔离仍需配置沙箱，工作目录本身不能限制 Shell。普通接入先使用 `createLiteAgent`、`send`、`subscribe`、`close`，底层组装能力按需使用 `@lite-agent/core`。
+
+需要统一修改默认 `.lite-agent` 目录名称或编码持久化数据，请参阅[存储与命名空间](/zh/sdk/core-concepts/storage)。

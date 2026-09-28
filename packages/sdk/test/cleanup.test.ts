@@ -40,7 +40,7 @@ test("deletes files older than maxAgeDays, keeps fresh ones, across projects", (
   expect(existsSync(freshA)).toBe(true);
 });
 
-test("discards a legacy whole-array session transcript regardless of age", () => {
+test("preserves fresh unrecognized session formats", () => {
   const home = mkdtempSync(join(tmpdir(), "sweep-"));
   // A pre-event-sourcing transcript: first line is a bare Message, not a `{seq:..}` event.
   const legacy = seed(home, "projA", "sessions", "fresh.jsonl", 1, '{"role":"user","content":"hi"}');
@@ -49,7 +49,7 @@ test("discards a legacy whole-array session transcript regardless of age", () =>
 
   sweepStale({ home, maxAgeDays: 30 });
 
-  expect(existsSync(legacy)).toBe(false);
+  expect(existsSync(legacy)).toBe(true);
   expect(existsSync(kept)).toBe(true);
 });
 

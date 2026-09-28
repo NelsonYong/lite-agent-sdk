@@ -105,8 +105,8 @@ test("deleting a session removes its own archive without deleting another sessio
   await agent.send("hello");
   const { sessionsDir } = resolveProjectPaths({ workdir, home });
   const own = sessionContextDir(sessionsDir, agent.sessionId), other = sessionContextDir(sessionsDir, "other");
-  fileContextArchive({ dir: own }).put("own data");
-  fileContextArchive({ dir: other }).put("other data");
+  (await fileContextArchive({ dir: own }).put("own data"));
+  (await fileContextArchive({ dir: other }).put("other data"));
   await agent.deleteSession(agent.sessionId);
   expect(existsSync(own)).toBe(false);
   expect(existsSync(other)).toBe(true);

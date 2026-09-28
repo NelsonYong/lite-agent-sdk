@@ -20,8 +20,8 @@ test.each(["completed", "failed", "cancelled"] as const)("tracked child %s produ
   const { ctx, bg } = ctxWithBackground();
   await tool.execute({ tasks: [{ display_name: "Worker", subagent_type: "worker", prompt: "go" }] }, ctx);
   await completion(bg);
-  expect(store.list()).toHaveLength(1);
-  expect(store.list()[0]).toMatchObject({
+  expect((await store.list())).toHaveLength(1);
+  expect((await store.list())[0]).toMatchObject({
     status: status === "completed" ? "review" : status,
     execution: { status: status === "completed" ? "succeeded" : status, agentId: expect.any(String) },
   });
@@ -39,7 +39,7 @@ test("a blocked task is not dispatched and remains pending", async () => {
   await tool.execute({ tasks: [{ display_name: "Second", subagent_type: "worker", prompt: "go", task_id: "2" }] }, ctx);
   expect((await completion(bg)).content).toContain("unfinished dependencies");
   expect(spawn).not.toHaveBeenCalled();
-  expect(store.get("2")?.status).toBe("pending");
+  expect((await store.get("2"))?.status).toBe("pending");
   bg.cancelAll();
 });
 

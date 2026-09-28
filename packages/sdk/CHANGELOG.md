@@ -1,5 +1,37 @@
 # lite-agent
 
+## 0.18.0
+
+### Minor Changes
+
+- Add `storage.namespace`, `storage.home` and `storage.codec` to `createLiteAgent`
+  and `query`. Resolve global/project configuration, skills, agent definitions,
+  sessions, tasks and archives once and share the layout with child agents.
+  Custom namespaces do not inherit `LITE_AGENT_*` home/task/permission settings.
+- Add async `StorageCodec` encode/decode callbacks with stable logical scope and
+  versioned record envelopes. Built-in session events, checkpoint snapshots,
+  tasks, archive bodies/previews/indexes and legacy spill data use the codec;
+  configuration files and host-supplied backends retain their own formats.
+- Make archive operations and task reads/rendering asynchronous. Direct users of
+  `ContextArchive`, `fileSpillStore` and `TaskStore.get/list/render` must await
+  results. Top-level `home` is deprecated in favor of `storage.home`; conflicting
+  values fail explicitly. Existing encoded/plaintext data requires explicit migration.
+
+### Patch Changes
+
+- Hold file locks across asynchronous checkpoint, task and archive operations;
+  finish encoding whole checkpoint batches and task dependency updates before
+  writes. Use private runtime files and encoded atomic-replacement temporaries.
+- Fail closed on codec errors and malformed runtime records without leaking
+  callback messages, dropping unreadable tasks, repairing encrypted records or
+  falling back to plaintext. Keep archive references independent of storage paths.
+- Retrieve decoded archives through the session-scoped context tool without
+  granting raw encoded logs additional file-tool read access. Reject symlink
+  records and changed storage roots. Reject invalid file session/task-list ids
+  instead of silently mapping distinct ids onto the same path.
+- Stop deleting fresh session logs based on guessed formats. Retention cleanup
+  uses age/size and skips symlinks and active file locks.
+
 ## 0.17.0
 
 ### Minor Changes

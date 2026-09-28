@@ -28,6 +28,8 @@ test("resolveProjectPaths derives the project + global subpaths", () => {
   const projectDir = join("/home", "projects", projectHash("/proj"));
   expect(p).toEqual({
     home: "/home",
+    namespace: "lite-agent",
+    projectConfigDir: "/proj/.lite-agent",
     hash: projectHash("/proj"),
     spillDir: join(projectDir, "spill"),
     sessionsDir: join(projectDir, "sessions"),

@@ -13,34 +13,34 @@ test("create allocates sequential ids and get/list read them back", async () => 
   const b = await s.create({ subject: "second", description: "d2" });
   expect([a.id, b.id]).toEqual(["1", "2"]);
   expect(a.status).toBe("pending");
-  expect(s.get("1")?.subject).toBe("first");
-  expect(s.list().map((t) => t.id)).toEqual(["1", "2"]);
+  expect((await s.get("1"))?.subject).toBe("first");
+  expect((await s.list()).map((t) => t.id)).toEqual(["1", "2"]);
 });
 
 test("get returns null for an unknown id", async () => {
-  expect(newStore().get("99")).toBeNull();
+  expect((await newStore().get("99"))).toBeNull();
 });
 
 test("tasks persist across store instances on the same dir", async () => {
   const dir = mkdtempSync(join(tmpdir(), "tasks-"));
   await fileTaskStore({ dir, listId: "default" }).create({ subject: "kept", description: "d" });
-  expect(fileTaskStore({ dir, listId: "default" }).get("1")?.subject).toBe("kept");
+  expect((await fileTaskStore({ dir, listId: "default" }).get("1"))?.subject).toBe("kept");
 });
 
 test("render shows a marker + status per task and empty string for none", async () => {
   const s = newStore();
-  expect(s.render()).toBe("");
+  expect((await s.render())).toBe("");
   await s.create({ subject: "build it", description: "d" });
-  expect(s.render()).toContain("[ ] #1 build it (pending)");
+  expect((await s.render())).toContain("[ ] #1 build it (pending)");
 });
 
-test("get sanitizes the id so it cannot traverse outside the list dir", () => {
+test("get sanitizes the id so it cannot traverse outside the list dir", async () => {
   const parent = mkdtempSync(join(tmpdir(), "tasks-"));
   mkdirSync(join(parent, "default"), { recursive: true });
   // A file OUTSIDE the list dir that an unsanitized "../secret" id would resolve to.
   writeFileSync(join(parent, "secret.json"), JSON.stringify({ id: "x", subject: "SECRET" }));
   const s = fileTaskStore({ dir: parent, listId: "default" });
-  expect(s.get("../secret")).toBeNull();
+  expect((await s.get("../secret"))).toBeNull();
 });
 
 test("update changes status and merges metadata", async () => {
@@ -49,7 +49,7 @@ test("update changes status and merges metadata", async () => {
   const t = await s.update({ taskId: "1", status: "in_progress", metadata: { k: 1 } });
   expect(t.status).toBe("in_progress");
   expect(t.metadata).toEqual({ k: 1 });
-  expect(s.get("1")?.status).toBe("in_progress");
+  expect((await s.get("1"))?.status).toBe("in_progress");
 });
 
 test("addBlockedBy maintains both sides of the dependency", async () => {
@@ -57,8 +57,8 @@ test("addBlockedBy maintains both sides of the dependency", async () => {
   await s.create({ subject: "a", description: "d" }); // #1
   await s.create({ subject: "b", description: "d" }); // #2
   await s.update({ taskId: "2", addBlockedBy: ["1"] });
-  expect(s.get("2")?.blockedBy).toEqual(["1"]);
-  expect(s.get("1")?.blocks).toEqual(["2"]);
+  expect((await s.get("2"))?.blockedBy).toEqual(["1"]);
+  expect((await s.get("1"))?.blocks).toEqual(["2"]);
 });
 
 test("update on an unknown task id throws", async () => {
@@ -72,7 +72,7 @@ test("a dependency edge that would create a cycle is rejected", async () => {
   await s.update({ taskId: "2", addBlockedBy: ["1"] });          // 2 waits for 1
   await expect(s.update({ taskId: "1", addBlockedBy: ["2"] }))   // 1 waits for 2 → cycle
     .rejects.toThrow(/cycle/);
-  expect(s.get("1")?.blockedBy).toEqual([]); // rejected → no partial write
+  expect((await s.get("1"))?.blockedBy).toEqual([]); // rejected → no partial write
 });
 
 test("addBlocks maintains both sides of the dependency", async () => {
@@ -80,8 +80,8 @@ test("addBlocks maintains both sides of the dependency", async () => {
   await s.create({ subject: "a", description: "d" }); // #1
   await s.create({ subject: "b", description: "d" }); // #2
   await s.update({ taskId: "1", addBlocks: ["2"] });
-  expect(s.get("1")?.blocks).toEqual(["2"]);
-  expect(s.get("2")?.blockedBy).toEqual(["1"]);
+  expect((await s.get("1"))?.blocks).toEqual(["2"]);
+  expect((await s.get("2"))?.blockedBy).toEqual(["1"]);
 });
 
 test("a rejected cycle update writes neither side to disk", async () => {
@@ -90,8 +90,8 @@ test("a rejected cycle update writes neither side to disk", async () => {
   await s.create({ subject: "b", description: "d" }); // #2
   await s.update({ taskId: "2", addBlockedBy: ["1"] });        // 2 waits for 1
   await expect(s.update({ taskId: "1", addBlockedBy: ["2"] })).rejects.toThrow(/cycle/);
-  expect(s.get("1")?.blockedBy).toEqual([]);   // primary side not written
-  expect(s.get("2")?.blocks).toEqual([]);      // counter side not written either (no partial write)
+  expect((await s.get("1"))?.blockedBy).toEqual([]);   // primary side not written
+  expect((await s.get("2"))?.blocks).toEqual([]);      // counter side not written either (no partial write)
 });
 
 test("concurrent creates on the same dir get distinct ids (lock works)", async () => {
@@ -103,17 +103,17 @@ test("concurrent creates on the same dir get distinct ids (lock works)", async (
     b.create({ subject: "from-b", description: "d" }),
   ]);
   expect(new Set(results.map((t) => t.id)).size).toBe(2);
-  expect(a.list().length).toBe(2);
+  expect((await a.list()).length).toBe(2);
 });
 
-test("a malformed task file is skipped instead of crashing reads", async () => {
+test("a malformed task file fails closed without hiding tasks", async () => {
   const dir = mkdtempSync(join(tmpdir(), "tasks-"));
   const s = fileTaskStore({ dir, listId: "default" });
   await s.create({ subject: "good", description: "d" }); // writes default/1.json
   writeFileSync(join(dir, "default", "2.json"), "{ not valid json"); // corrupt sibling
-  expect(s.list().map((t) => t.subject)).toEqual(["good"]); // bad file skipped, not thrown
-  expect(() => s.render()).not.toThrow();
-  expect(s.get("2")).toBeNull(); // unparseable single read → null, not a throw
+  await expect(s.list()).rejects.toThrow("Corrupt task");
+  await expect(s.render()).rejects.toThrow("Corrupt task");
+  await expect(s.get("2")).rejects.toThrow("Corrupt task");
 });
 
 test("dependencies block starting and completing tasks until prerequisites pass", async () => {
@@ -123,11 +123,11 @@ test("dependencies block starting and completing tasks until prerequisites pass"
   await s.update({ taskId: "2", addBlockedBy: ["1"] });
   await expect(s.update({ taskId: "2", status: "in_progress" })).rejects.toThrow(/unfinished dependencies/);
   await expect(s.update({ taskId: "2", status: "completed" })).rejects.toThrow(/unfinished dependencies/);
-  expect(s.get("2")?.status).toBe("pending");
+  expect((await s.get("2"))?.status).toBe("pending");
   await s.update({ taskId: "1", status: "completed" });
   await s.update({ taskId: "2", status: "in_progress" });
-  expect(s.render({ activeOnly: true })).not.toContain("blockedBy");
-  expect(s.render({ activeOnly: true })).not.toContain("#1");
+  expect((await s.render({ activeOnly: true }))).not.toContain("blockedBy");
+  expect((await s.render({ activeOnly: true }))).not.toContain("#1");
 });
 
 test("concurrent claims have one owner and running work cannot be manually completed", async () => {
@@ -138,9 +138,9 @@ test("concurrent claims have one owner and running work cannot be manually compl
   })));
   expect(claims.filter((c) => c.status === "fulfilled")).toHaveLength(1);
   await expect(s.update({ taskId: "1", status: "completed" })).rejects.toThrow(/running agent/);
-  const agentId = s.get("1")!.owner!;
+  const agentId = (await s.get("1"))!.owner!;
   await s.update({ taskId: "1", status: "review", execution: { agentId, status: "succeeded", result: "artifact" } });
-  expect(s.get("1")?.status).toBe("review");
+  expect((await s.get("1"))?.status).toBe("review");
   await s.update({ taskId: "1", status: "completed" });
-  expect(s.render({ activeOnly: true })).toBe("");
+  expect((await s.render({ activeOnly: true }))).toBe("");
 });

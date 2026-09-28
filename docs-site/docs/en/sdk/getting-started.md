@@ -110,3 +110,5 @@ The `LiteAgent` also gives you session management: `resume(id)`, `clear()`, `lis
 - [Core strategies](/core/strategies) — build your own agent from kernel primitives.
 
 `query()` uses the same `workdir` and `system` names as `createLiteAgent()`. The old `cwd` and `systemPrompt` aliases still work; conflicting aliases are rejected. Shell and file mutations require approval by default. Add a sandbox for OS isolation; setting a working directory does not contain shell commands. Start with `createLiteAgent`, `send`, `subscribe`, and `close`; use `@lite-agent/core` only for lower-level assembly.
+
+To brand the default `.lite-agent` directories or encode persisted data, see [Storage and namespaces](/sdk/core-concepts/storage).

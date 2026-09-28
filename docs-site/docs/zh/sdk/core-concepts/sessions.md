@@ -48,7 +48,7 @@ await agent.restore(agent.sessionId, checkpoints[2].seq); // undo everything aft
 
 ## 持久化到外部存储
 
-默认的 `fileCheckpointer` 是单进程的。当同一台机器上的多个进程需要共享会话——HTTP 服务器、worker 池、并行 CLI 运行——换成 `@lite-agent/checkpoint-sqlite` 的 SQLite 后端：
+默认 `fileCheckpointer` 用文件锁串行化同一会话的操作，锁覆盖异步编码。需要数据库事务及高效并发读取时，使用 SQLite。当同一台机器上的多个进程需要共享会话——HTTP 服务器、worker 池、并行 CLI 运行——换成 `@lite-agent/checkpoint-sqlite` 的 SQLite 后端：
 
 ```bash
 pnpm add @lite-agent/checkpoint-sqlite
@@ -89,3 +89,5 @@ SQLite 后端提供基于 WAL 的并发读取、原子 seq 分配和**乐观并�
 `sessions: false` 关闭会话落盘，但运行期仍在内存中保留对话，使后台补全轮次能看到原始用户目标；持久化会话管理方法仍不可用。关闭 Agent 后不保留该内存状态。
 
 `close()` 在释放自身状态前取消前台流、后台工作和维护操作。审批／输入处理器可接收第二个 `AbortSignal` 参数，用于关闭等待中的提示。自定义工具／provider 必须配合取消。删除会话会删除其归档与私有任务列表，显式共享的任务列表保留。
+
+通过[存储与命名空间](/zh/sdk/core-concepts/storage)配置统一目录和运行数据编码。自定义 checkpoint 后端负责自己的序列化。

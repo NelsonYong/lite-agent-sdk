@@ -1,3 +1,4 @@
+import type { AgentStorage } from "./storage";
 import type { HookRuntime } from "./hooks/runtime";
 import type { HookHandler, HookName, HookOptions } from "./hooks/types";
 import { AgentError, estimateTokens, foldEvents, abortable, streamOperation } from "@lite-agent/core";
@@ -94,15 +95,17 @@ export interface CreateLiteAgentConfig extends ModelConfiguration {
   /** Event-sourced persistence backend. Default: fileCheckpointer under the project's sessions dir. Overrides `store`. */
   checkpointer?: Checkpointer;
   store?: Store;
-  /** Override the global home (default `$LITE_AGENT_HOME` || `~/.lite-agent`). */
+  /** @deprecated Use storage.home. */
   home?: string;
+  /** Shared config/data layout and optional encoding for built-in runtime stores. */
+  storage?: AgentStorage;
   /** Persist sessions to disk by default. False retains only in-memory conversation state. Ignored with an explicit checkpointer/store. */
   sessions?: boolean;
   /** @deprecated Use automatic `context` archive management. Kept as a one-release adapter. */
   spill?: boolean | { budgetBytes?: number };
   /** Persistent Tasks API (TaskCreate/Update/Get/List) + per-turn reminder. Default true. */
   tasks?: boolean;
-  /** Explicit shared task-list id. Default `$LITE_AGENT_TASK_LIST_ID` or the current session id. */
+  /** Shared task-list id. The default namespace also accepts `$LITE_AGENT_TASK_LIST_ID`; otherwise session-local. */
   taskListId?: string;
   /** File-defined subagents + the `Agent` dispatch tool. Default true. */
   agents?: boolean;

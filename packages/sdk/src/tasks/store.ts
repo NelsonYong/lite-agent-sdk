@@ -1,4 +1,8 @@
-import { mkdirSync, writeFileSync, readFileSync, readdirSync, renameSync, existsSync } from "node:fs";
+import { storageDirectory } from "../storageFiles";
+import { atomicWriteFile } from "../tools/file";
+import { storageEncoding, StorageError } from "../storage";
+import type { StorageEncoding } from "../storage";
+import { readFileSync, readdirSync, existsSync } from "node:fs";
 import { join } from "node:path";
 import { lock } from "proper-lockfile";
 import type { Task, TaskStore, CreateTaskInput, UpdateTaskInput, TaskStatus } from "./types";
@@ -27,7 +31,7 @@ function hasCycle(map: Map<string, Task>): boolean {
   return false;
 }
 
-export interface FileTaskStoreOptions {
+export interface FileTaskStoreOptions extends StorageEncoding {
   /** Parent dir (paths.tasksDir). The list lives under `<dir>/<listId>/`. */
   dir: string;
   /** Which task list — one subdir per id. */
@@ -35,56 +39,40 @@ export interface FileTaskStoreOptions {
 }
 
 export function fileTaskStore(opts: FileTaskStoreOptions): TaskStore {
-  const dir = join(opts.dir, opts.listId.replace(/[^a-zA-Z0-9_-]/g, "_"));
-  const fileFor = (id: string) => join(dir, `${id.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`);
+  if (!/^[a-zA-Z0-9_-]+$/.test(opts.listId)) throw new StorageError("File task-list ids must contain only letters, digits, underscores or hyphens");
+  const safe = storageDirectory(join(opts.dir, opts.listId));
+  const fileFor = (id: string) => safe(`${id.replace(/[^a-zA-Z0-9_-]/g, "_")}.json`);
 
-  const readAll = (): Task[] => {
-    if (!existsSync(dir)) return [];
-    return readdirSync(dir)
-      .filter((f) => f.endsWith(".json"))
-      .flatMap((f) => {
-        try {
-          return [JSON.parse(readFileSync(join(dir, f), "utf8")) as Task];
-        } catch {
-          return []; // skip a corrupted/foreign file rather than wedging every read (the reminder calls render() each turn)
-        }
-      })
-      .sort((a, b) => Number(a.id) - Number(b.id));
-  };
-
-  const writeAtomic = (task: Task): void => {
-    const tmp = `${fileFor(task.id)}.tmp`;
-    writeFileSync(tmp, JSON.stringify(task, null, 2));
-    renameSync(tmp, fileFor(task.id)); // atomic on POSIX → readers never see a torn file
-  };
-
-  const withLock = async <T>(fn: () => T): Promise<T> => {
-    mkdirSync(dir, { recursive: true });
-    const release = await lock(dir, LOCK_OPTS);
+  const encoding = storageEncoding(opts);
+  const encode = (task: Task) => encoding.encode(JSON.stringify(task, null, 2), encoding.context("task", opts.listId, task.id));
+  const readTask = async (id: string): Promise<Task> => {
+    const text = await encoding.decode(readFileSync(fileFor(id), "utf8"), encoding.context("task", opts.listId, id));
     try {
-      return fn();
-    } finally {
-      await release();
-    }
+      const task = JSON.parse(text) as Task;
+      if (task.id !== id || typeof task.subject !== "string" || !Array.isArray(task.blockedBy) || !Array.isArray(task.blocks) || !(task.status in MARK))
+        throw new Error("Invalid task");
+      return task;
+    } catch { throw new StorageError("Corrupt task record"); }
   };
-
-  const get = (taskId: string): Task | null => {
-    const fp = fileFor(taskId);
-    if (!existsSync(fp)) return null;
-    try {
-      return JSON.parse(readFileSync(fp, "utf8")) as Task;
-    } catch {
-      return null;
-    }
+  const readAll = async (): Promise<Task[]> => {
+    const tasks: Task[] = [];
+    for (const file of readdirSync(safe()).filter((f) => f.endsWith(".json")))
+      tasks.push(await readTask(file.slice(0, -5)));
+    return tasks.sort((a, b) => Number(a.id) - Number(b.id));
   };
+  const withLock = async <T>(fn: () => Promise<T>): Promise<T> => {
+    const release = await lock(safe(), LOCK_OPTS);
+    try { return await fn(); } finally { await release(); }
+  };
+  const get = async (taskId: string): Promise<Task | null> => existsSync(fileFor(taskId)) ? readTask(taskId) : null;
 
   const store: TaskStore = {
-    get,
-    list: readAll,
+    get: (id) => withLock(() => get(id)),
+    list: () => withLock(readAll),
 
     async create(input: CreateTaskInput) {
-      return withLock(() => {
-        const id = String(readAll().reduce((m, t) => Math.max(m, Number(t.id)), 0) + 1);
+      return withLock(async () => {
+        const id = String((await readAll()).reduce((m, t) => Math.max(m, Number(t.id)), 0) + 1);
         const now = Date.now();
         const task: Task = {
           id,
@@ -98,14 +86,15 @@ export function fileTaskStore(opts: FileTaskStoreOptions): TaskStore {
           createdAt: now,
           updatedAt: now,
         };
-        writeAtomic(task);
+        const encoded = await encode(task);
+        atomicWriteFile(fileFor(task.id), encoded, 0o600);
         return task;
       });
     },
 
     async update(input: UpdateTaskInput) {
-      return withLock(() => {
-        const map = new Map(readAll().map((t) => [t.id, t]));
+      return withLock(async () => {
+        const map = new Map((await readAll()).map((t) => [t.id, t]));
         const task = map.get(input.taskId);
         if (!task) throw new Error(`no task '${input.taskId}'`);
 
@@ -152,17 +141,20 @@ export function fileTaskStore(opts: FileTaskStoreOptions): TaskStore {
         }
 
         const now = Date.now();
+        const writes: Array<{ id: string; content: string }> = [];
         for (const id of touched) {
           const t = map.get(id)!;
           t.updatedAt = now;
-          writeAtomic(t); // only reached after all validation → no partial write on error
+          writes.push({ id, content: await encode(t) });
         }
+        // Codec failures cannot commit a partial dependency update.
+        for (const write of writes) atomicWriteFile(fileFor(write.id), write.content, 0o600);
         return task;
       });
     },
 
-    render(opts) {
-      const all = readAll();
+    async render(opts) {
+      const all = await withLock(readAll);
       const completed = new Set(all.filter((t) => t.status === "completed").map((t) => t.id));
       const tasks = opts?.activeOnly ? all.filter((t) => t.status !== "completed" && t.status !== "cancelled") : all;
       if (!tasks.length) return "";

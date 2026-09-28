@@ -48,7 +48,7 @@ Set `sessions: false` to keep conversation state in memory without writing a ses
 
 ## Persisting to external storage
 
-The default `fileCheckpointer` is single-process. When several processes on one host must share sessions — an HTTP server, a worker pool, parallel CLI runs — swap in the SQLite backend from `@lite-agent/checkpoint-sqlite`:
+The default `fileCheckpointer` serializes each session with file locks, including async encoding. For database transactions and efficient concurrent readers, use SQLite. When several processes on one host must share sessions — an HTTP server, a worker pool, parallel CLI runs — swap in the SQLite backend from `@lite-agent/checkpoint-sqlite`:
 
 ```bash
 pnpm add @lite-agent/checkpoint-sqlite
@@ -87,3 +87,5 @@ Multi-**host** concurrency (networked FS, distributed writers) is out of scope f
 - [Agent loop](/sdk/core-concepts/agent-loop) — what happens inside each turn of a session.
 
 `close()` aborts active foreground streams, background work and maintenance operations before releasing owned state. Approval and input handlers accept an optional second `AbortSignal`; use it to dismiss prompts. Custom tools/providers must cooperate with cancellation. Deleting a session removes its archive and its private task list; explicitly shared task lists remain.
+
+Configure the directory namespace and runtime encoding through [Storage and namespaces](/sdk/core-concepts/storage). Custom checkpoint backends own their serialization.

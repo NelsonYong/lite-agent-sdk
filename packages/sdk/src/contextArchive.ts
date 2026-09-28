@@ -1,9 +1,12 @@
+import { storageDirectory } from "./storageFiles";
+import { lock } from "proper-lockfile";
+import { storageEncoding, StorageError } from "./storage";
+import type { StorageEncoding } from "./storage";
 import { createHash } from "node:crypto";
-import { existsSync, mkdirSync, readFileSync, lstatSync, realpathSync, openSync, writeFileSync, fsyncSync, closeSync, constants } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, mkdirSync, readFileSync, openSync, writeFileSync, fsyncSync, closeSync, constants } from "node:fs";
 import { z } from "zod";
 import { defineTool } from "@lite-agent/core";
-import { atomicWriteFile, resolveSafePath } from "./tools/file";
+import { atomicWriteFile } from "./tools/file";
 import type { Tool } from "@lite-agent/core";
 
 export type ContextArchiveMetadata = Readonly<Record<string, unknown>>;
@@ -14,12 +17,14 @@ export interface ContextArchivePutResult {
 }
 
 export interface ContextArchive {
-  put(content: string, metadata?: ContextArchiveMetadata): ContextArchivePutResult;
-  search(query: string, limit?: number, generation?: number): string;
-  read(ref: string, generation: number, opts?: { offset?: number; limit?: number }): string;
+  put(content: string, metadata?: ContextArchiveMetadata): Promise<ContextArchivePutResult>;
+  search(query: string, limit?: number, generation?: number): Promise<string>;
+  read(ref: string, generation: number, opts?: { offset?: number; limit?: number }): Promise<string>;
 }
 
-export interface FileContextArchiveOptions {
+export interface FileContextArchiveOptions extends StorageEncoding {
+  /** Stable logical scope; independent of the physical archive directory. */
+  sessionId?: string;
   dir: string;
   maxReadBytes?: number;
 }
@@ -45,7 +50,7 @@ export function contextLookupTool(opts: ContextLookupToolOptions): Tool {
       const archive = opts.archiveFor(ctx.sessionId);
       if (ref) {
         const generation = await opts.generationFor?.(ctx.sessionId) ?? 0;
-        const result = archive.read(ref, generation, { offset, limit });
+        const result = await archive.read(ref, generation, { offset, limit });
         return opts.legacyMissing && result.includes("No archived content for this ref.")
           ? `No spilled content for ref '${ref}'`
           : result;
@@ -116,15 +121,10 @@ function isRef(value: string): boolean {
 }
 
 export function fileContextArchive(opts: FileContextArchiveOptions): ContextArchive {
-  const directory = resolve(opts.dir);
-  mkdirSync(directory, { recursive: true });
-  if (lstatSync(directory).isSymbolicLink()) throw new Error("Archive directory must not be a symlink");
-  const root = realpathSync(directory);
-  const safe = (path: string) => {
-    if (lstatSync(directory).isSymbolicLink() || realpathSync(directory) !== root)
-      throw new Error("Archive directory changed");
-    return resolveSafePath(root, path, { mode: "read", symlinks: "deny" });
-  };
+  const encoding = storageEncoding(opts);
+  const context = (kind: "archive" | "archive-index", id: string) => encoding.context(kind, opts.sessionId ?? "standalone", id);
+  const safe = storageDirectory(opts.dir);
+  const root = safe();
   const indexFile = () => safe("index.jsonl");
   const noteFile = (ref: string) => {
     if (!isRef(ref)) throw new Error("Invalid archive reference");
@@ -136,21 +136,30 @@ export function fileContextArchive(opts: FileContextArchiveOptions): ContextArch
   if (!Number.isInteger(maxReadBytes) || maxReadBytes < 256) {
     throw new RangeError("maxReadBytes must be an integer of at least 256 bytes");
   }
-  const readIndex = (): ArchiveIndexEntry[] => {
-    if (!existsSync(indexFile())) return [];
-    return readFileSync(indexFile(), "utf8")
-      .split("\n")
-      .filter(Boolean)
-      .flatMap((line) => {
-        try {
-          const entry = JSON.parse(line) as ArchiveIndexEntry;
-          return isRef(entry.ref) && typeof entry.preview === "string" ? [entry] : [];
-        } catch {
-          return [];
-        }
-      });
+  const withLock = async <T>(fn: () => Promise<T>): Promise<T> => {
+    safe("index.jsonl");
+    const release = await lock(root, { retries: { retries: 30, minTimeout: 5, maxTimeout: 100 } });
+    try { return await fn(); } finally { await release(); }
   };
-  const budgeted = (generation: number, render: (budget: number) => string): string => {
+  const readIndex = async (): Promise<ArchiveIndexEntry[]> => {
+    if (!existsSync(indexFile())) return [];
+    const entries: ArchiveIndexEntry[] = [];
+    for (const line of readFileSync(indexFile(), "utf8").split("\n").filter(Boolean)) {
+      const text = await encoding.decode(line, context("archive-index", String(entries.length)));
+      try {
+        const entry = JSON.parse(text) as ArchiveIndexEntry;
+        if (!isRef(entry.ref) || typeof entry.preview !== "string") throw new Error("invalid index");
+        entries.push(entry);
+      } catch { throw new StorageError("Corrupt archive index"); }
+    }
+    return entries;
+  };
+  const readNote = async (ref: string): Promise<string> => {
+    const content = await encoding.decode(readFileSync(noteFile(ref), "utf8"), context("archive", ref));
+    if (createHash("sha256").update(content).digest("hex") !== ref) throw new StorageError("Archive integrity mismatch");
+    return content;
+  };
+  const budgeted = async (generation: number, render: (budget: number) => string | Promise<string>): Promise<string> => {
     if (remainingByGeneration.size > 64) {
       remainingByGeneration.clear();
       lastReadGeneration.clear();
@@ -159,23 +168,26 @@ export function fileContextArchive(opts: FileContextArchiveOptions): ContextArch
     if (remaining < 256) {
       return `<historical-context generation="${generation}" data-only="true">\n${HISTORICAL_WARNING}\nRead budget exhausted.\n</historical-context>`;
     }
-    const result = render(remaining);
+    const result = await render(remaining);
     remainingByGeneration.set(generation, Math.max(0, remaining - byteLength(result)));
     return result;
   };
 
   return {
-    put(content: string, metadata?: ContextArchiveMetadata) {
+    put: (content: string, metadata?: ContextArchiveMetadata) => withLock(async () => {
       const ref = createHash("sha256").update(content).digest("hex");
       const preview = previewFor(content);
       mkdirSync(safe("notes"), { recursive: true });
+      const entries = await readIndex();
+      const encodedNote = await encoding.encode(content, context("archive", ref));
+      const encodedIndex = await encoding.encode(JSON.stringify({ ref, preview, ...(metadata ? { metadata } : {}) }), context("archive-index", String(entries.length)));
       const note = noteFile(ref);
-      if (!existsSync(note)) atomicWriteFile(note, content);
-      else if (readFileSync(note, "utf8") !== content) throw new Error("Archive integrity mismatch");
-      if (!readIndex().some((entry) => entry.ref === ref)) {
+      if (!existsSync(note)) atomicWriteFile(note, encodedNote, 0o600);
+      else if (await readNote(ref) !== content) throw new StorageError("Archive integrity mismatch");
+      if (!entries.some((entry) => entry.ref === ref)) {
         const fd = openSync(indexFile(), constants.O_WRONLY | constants.O_CREAT | constants.O_APPEND | constants.O_NOFOLLOW, 0o600);
         try {
-          writeFileSync(fd, `${JSON.stringify({ ref, preview, ...(metadata ? { metadata } : {}) })}\n`);
+          writeFileSync(fd, `${encodedIndex}\n`);
           fsyncSync(fd);
         } finally { closeSync(fd); }
         try {
@@ -184,15 +196,15 @@ export function fileContextArchive(opts: FileContextArchiveOptions): ContextArch
         } catch { /* directory fsync is unavailable on some platforms */ }
       }
       return { ref, preview };
-    },
-    search(query: string, limit = 5, generation = 0) {
+    }),
+    search: (query: string, limit = 5, generation = 0) => withLock(async () => {
       const needle = query.toLowerCase();
       const matches: ArchiveIndexEntry[] = [];
       const count = Math.max(0, Math.floor(limit));
-      for (const entry of readIndex()) {
+      for (const entry of await readIndex()) {
         if (matches.length >= count) break;
         const note = noteFile(entry.ref);
-        const content = existsSync(note) ? readFileSync(note, "utf8") : "";
+        const content = existsSync(note) ? await readNote(entry.ref) : "";
         if (`${entry.ref}\n${entry.preview}\n${JSON.stringify(entry.metadata)}\n${content}`.toLowerCase().includes(needle))
           matches.push(entry);
       }
@@ -210,20 +222,18 @@ export function fileContextArchive(opts: FileContextArchiveOptions): ContextArch
         body,
         budget,
       ));
-    },
-    read(ref: string, generation: number, options?: { offset?: number; limit?: number }) {
+    }),
+    read: (ref: string, generation: number, options?: { offset?: number; limit?: number }) => withLock(async () => {
       const offset = options?.offset ?? 0;
       const limit = options?.limit ?? maxReadBytes;
       if (!Number.isSafeInteger(offset) || offset < 0 || !Number.isSafeInteger(limit) || limit <= 0)
         throw new RangeError("offset must be non-negative and limit must be positive");
       const open = `<historical-context ref="${historicalAttr(ref)}" generation="${generation}" data-only="true">`;
-      return budgeted(generation, (budget) => {
-        if (!isRef(ref) || !readIndex().some((entry) => entry.ref === ref))
+      return budgeted(generation, async (budget) => {
+        const known = isRef(ref) && (await readIndex()).some((entry) => entry.ref === ref);
+        const content = known && existsSync(noteFile(ref)) ? await readNote(ref) : undefined;
+        if (content === undefined)
           return boundedHistorical(open, "No archived content for this ref.", budget);
-        const note = noteFile(ref);
-        if (!existsSync(note)) return boundedHistorical(open, "No archived content for this ref.", budget);
-        const content = readFileSync(note, "utf8");
-        if (createHash("sha256").update(content).digest("hex") !== ref) throw new Error("Archive integrity mismatch");
         if (offset > content.length) throw new RangeError("offset exceeds archived content length");
         if (offset > 0 && /[\uDC00-\uDFFF]/u.test(content[offset] ?? "")) throw new RangeError("offset splits a Unicode character; use nextOffset");
         const key = `${ref}:${offset}`;
@@ -246,6 +256,6 @@ export function fileContextArchive(opts: FileContextArchiveOptions): ContextArch
         const info = `offset=${offset}; nextOffset=${more ? nextOffset : "end"}; totalChars=${content.length}`;
         return boundedHistorical(open, `${info}\n${page}${more ? "\n[truncated] Continue with nextOffset." : ""}`, budget);
       });
-    },
+    }),
   };
 }

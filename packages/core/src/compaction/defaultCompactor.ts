@@ -35,7 +35,7 @@ export function defaultCompactor(opts: DefaultCompactorOptions = {}): Compactor 
   return {
     async maybeCompact(messages) {
       const before = estimateTokens(messages);
-      const out = runPipeline(passes, messages);
+      const out = await runPipeline(passes, messages);
       if (out === messages) return { messages, before, after: before };
       return { messages: out, kind: "micro", before, after: estimateTokens(out) };
     },

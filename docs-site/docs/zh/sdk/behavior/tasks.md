@@ -40,3 +40,5 @@ try {
   await agent.close();
 }
 ```
+
+默认命名空间支持 `LITE_AGENT_TASK_LIST_ID`；自定义命名空间使用显式的 `taskListId`。内置任务数据跟随 [`storage`](/zh/sdk/core-concepts/storage) 的目录与编码配置。底层 `TaskStore.get/list/render` 返回 Promise，需要 `await`。损坏或无法解码的任务记录会明确报错，不会从列表中静默消失。

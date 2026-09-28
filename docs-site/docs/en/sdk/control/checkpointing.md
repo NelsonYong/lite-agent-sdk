@@ -55,11 +55,11 @@ Time travel works because the file tools snapshot every file before modifying it
 
 ## Switching to the SQLite backend
 
-The default `fileCheckpointer` is single-process. The `@lite-agent/checkpoint-sqlite` package provides `sqliteCheckpointer` — a SQLite (WAL) backend for **single-host, multi-process** setups: a server or worker pool where several processes resume and append the same sessions, with optimistic concurrency instead of silent clobbering.
+The default `fileCheckpointer` serializes session mutations with file locks across async encoding. SQLite adds database transactions and efficient concurrent reads. The `@lite-agent/checkpoint-sqlite` package provides `sqliteCheckpointer` — a SQLite (WAL) backend for **single-host, multi-process** setups: a server or worker pool where several processes resume and append the same sessions, with optimistic concurrency instead of silent clobbering.
 
 | Backend | Package | Concurrency | Use when |
 | --- | --- | --- | --- |
-| `fileCheckpointer` (default) | `@lite-agent/sdk` | Single process | Local dev, CLI tools, one agent process per project |
+| `fileCheckpointer` (default) | `@lite-agent/sdk` | Per-session file lock | Local dev, CLI tools, one agent process per project |
 | `sqliteCheckpointer` | `@lite-agent/checkpoint-sqlite` | Many processes, one host | A server or worker pool sharing sessions on one machine |
 
 ```bash
@@ -165,3 +165,5 @@ The result is `{ restoredFiles, conversationRestored }`; `checkpoint_restore` su
 Compaction and restore require an idle agent, including its background work. They hold a maintenance lock, so concurrent runs cannot write during recovery. The file backend atomically replaces a truncated log; memory, file and SQLite backends check an optional expected head before truncating. SQLite remains the backend for cross-process coordination.
 
 The CLI supports `/compact [instructions]`, `/checkpoints`, and `/restore <seq> [--conversation-only]`. Ctrl-C cancels manual compaction.
+
+Built-in checkpoint events (including file snapshots) support [`storage.codec`](/sdk/core-concepts/storage). Codec failures never trigger tail repair or plaintext fallback. SQLite and other injected backends manage their own encoding.

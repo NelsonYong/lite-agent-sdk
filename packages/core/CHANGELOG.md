@@ -1,5 +1,15 @@
 # @lite-agent/core
 
+## 0.17.0
+
+### Minor Changes
+
+- Allow asynchronous `CompactPass.apply` and `SpillStore` operations so persistent
+  spill backends can finish encoding before publishing references. `runPipeline`
+  now returns a promise; direct consumers must await it and pass results.
+- Keep spill writes sequential and leave the source transcript unchanged when
+  persistence fails, without starting further writes after a failure.
+
 ## 0.16.0
 
 ### Minor Changes

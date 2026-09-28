@@ -54,8 +54,8 @@ export function taskTools(store: TaskStoreSource): Tool[] {
     description: "Fetch the full detail of one task by id (description, status, dependency edges).",
     schema: z.object({ taskId: z.string() }),
     security: { network: "none", filesystem: "unrestricted", sideEffects: "none" },
-    execute: ({ taskId }, ctx) => {
-      const t = taskStoreFor(store, ctx.sessionId).get(taskId);
+    execute: async ({ taskId }, ctx) => {
+      const t = await taskStoreFor(store, ctx.sessionId).get(taskId);
       return t ? JSON.stringify(t, null, 2) : `No task '${taskId}'`;
     },
   });
@@ -65,7 +65,7 @@ export function taskTools(store: TaskStoreSource): Tool[] {
     description: "List every task with its status and blockedBy dependencies.",
     schema: z.object({}),
     security: { network: "none", filesystem: "unrestricted", sideEffects: "none" },
-    execute: (_, ctx) => taskStoreFor(store, ctx.sessionId).render() || "No tasks.",
+    execute: async (_, ctx) => (await taskStoreFor(store, ctx.sessionId).render()) || "No tasks.",
   });
 
   return [create, update, get, list];

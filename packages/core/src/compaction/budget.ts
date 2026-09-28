@@ -1,24 +1,24 @@
+import type { ContentBlock, Message } from "../types";
 import type { CompactPass } from "./types";
 import { SPILL_PREFIX } from "./types";
 
-// Off-context blob store for spilled tool_result bodies. Sync (like jsonlStore)
-// so it composes inside the synchronous CompactPass pipeline.
+// Off-context blob store; asynchronous backends may encode before committing.
 export interface SpillStore {
-  put(content: string): string; // returns an opaque ref
-  get(ref: string): string | null;
+  put(content: string): string | Promise<string>; // returns an opaque ref
+  get(ref: string): string | null | Promise<string | null>;
 }
 
 // In-memory default, mirroring memoryStore/noopSandbox.
-export function memorySpillStore(): SpillStore {
+export function memorySpillStore() {
   const blobs = new Map<string, string>();
   let n = 0;
   return {
-    put(content) {
+    put(content: string) {
       const ref = `m${++n}`;
       blobs.set(ref, content);
       return ref;
     },
-    get(ref) {
+    get(ref: string) {
       return blobs.get(ref) ?? null;
     },
   };
@@ -43,7 +43,7 @@ export function toolResultBudgetPass(opts: ToolResultBudgetOptions): CompactPass
   const budget = opts.budgetBytes ?? 200_000;
   return {
     name: "toolResultBudget",
-    apply(messages) {
+    async apply(messages) {
       const results: Array<{ mi: number; bi: number; bytes: number }> = [];
       let total = 0;
       messages.forEach((m, mi) => {
@@ -67,19 +67,21 @@ export function toolResultBudgetPass(opts: ToolResultBudgetOptions): CompactPass
       }
       if (spill.size === 0) return messages;
 
-      return messages.map((m, mi) => {
-        if (!Array.isArray(m.content)) return m;
+      const output: Message[] = [];
+      for (const [mi, message] of messages.entries()) {
+        if (!Array.isArray(message.content)) { output.push(message); continue; }
         let changed = false;
-        const content = m.content.map((b, bi) => {
-          if (b.type === "tool_result" && spill.has(`${mi}:${bi}`)) {
+        const content: ContentBlock[] = [];
+        for (const [bi, block] of message.content.entries()) {
+          if (block.type === "tool_result" && spill.has(`${mi}:${bi}`)) {
+            const ref = await opts.store.put(block.content);
+            content.push({ ...block, content: marker(ref, block.content.length) });
             changed = true;
-            const ref = opts.store.put(b.content);
-            return { ...b, content: marker(ref, b.content.length) };
-          }
-          return b;
-        });
-        return changed ? { ...m, content } : m;
-      });
+          } else content.push(block);
+        }
+        output.push(changed ? { ...message, content } as Message : message);
+      }
+      return output;
     },
   };
 }

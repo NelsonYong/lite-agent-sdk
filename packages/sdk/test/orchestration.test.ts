@@ -50,9 +50,9 @@ test("delegation resolves reasoning profiles and records success for review sepa
     const completionRequest = calls.filter((r) => r.model === "main").at(-1)!;
     expect(completionRequest.messages).toContainEqual({ role: "user", content: "delegate" });
     const store = fileTaskStore({ dir: resolveProjectPaths({ workdir: root, home }).tasksDir, listId: agent.sessionId });
-    expect(store.list().find((t) => t.subject === "Lookup")).toMatchObject({ status: "review", execution: { status: "succeeded", result: "finished" } });
-    expect(store.list().find((t) => t.subject === "Review")).toMatchObject({ status: "failed", execution: { status: "failed" } });
-    expect(store.list().some((t) => t.status === "completed")).toBe(false);
+    expect((await store.list()).find((t) => t.subject === "Lookup")).toMatchObject({ status: "review", execution: { status: "succeeded", result: "finished" } });
+    expect((await store.list()).find((t) => t.subject === "Review")).toMatchObject({ status: "failed", execution: { status: "failed" } });
+    expect((await store.list()).some((t) => t.status === "completed")).toBe(false);
   } finally { unsubscribe(); await agent.close(); }
 });
 

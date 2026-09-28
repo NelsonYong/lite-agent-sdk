@@ -15,10 +15,10 @@ test("memorySpillStore round-trips content by ref", () => {
   expect(s.get("nope")).toBeNull();
 });
 
-test("toolResultBudgetPass spills the largest tool_results over budget and keeps them retrievable", () => {
+test("toolResultBudgetPass spills the largest tool_results over budget and keeps them retrievable", async () => {
   const store = memorySpillStore();
   const msgs = [tr("a", "x".repeat(100)), tr("b", "y".repeat(10)), tr("c", "z".repeat(100))];
-  const out = toolResultBudgetPass({ store, budgetBytes: 50 }).apply(msgs);
+  const out = (await toolResultBudgetPass({ store, budgetBytes: 50 }).apply(msgs));
   expect(body(out[0]!)).toMatch(/^\[spilled:/);
   expect(body(out[2]!)).toMatch(/^\[spilled:/);
   expect(body(out[1]!)).toBe("y".repeat(10)); // small one kept verbatim
@@ -27,17 +27,17 @@ test("toolResultBudgetPass spills the largest tool_results over budget and keeps
   expect((out[0]!.content as any)[0]).toMatchObject({ type: "tool_result", id: "a" }); // block structure preserved
 });
 
-test("toolResultBudgetPass returns the same reference when under budget", () => {
+test("toolResultBudgetPass returns the same reference when under budget", async () => {
   const store = memorySpillStore();
   const msgs = [tr("a", "small")];
-  expect(toolResultBudgetPass({ store, budgetBytes: 1000 }).apply(msgs)).toBe(msgs);
+  expect((await toolResultBudgetPass({ store, budgetBytes: 1000 }).apply(msgs))).toBe(msgs);
 });
 
-test("microPass leaves spilled markers intact (does not clobber the ref)", () => {
+test("microPass leaves spilled markers intact (does not clobber the ref)", async () => {
   const store = memorySpillStore();
   const msgs = [tr("a", "x".repeat(100)), tr("b", "y".repeat(100)), tr("c", "z"), tr("d", "w")];
-  const spilled = toolResultBudgetPass({ store, budgetBytes: 50 }).apply(msgs);
-  const out = microPass({ keepRecent: 0, placeholder: "[MICRO]" }).apply(spilled);
+  const spilled = (await toolResultBudgetPass({ store, budgetBytes: 50 }).apply(msgs));
+  const out = (await microPass({ keepRecent: 0, placeholder: "[MICRO]" }).apply(spilled));
   expect(body(out[0]!)).toMatch(/^\[spilled:/);
   expect(body(out[1]!)).toMatch(/^\[spilled:/);
 });
@@ -49,4 +49,22 @@ test("defaultCompactor with a spillStore spills oversized tool results before sn
   expect(body(r.messages[0]!)).toMatch(/^\[spilled:/);
   const ref = body(r.messages[0]!).match(/\[spilled:([^\]]+)\]/)![1]!;
   expect(store.get(ref)).toBe("x".repeat(300_000));
+});
+
+test("async spill encoding completes before publishing references and rejects without changing input", async () => {
+  const messages = [tr("a", "large".repeat(100))];
+  let release!: () => void;
+  const waiting = new Promise<void>((resolve) => { release = resolve; });
+  const pending = toolResultBudgetPass({ budgetBytes: 1, store: {
+    async put() { await waiting; return "saved"; },
+    get() { return null; },
+  } }).apply(messages);
+  expect(body(messages[0]!)).toBe("large".repeat(100));
+  release();
+  expect(body((await pending)[0]!)).toContain("[spilled:saved]");
+  const failing = defaultCompactor({ budgetBytes: 1, spillStore: {
+    async put() { throw new Error("storage unavailable"); }, get() { return null; },
+  } });
+  await expect(failing.maybeCompact(messages, ZERO)).rejects.toThrow("storage unavailable");
+  expect(body(messages[0]!)).toBe("large".repeat(100));
 });

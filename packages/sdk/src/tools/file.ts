@@ -12,7 +12,7 @@ import type { Tool, ToolContext } from "@lite-agent/core";
 
 const MAX_BYTES = 50_000;
 const MAX_SNAPSHOT_BYTES = 1024 * 1024;
-const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "coverage", ".next", ".lite-agent"]);
+const SKIP_DIRS = new Set(["node_modules", ".git", "dist", "coverage", ".next"]);
 
 export interface FileToolsOptions {
   /** Additional trusted SDK data paths available for reads only. */
@@ -93,14 +93,14 @@ export function makeSafePath(workdir: string): (p: string) => string {
 }
 
 /** Same-directory atomic replacement. Exported for restore and local integrations. */
-export function atomicWriteFile(path: string, content: string | Uint8Array): void {
+export function atomicWriteFile(path: string, content: string | Uint8Array, mode?: number): void {
   mkdirSync(dirname(path), { recursive: true });
   const existingMode = existsSync(path) ? statSync(path).mode & 0o7777 : undefined;
   const temp = join(dirname(path), `.${basename(path)}.${randomBytes(6).toString("hex")}.tmp`);
   let fd: number | undefined;
   try {
-    fd = openSync(temp, "wx", existingMode ?? 0o666);
-    if (existingMode !== undefined) chmodSync(temp, existingMode);
+    fd = openSync(temp, "wx", mode ?? existingMode ?? 0o666);
+    if (mode !== undefined || existingMode !== undefined) chmodSync(temp, mode ?? existingMode!);
     writeFileSync(fd, content);
     fsyncSync(fd);
     closeSync(fd);

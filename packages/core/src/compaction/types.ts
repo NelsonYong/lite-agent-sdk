@@ -4,18 +4,20 @@ import type { Message } from "../types";
 // micro can recognize an already-spilled block and leave its ref intact.
 export const SPILL_PREFIX = "[spilled:";
 
-// A single compaction "brick": a pure transform over the message list. Returns
+// A single compaction "brick": a transform over the message list. Returns
 // the SAME array reference when it changes nothing (so callers can cheaply
 // detect no-ops and stay idempotent). Compose bricks with runPipeline.
 export interface CompactPass {
   readonly name: string;
-  apply(messages: Message[]): Message[];
+  apply(messages: Message[]): Message[] | Promise<Message[]>;
 }
 
 // Pipeline data-flow: feed messages through each pass in order, output of one
 // becoming the input of the next. Order matters (cheap/structural first).
-export function runPipeline(passes: CompactPass[], messages: Message[]): Message[] {
-  return passes.reduce((msgs, pass) => pass.apply(msgs), messages);
+export async function runPipeline(passes: CompactPass[], messages: Message[]): Promise<Message[]> {
+  let result = messages;
+  for (const pass of passes) result = await pass.apply(result);
+  return result;
 }
 
 // Rough token estimate (~chars/4) over all textual payloads. Used for the

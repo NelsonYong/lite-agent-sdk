@@ -40,3 +40,5 @@ try {
   await agent.close();
 }
 ```
+
+The default namespace supports `LITE_AGENT_TASK_LIST_ID`; custom namespaces use explicit `taskListId`. Built-in task data follows [`storage`](/sdk/core-concepts/storage), including encoding. Low-level `TaskStore.get/list/render` return promises; await them. Corrupt or undecodable task records fail explicitly rather than disappearing from the list.
